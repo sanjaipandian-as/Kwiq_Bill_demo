@@ -56,7 +56,8 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
             showQrcode: true,
             showTerms: true,
             showLoyaltyPoints: false,
-            showSignature: true
+            showSignature: true,
+            selectedPrinter: null
         },
         defaults: {
             language: 'en',

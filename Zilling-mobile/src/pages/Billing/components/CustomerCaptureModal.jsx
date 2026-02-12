@@ -89,20 +89,11 @@ const CustomerCaptureModal = ({ isOpen, onClose, onSelect, initialValue = '' }) 
     };
 
     const handleSaveNew = async () => {
-        const missing = [];
-        if (!customerName.trim()) missing.push('Full Name');
-        if (!customerEmail.trim()) missing.push('Email Address');
-        if (!customerPincode.trim()) missing.push('Pincode');
-
-        if (missing.length > 0) {
-            Alert.alert("Required Details", `Please provide all details for the new customer:\n• ${missing.join('\n• ')}`);
+        if (!customerName.trim()) {
+            Alert.alert("Required Details", "Please provide the customer name.");
             return;
         }
 
-        if (customerPincode.length !== 6) {
-            Alert.alert("Invalid Pincode", "Pincode must be 6 digits");
-            return;
-        }
         try {
             const newCust = { name: customerName, phone: mobile, whatsappOptIn: optInWhatsapp, smsOptIn: optInSms, source: 'POS', type: 'Individual' };
             const created = await addCustomer(newCust);

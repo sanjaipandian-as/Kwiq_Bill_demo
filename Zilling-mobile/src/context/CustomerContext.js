@@ -145,7 +145,7 @@ export const CustomerProvider = ({ children }) => {
 
     const refreshCustomers = () => {
         try {
-            const data = db.getAllSync('SELECT * FROM customers ORDER BY created_at DESC', []);
+            const data = db.getAllSync('SELECT * FROM customers ORDER BY created_at DESC');
             setCustomers(data || []);
         } catch (err) {
             console.error('Refresh Error:', err);

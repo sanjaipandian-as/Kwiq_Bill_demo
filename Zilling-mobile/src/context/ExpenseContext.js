@@ -1,13 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import * as SQLite from 'expo-sqlite';
+import { db } from '../services/database';
 
 import { triggerAutoSave } from '../services/autosaveService';
 
 const ExpenseContext = createContext();
 
 export const useExpenses = () => useContext(ExpenseContext);
-
-const db = SQLite.openDatabaseSync('zilling.db');
 
 export const ExpenseProvider = ({ children }) => {
     const [expenses, setExpenses] = useState([]);
@@ -18,18 +16,6 @@ export const ExpenseProvider = ({ children }) => {
     useEffect(() => {
         const loadExpenses = async () => {
             try {
-                // [Migration] Ensure receipt_url column exists
-                try {
-                    const columns = db.getAllSync('PRAGMA table_info(expenses)');
-                    const hasReceiptUrl = columns.some(col => col.name === 'receipt_url');
-                    if (!hasReceiptUrl) {
-                        console.log('Migrating expenses table: Adding receipt_url column');
-                        db.execSync('ALTER TABLE expenses ADD COLUMN receipt_url TEXT');
-                    }
-                } catch (migErr) {
-                    console.warn('Migration check warning:', migErr);
-                }
-
                 const data = db.getAllSync('SELECT * FROM expenses ORDER BY date DESC');
                 setExpenses(data || []);
             } catch (err) {

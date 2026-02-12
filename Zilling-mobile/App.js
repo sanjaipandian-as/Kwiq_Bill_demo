@@ -50,7 +50,7 @@ const AuthenticatedApp = () => {
 export default function App() {
   // useEffect is no longer needed for configuration
   useEffect(() => {
-    initializeDB(); // Creates the physical SQLite file and tables
+    // initializeDB() is now called automatically in src/services/database.js
   }, []);
 
   return (

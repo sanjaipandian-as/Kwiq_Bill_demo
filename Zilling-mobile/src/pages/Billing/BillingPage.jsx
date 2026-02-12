@@ -13,6 +13,7 @@ import { useCustomers } from '../../context/CustomerContext';
 import { useSettings } from '../../context/SettingsContext';
 import { getBillingQueue, clearBillingQueue } from '../../services/billingQueue';
 import { useToast } from '../../context/ToastContext';
+import * as Print from 'expo-print';
 import ScanBarcodeModal from '../../components/ScanBarcodeModal';
 
 // Components
@@ -34,15 +35,37 @@ export default function BillingPage({ navigation, route }) {
   const { addTransaction, editTransaction } = useTransactions();
   const { products, fetchProducts, updateStock } = useProducts();
   const { fetchCustomers } = useCustomers();
-  const { settings } = useSettings();
+  const { settings, updateSettings } = useSettings();
   const { showToast } = useToast();
 
-  // State to hold the function from child (Import Modal)
-  // Removed openImportModalRef
+  const handleRemoveAdjustment = (type) => {
+    switch (type) {
+      case 'discount': updateCurrentBill({ billDiscount: 0 }); break;
+      case 'loyalty': updateCurrentBill({ loyaltyPointsDiscount: 0 }); break;
+      case 'charges': updateCurrentBill({ additionalCharges: 0 }); break;
+      case 'remarks': updateCurrentBill({ remarks: '' }); break;
+    }
+  };
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
 
-  // Refresh data on focus to catch new products/variants
+  // Derive printer status from settings
+  const isPrinterConnected = !!settings?.invoice?.selectedPrinter;
+
+  const handleConnectPrinter = async () => {
+    try {
+      const printer = await Print.selectPrinterAsync();
+      if (printer) {
+        updateSettings('invoice', { selectedPrinter: printer });
+        showToast(`Printer Connected: ${printer.name || 'Selected'}`, 'success');
+      }
+    } catch (e) {
+      console.error("Printer Selection Error:", e);
+      Alert.alert("Printer Error", "Failed to select printer.");
+    }
+  };
+
+  // Refresh data on focus
   useFocusEffect(
     useCallback(() => {
       StatusBar.setBarStyle('dark-content');
@@ -55,10 +78,8 @@ export default function BillingPage({ navigation, route }) {
   );
 
   useEffect(() => {
-    // fetchProducts(); // Moved to focus
     fetchCustomers();
   }, []);
-
 
   // --- State: Tab Management ---
   const [activeBills, setActiveBills] = useState([
@@ -601,15 +622,16 @@ export default function BillingPage({ navigation, route }) {
 
       if (currentBill.originalInvoiceId) {
         payload.id = currentBill.originalInvoiceId;
-        await editTransaction(payload);
+        savedBill = await editTransaction(payload);
         showToast("Invoice Updated Successfully", "success");
       } else {
-        await addTransaction(payload);
+        savedBill = await addTransaction(payload);
         showToast("Invoice Saved Successfully", "success");
       }
 
       // Refresh products to update stock
       fetchProducts();
+      fetchCustomers();
 
       closeBill(activeBillId); // Reset/Close on save
     } catch (error) {
@@ -638,7 +660,7 @@ export default function BillingPage({ navigation, route }) {
         items: currentBill.cart
           .filter(item => item.id && item.quantity > 0)
           .map(item => ({
-            productId: item._dbId || item.id, // Use original DB ID for stock updates
+            productId: item._dbId || item.id,
             variantId: item.id !== (item._dbId || item.id) ? item.id : null,
             variantName: item.variantName || null,
             name: item.name,
@@ -658,45 +680,55 @@ export default function BillingPage({ navigation, route }) {
         roundOff: parseFloat(currentBill.totals.roundOff) || 0,
         total: parseFloat(currentBill.totals.total) || 0,
         paymentMethod: currentBill.paymentMode || 'Cash',
-        status: currentBill.status || 'Paid',
+        status: (() => {
+          const total = parseFloat(currentBill.totals.total) || 0;
+          const received = parseFloat(currentBill.amountReceived) || 0;
+          if (received <= 0) return 'Unpaid';
+          if (received < total) return 'Partially Paid';
+          return 'Paid';
+        })(),
         internalNotes: currentBill.remarks || '',
         amountReceived: parseFloat(currentBill.amountReceived) || 0,
         taxType: currentBill.taxType || 'intra',
       };
 
+      // 1. Save Transaction (Drive Sync happens inside TransactionContext)
       let savedBill;
       if (currentBill.originalInvoiceId) {
         payload.id = currentBill.originalInvoiceId;
         savedBill = await editTransaction(payload);
-        alert("Invoice Updated Successfully");
       } else {
         savedBill = await addTransaction(payload);
-        // Deduct Stock
-        await updateInventoryAfterSale(currentBill.cart);
-        Alert.alert("Success", "Bill Saved Successfully");
       }
 
-      // Print or Share
-      // Since printReceipt handles exceptions silenty (logs warning), we can just await it.
-      console.log('Printing with Settings Invoice:', JSON.stringify(settings?.invoice || {}));
-      console.log('Selected Template:', settings?.invoice?.template);
+      // 2. Action: Immediate Bill (Thermal Layout)
+      // We use 'customer' mode for the 3-inch/thermal bill style
       await printReceipt(savedBill, format, settings, 'customer');
 
-      // WhatsApp Delivery Trigger
-      if (currentBill.customer?.whatsappOptIn) {
-        // Preserve customer details for the modal
-        setLastSavedInvoice({ ...savedBill, customer: currentBill.customer, customerMobile: currentBill.customer.phone });
+      // 3. Action: Show Formal Invoice Preview (A4/Template Style)
+      // This fulfills "show preview of the invoice" with the backend-selected template.
+      // We force 'A4' or 'A5' based on template settings, and mode 'invoice'
+      const invoiceFormat = settings?.invoice?.paperSize === '58mm' || settings?.invoice?.paperSize === '80mm' ? 'A4' : (settings?.invoice?.paperSize || 'A4');
+      await printReceipt(savedBill, invoiceFormat, settings, 'invoice');
+
+      // 4. Action: Show WhatsApp Delivery Modal
+      if (currentBill.customer?.phone) {
+        setLastSavedInvoice({
+          ...savedBill,
+          customer: currentBill.customer,
+          customerMobile: currentBill.customer.phone
+        });
         setShowDeliveryModal(true);
       }
 
-      // Refresh products to update stock
+      showToast("Invoice Finalized Successfully", "success");
       fetchProducts();
-
-      // Close/Reset tab
+      fetchCustomers();
       closeBill(activeBillId);
+
     } catch (error) {
-      console.error("Save Error:", error);
-      alert("Failed to save bill.");
+      console.error("Billing Flow Error:", error);
+      Alert.alert("Error", "Failed to complete the billing process.");
     }
   };
 
@@ -832,7 +864,7 @@ export default function BillingPage({ navigation, route }) {
         )}
 
         {/* Main Content Area */}
-        < View style={styles.content} >
+        <View style={styles.content}>
           {viewMode === 'grid' ? (
             <BillingGrid
               products={products}
@@ -850,6 +882,13 @@ export default function BillingPage({ navigation, route }) {
               onChargesClick={() => setModals(m => ({ ...m, additionalCharges: true }))}
               onLoyaltyClick={() => setModals(m => ({ ...m, loyaltyPoints: true }))}
               onRemarksClick={() => setModals(m => ({ ...m, remarks: true }))}
+              onFunctionClick={handleFunctionClick}
+              billDiscount={currentBill.billDiscount || 0}
+              onRemoveAdjustment={handleRemoveAdjustment}
+              onRemoveItemDiscount={(id) => {
+                const newCart = currentBill.cart.map(item => item.id === id ? { ...item, discount: 0, total: item.price * item.quantity } : item);
+                updateCurrentBill({ cart: newCart });
+              }}
             />
           ) : (
             <BillingSidebar
@@ -867,19 +906,28 @@ export default function BillingPage({ navigation, route }) {
               onTaxTypeChange={(val) => updateCurrentBill({ taxType: val })}
               onPaymentChange={(field, val) => {
                 if (field === 'mode') updateCurrentBill({ paymentMode: val });
-                if (field === 'amount') updateCurrentBill({ amountReceived: val });
+                if (field === 'amount') {
+                  const received = parseFloat(val) || 0;
+                  const total = parseFloat(currentBill.totals.total) || 0;
+                  let newStatus = 'Paid';
+                  if (received <= 0) newStatus = 'Unpaid';
+                  else if (received < total) newStatus = 'Partially Paid';
+
+                  updateCurrentBill({ amountReceived: val, status: newStatus });
+                }
                 if (field === 'status') updateCurrentBill({ status: val });
                 if (field === 'reference') updateCurrentBill({ paymentReference: val });
               }}
               onSavePrint={handleSavePrint}
+              isPrinterConnected={isPrinterConnected}
+              onConnectPrinter={handleConnectPrinter}
+              remarks={currentBill.remarks || ''}
             />
           )}
-        </View >
-
-
+        </View>
 
         {/* Modals */}
-        < DiscountModal
+        <DiscountModal
           isOpen={modals.itemDiscount}
           onClose={() => setModals(m => ({ ...m, itemDiscount: false }))}
           onApply={handleApplyItemDiscount}
@@ -900,6 +948,7 @@ export default function BillingPage({ navigation, route }) {
           isOpen={modals.loyaltyPoints}
           onClose={() => setModals(m => ({ ...m, loyaltyPoints: false }))}
           onApply={(val) => updateCurrentBill({ loyaltyPointsDiscount: val })}
+          availablePoints={currentBill.customer?.loyaltyPoints || 0}
         />
         <RemarksModal
           isOpen={modals.remarks}
@@ -1108,7 +1157,7 @@ const styles = StyleSheet.create({
   activeModeBtnText: { color: '#fff' },
 
   // Content Area
-  content: { flex: 1, paddingHorizontal: 20, paddingTop: 30 },
+  content: { flex: 1, paddingHorizontal: 20, paddingTop: 15 },
 
   // Bill Selector Dropdown
   billSelectorOverlay: {

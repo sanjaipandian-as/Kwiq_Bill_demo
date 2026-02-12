@@ -132,6 +132,10 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                     <td class="text-left">Customer: ${customerName.split(' ')[0]}</td>
                     <td class="text-right">Mode: ${paymentMode}</td>
                 </tr>
+                <tr>
+                    <td class="text-left">Status: <span class="bold">${(bill.status || 'Paid').toUpperCase()}</span></td>
+                    <td class="text-right"></td>
+                </tr>
             </table>
             
             <div class="dashed"></div>
@@ -170,6 +174,38 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 </tbody>
             </table>
             
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Subtotal (Taxable):</span> <span>₹${subtotal.toFixed(2)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Total Tax:</span> <span>₹${(bill.totals?.tax || bill.tax || 0).toFixed(2)}</span>
+                </div>
+                ${(bill.additionalCharges || bill.totals?.additionalCharges) ? `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Extra Charges:</span> <span>₹${parseFloat(bill.additionalCharges || bill.totals?.additionalCharges).toFixed(2)}</span>
+                </div>
+                ` : ''}
+                ${(bill.discount || bill.totals?.discount) ? `
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Bill Discount:</span> <span>-₹${parseFloat(bill.discount || bill.totals?.discount).toFixed(2)}</span>
+                </div>
+                ` : ''}
+                ${(bill.loyaltyPointsDiscount || bill.totals?.loyaltyPointsDiscount) ? `
+                <div style="display: flex; justify-content: space-between; color: #10b981;">
+                    <span>Loyalty Disc:</span> <span>-₹${parseFloat(bill.loyaltyPointsDiscount || bill.totals?.loyaltyPointsDiscount).toFixed(2)}</span>
+                </div>
+                ` : ''}
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Round Off:</span> <span>${roundOff > 0 ? '+' : ''}${roundOff.toFixed(2)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-top: 4px; border-top: 1px dashed #000; padding-top: 4px;">
+                    <span>Amount Received:</span> <span>₹${(bill.amountReceived || 0).toFixed(2)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-weight: bold; color: ${totalForRound > (bill.amountReceived || 0) ? '#ef4444' : '#000'};">
+                    <span>Balance Due:</span> <span>₹${Math.max(0, totalForRound - (bill.amountReceived || 0)).toFixed(2)}</span>
+                </div>
+            </div>
+            
             <div class="dashed"></div>
             
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0;">
@@ -177,7 +213,6 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 <div>Qty: ${totalQty}</div>
                 <div style="text-align: right; font-size: 16px; font-weight: bold;">₹${totalForRound.toFixed(2)}</div>
             </div>
-            <div class="text-right" style="font-size: 11px;">Round Off: ${roundOff > 0 ? '+' : ''}${roundOff.toFixed(2)}</div>
             
             <div class="dashed"></div>
             
@@ -220,6 +255,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
            <div class="dashed"></div>
            
            <div class="footer">
+               ${bill.internalNotes ? `<div style="text-align: left; background: #eee; padding: 5px; margin-bottom: 5px; font-size: 10px;">REMARKS: ${bill.internalNotes}</div>` : ''}
                Thank You! Visit Again.<br/>
            </div>
         </body>
@@ -354,17 +390,18 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
             .header-teal .biz-name { font-size: 24px; font-weight: 800; margin-bottom: 8px; display: block; }
             .header-teal .biz-addr { font-size: 12px; line-height: 1.6; opacity: 0.9; display: block; }
             .meta-minimal { display: flex; justify-content: space-between; padding: 40px; margin-top: 20px; }
-            .label-tiny { font-size: 11px; font-weight: 800; color: ${colors.light || '#666'}; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px; }
-            .val-bold { font-size: 18px; font-weight: 800; color: #000; }
-            .date-row { display: flex; justify-content: flex-end; gap: 40px; font-size: 14px; margin-bottom: 8px; }
-            .date-row span:first-child { color: ${colors.light || '#666'}; font-weight: 700; text-transform: uppercase; font-size: 12px; }
-            .date-row span:last-child { font-weight: 600; color: #000; min-width: 80px; text-align: right; }
+            .label-tiny { font-size: 10px; font-weight: 800; color: ${colors.light || '#94a3b8'}; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1.5px; }
+            .val-bold { font-size: 20px; font-weight: 900; color: #111827; }
+            .date-row { display: flex; justify-content: flex-end; gap: 40px; font-size: 13px; margin-bottom: 8px; }
+            .date-row span:first-child { color: ${colors.light || '#6b7280'}; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+            .date-row span:last-child { font-weight: 600; color: #111827; min-width: 100px; text-align: right; }
             .items-table { margin: 20px 40px; width: calc(100% - 80px); }
-            .footer-minimal { display: flex; justify-content: space-between; padding: 0 40px; margin-top: 40px; align-items: flex-start; }
-            .notes-box { background: ${colors.bg}; padding: 25px; border-radius: 4px; width: 45%; }
-            .total-container { width: 40%; text-align: right; }
-            .gross-box { background: ${colors.primary}; padding: 25px; color: white; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }
-            .gross-val { font-size: 28px; font-weight: 800; }
+            .items-table th { text-transform: uppercase; letter-spacing: 1px; color: #374151; font-weight: 800; }
+            .footer-minimal { display: flex; justify-content: space-between; padding: 20px 40px; margin-top: 40px; align-items: flex-start; }
+            .notes-box { background: ${colors.bg}; padding: 20px; border-radius: 8px; width: 45%; }
+            .total-container { width: 42%; text-align: right; }
+            .gross-box { background: ${colors.primary}; padding: 15px 20px; color: white; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; }
+            .gross-val { font-size: 24px; font-weight: 900; }
         `;
     } else if (isCompact) {
         styles += `
@@ -498,13 +535,14 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                 </tr>
     `;
         } else if (isMinimal) {
+            const taxDetail = taxRate > 0 ? (isInter ? `${taxRate}% IGST` : `${taxRate / 2}% CGST<br/>${taxRate / 2}% SGST`) : '-';
             return `
     <tr>
     <td>${item.name}</td>
                     ${showHsn ? `<td class="text-center">${item.hsn || '-'}</td>` : ''}
                     <td class="text-center">${qty}</td>
                     <td class="text-right">${rate.toFixed(2)}</td>
-                    ${showTaxBreakup ? (isInter ? `<td class="text-center">${taxRate}% (IGST)</td>` : `<td class="text-center">${taxRate}%</td>`) : ''}
+                    ${showTaxBreakup ? `<td class="text-center" style="font-size: 11px;">${taxDetail}</td>` : ''}
 <td class="text-right">${total}</td>
                 </tr>
     `;
@@ -513,11 +551,15 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
     <tr>
                     <td>
                         <div style="font-weight: 600;">${item.name}</div>
-                        <div style="font-size: 9px; color: #666;">Rate: ${currency} ${rate.toFixed(2)}${showTaxBreakup ? ` | GST: ${taxRate}%` : ''}${showHsn && item.hsn ? ` | HSN: ${item.hsn}` : ''}</div>
+                        <div style="font-size: 9px; color: #666;">
+                            Rate: ${currency} ${rate.toFixed(2)}
+                            ${showTaxBreakup ? (isInter ? ` | IGST: ${taxRate}%` : ` | CGST: ${taxRate / 2}% | SGST: ${taxRate / 2}%`) : ''}
+                            ${showHsn && item.hsn ? ` | HSN: ${item.hsn}` : ''}
+                        </div>
                     </td>
                     <td class="text-center">${qty}</td>
-                    <td class="text-right">${showTaxBreakup ? currency + ' ' + (taxRate > 0 ? (taxable * taxRate / 100).toFixed(2) : '0.00') : currency + ' ' + rate.toFixed(2)}</td>
-                    <td class="text-right">${currency} ${itemTotal}</td>
+                    <td class="text-right">${showTaxBreakup ? currency + ' ' + (isInter ? parseFloat(igst).toFixed(2) : (parseFloat(cgst) + parseFloat(sgst)).toFixed(2)) : currency + ' ' + rate.toFixed(2)}</td>
+                    <td class="text-right">${currency} ${total}</td>
                 </tr>
     `;
         }
@@ -543,12 +585,12 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                 <div class="page">
                     <div class="header-teal">
                         <div class="title-grp">
-                            <h1>${isBW ? 'Bill' : 'Invoice'}</h1>
+                            <h1 style="text-transform: uppercase; letter-spacing: 2px;">${isBW ? 'Bill' : 'Invoice'}</h1>
                             <div class="inv-id">No: ${bill.weekly_sequence || '1'}</div>
-                            <div style="font-size: 10px; opacity: 0.7;">Ref: #${bill.id}</div>
+                            <div style="font-size: 10px; opacity: 0.7; margin-top: 5px;">Ref: #${bill.id}</div>
                         </div>
                         <div class="biz-grp">
-                            <span class="biz-name">${storeName}</span>
+                            <span class="biz-name" style="text-transform: uppercase;">${storeName}</span>
                             <span class="biz-addr">${storeAddress}</span>
                             <span class="biz-addr">${storePhone} | ${storeEmail}</span>
                             ${storeGstin ? `<span class="biz-addr">GSTIN: ${storeGstin}</span>` : ''}
@@ -559,22 +601,23 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                         <div class="bill-grp">
                             <div class="label-tiny">Bill To</div>
                             <div class="val-bold">${customerName}</div>
-                            <div style="font-size: 14px; margin-top: 4px;">${customer.mobile || ''}</div>
+                            <div style="font-size: 14px; margin-top: 4px; color: #4b5563;">${customer.mobile || ''}</div>
                         </div>
                         <div class="dates-grp">
                             <div class="date-row"><span>Date</span> <span>${invoiceDate}</span></div>
-                            <div class="date-row"><span>Status</span> <span style="color: #10b981;">PAID</span></div>
+                            <div class="date-row"><span>Status</span> <span style="color: ${(bill.status === 'Unpaid' || bill.status === 'Partially Paid') ? '#ef4444' : '#059669'}; font-weight: 800;">${(bill.status || 'Paid').toUpperCase()}</span></div>
+                            ${bill.paymentMethod ? `<div class="date-row"><span>Method</span> <span style="font-weight: 600;">${bill.paymentMethod}</span></div>` : ''}
                         </div>
                     </div>
 
                     <table class="items-table">
                         <thead>
-                            <tr>
-                                <th>Item Description</th>
+                            <tr style="border-bottom: 2px solid #000;">
+                                <th style="padding: 12px 5px;">Description</th>
                                 ${showHsn ? `<th class="text-center" width="60">HSN</th>` : ''}
                                 <th class="text-center" width="60">Qty</th>
                                 <th class="text-right" width="100">Price</th>
-                                ${showTaxBreakup ? (isInter ? `<th class="text-center" width="80">IGST</th>` : `<th class="text-center" width="80">Tax</th>`) : ''}
+                                ${showTaxBreakup ? `<th class="text-center" width="100">Tax</th>` : ''}
                                 <th class="text-right" width="100">Amount</th>
                             </tr>
                         </thead>
@@ -587,26 +630,64 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
 
                     <div class="footer-minimal">
                         <div class="notes-box">
-                            <h3>Notes</h3>
-                            <p>Thank you for your business!</p>
-                            <p style="font-weight:800; font-size:14px; margin-top:10px; color:#000;">Thank you, Visit Again!</p>
+                            <div class="label-tiny" style="margin-bottom: 10px;">Notes</div>
+                            <div style="font-size: 13px; color: #4b5563; line-height: 1.5;">
+                                ${bill.internalNotes ? `<b>Remarks:</b> ${bill.internalNotes}<br/><br/>` : ''}
+                                Thank you for your business!<br/>
+                                Please Visit Again.
+                            </div>
                         </div>
                         <div class="total-container">
-                            <div class="sub-row">
-                                <span style="font-weight:700; color:#6b7280;">Subtotal</span>
-                                <span style="font-weight:700;">${currency}${(bill.totals?.subtotal || 0).toFixed(2)}</span>
+                            <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f3f4f6;">
+                                <span style="font-weight:600; color:#6b7280; font-size: 13px;">Subtotal</span>
+                                <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals?.subtotal || 0).toFixed(2)}</span>
                             </div>
-                            <div class="total-container">
-                                <div class="sub-row" style="display: flex; justify-content: space-between; margin-bottom: 10px; font-weight: 600;">
-                                    <span style="color:#6b7280;">Subtotal</span>
-                                    <span>${currency} ${Number(bill.totals?.subtotal || 0).toFixed(2)}</span>
+                            ${bill.totals?.tax > 0 ? (bill.taxType === 'inter' ? `
+                                <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                                    <span style="font-weight:600; color:#6b7280; font-size: 13px;">IGST</span>
+                                    <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals.tax).toFixed(2)}</span>
                                 </div>
-                                <div class="gross-box">
-                                    <span class="gross-ttl">Total</span>
-                                    <span class="gross-val">${currency} ${Number(bill.totals?.total || 0).toFixed(2)}</span>
+                            ` : `
+                                <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                                    <span style="font-weight:600; color:#6b7280; font-size: 13px;">CGST</span>
+                                    <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals.tax / 2).toFixed(2)}</span>
                                 </div>
+                                <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                                    <span style="font-weight:600; color:#6b7280; font-size: 13px;">SGST</span>
+                                    <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals.tax / 2).toFixed(2)}</span>
+                                </div>
+                            `) : ''}
+                            ${bill.totals?.additionalCharges > 0 ? `
+                                <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #000;">
+                                    <span style="font-weight:600; font-size: 13px;">Extra Charges</span>
+                                    <span style="font-weight:700;">+${currency} ${Number(bill.totals.additionalCharges).toFixed(2)}</span>
+                                </div>
+                            ` : ''}
+                            ${bill.totals?.discount > 0 ? `
+                                <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #ef4444;">
+                                    <span style="font-weight:600; font-size: 13px;">Discount</span>
+                                    <span style="font-weight:700;">-${currency} ${Number(bill.totals.discount).toFixed(2)}</span>
+                                </div>
+                            ` : ''}
+                            ${bill.totals?.loyaltyPointsDiscount > 0 ? `
+                                <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #10b981;">
+                                    <span style="font-weight:600; font-size: 13px;">Loyalty Disc</span>
+                                    <span style="font-weight:700;">-${currency} ${Number(bill.totals.loyaltyPointsDiscount).toFixed(2)}</span>
+                                </div>
+                            ` : ''}
+                            <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #6b7280;">
+                                <span style="font-weight:600; font-size: 13px;">Round Off</span>
+                                <span style="font-weight:700;">${(bill.totals?.roundOff || 0) > 0 ? '+' : ''}${(bill.totals?.roundOff || 0).toFixed(2)}</span>
+                            </div>
+                            <div class="gross-box" style="margin-top: 15px;">
+                                <span style="font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Grand Total</span>
+                                <span class="gross-val">${currency} ${Number(bill.totals?.total || 0).toFixed(2)}</span>
                             </div>
                         </div>
+                    </div>
+                    
+                    <div style="margin: 40px 40px 0 40px; border-top: 1px solid #f3f4f6; padding-top: 20px; font-size: 11px; color: #9ca3af; text-align: center;">
+                        This is a computer generated invoice. No signature required.
                     </div>
                 </div>
             </body>
@@ -626,10 +707,10 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                     <div class="header-top">
                         ${showLogo ? `<div class="logo-box">LOGO</div>` : ''}
                         <div class="biz-header">
-                            <h2 style="margin:0; text-transform: uppercase;">${storeName}</h2>
+                            <h2 style="margin:0; text-transform: uppercase; letter-spacing: 1px;">${storeName}</h2>
                             ${showStoreAddress ? `
-                            <div style="font-size:11px; margin: 4px 0;">${storeAddress}</div>
-                            <div style="font-size:11px;">Contact: ${storePhone}</div>
+                            <div style="font-size:11px; margin: 4px 0; color: #4b5563;">${storeAddress}</div>
+                            <div style="font-size:11px; color: #4b5563;">Contact: ${storePhone}</div>
                             ` : ''}
                             <div style="font-size:12px; font-weight:800; margin-top: 4px;">GSTIN: ${storeGstin}</div>
                         </div>
@@ -640,7 +721,10 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                         </div>
                     </div>
 
-                    <div class="tax-invoice-banner">${isBW ? 'BILL' : 'TAX INVOICE'}</div>
+                    <div class="tax-invoice-banner">
+                        ${isBW ? 'BILL' : 'TAX INVOICE'} 
+                        ${bill.status ? `<span style="font-size: 10px; background: rgba(0,0,0,0.1); padding: 2px 8px; border-radius: 4px; vertical-align: middle; margin-left: 10px; border: 1px solid #000;">${bill.status.toUpperCase()}</span>` : ''}
+                    </div>
                     <div class="tax-subtitle">Invoice of goods under Section 31 of CGST Act</div>
 
                     <div class="meta-grid">
@@ -674,17 +758,24 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                                 <th rowspan="2" align="center" style="border: 1px solid #000; width: 30px;">Qty</th>
                                 <th rowspan="2" align="right" style="border: 1px solid #000; width: 70px;">Rate</th>
                                 <th rowspan="2" align="right" style="border: 1px solid #000; width: 80px;">Taxable</th>
-                                ${showTaxBreakup ? `
-                                <th colspan="2">${isInter ? 'IGST' : 'CGST'}</th>
-                                <th colspan="2">${isInter ? '' : 'SGST'}</th>
-                                ` : ''}
+                                ${showTaxBreakup ? (isInter ? `
+                                <th colspan="4" style="border: 1px solid #000;">IGST</th>
+                                ` : `
+                                <th colspan="2" style="border: 1px solid #000;">CGST</th>
+                                <th colspan="2" style="border: 1px solid #000;">SGST</th>
+                                `) : ''}
                                 <th rowspan="2" align="right" style="border: 1px solid #000; width: 90px;">Total</th>
                             </tr>
                             <tr style="background: #f2f2f2;">
-                                ${showTaxBreakup ? `
-                                <th width="35">Rate</th><th width="50">Amt</th>
-                                <th width="35">${isInter ? '' : 'Rate'}</th><th width="50">${isInter ? '' : 'Amt'}</th>
-                                ` : ''}
+                                ${showTaxBreakup ? (isInter ? `
+                                <th width="70" style="border: 1px solid #000;">Rate</th>
+                                <th width="100" style="border: 1px solid #000;">Amount</th>
+                                ` : `
+                                <th width="35" style="border: 1px solid #000;">Rate</th>
+                                <th width="50" style="border: 1px solid #000;">Amt</th>
+                                <th width="35" style="border: 1px solid #000;">Rate</th>
+                                <th width="50" style="border: 1px solid #000;">Amt</th>
+                                `) : ''}
                             </tr>
                         </thead>
                         <tbody>
@@ -693,8 +784,8 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                                 <td colspan="${showHsn ? 5 : 4}" class="text-right">Total</td>
                                 <td class="text-right">${subtotal.toFixed(2)}</td>
                                 ${showTaxBreakup ? (isInter
-                ? `<td colspan="2" class="text-right">${tax.toFixed(2)}</td><td colspan="2"></td>`
-                : `<td colspan="2" class="text-right">${(tax / 2).toFixed(2)}</td><td colspan="2" class="text-right">${(tax / 2).toFixed(2)}</td>`)
+                ? `<td colspan="4" class="text-right" style="border: 1px solid #000;">${tax.toFixed(2)}</td>`
+                : `<td colspan="2" class="text-right" style="border: 1px solid #000;">${(tax / 2).toFixed(2)}</td><td colspan="2" class="text-right" style="border: 1px solid #000;">${(tax / 2).toFixed(2)}</td>`)
                 : ''}
                                 <td class="text-right">${total.toFixed(2)}</td>
                             </tr>
@@ -716,7 +807,16 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                             <div class="sum-row"><span>Add: CGST:</span> <span>${(tax / 2).toFixed(2)}</span></div>
                             <div class="sum-row"><span>Add: SGST:</span> <span>${(tax / 2).toFixed(2)}</span></div>
                             `) : ''}
-                            <div class="sum-row"><span>Total Tax Amount:</span> <span>${tax.toFixed(2)}</span></div>
+                            ${bill.totals?.additionalCharges > 0 ? `
+                            <div class="sum-row"><span>Add: Extra Charges:</span> <span>${Number(bill.totals.additionalCharges).toFixed(2)}</span></div>
+                            ` : ''}
+                            ${(bill.totals?.discount > 0) ? `
+                            <div class="sum-row" style="color: #ef4444;"><span>Add: Bill Discount:</span> <span>-${Number(bill.totals.discount).toFixed(2)}</span></div>
+                            ` : ''}
+                            ${(bill.totals?.loyaltyPointsDiscount > 0) ? `
+                            <div class="sum-row" style="color: #10b981;"><span>Add: Loyalty Discount:</span> <span>-${Number(bill.totals.loyaltyPointsDiscount).toFixed(2)}</span></div>
+                            ` : ''}
+                            <div class="sum-row"><span>Round Off:</span> <span>${(bill.totals?.roundOff || 0) > 0 ? '+' : ''}${(bill.totals?.roundOff || 0).toFixed(2)}</span></div>
                             <div class="sum-row final-total"><span>Total Amount after Tax:</span> <span>${total.toFixed(2)}</span></div>
                             <div style="font-size:9px; text-align:center; padding:2px;">GST on Reverse Charge: No</div>
                         </div>
@@ -724,6 +824,7 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
 
                     <div class="footer-gst">
                         <div class="f-bank">
+                            ${bill.internalNotes ? `<b>REMARKS:</b> ${bill.internalNotes}<br/><br/>` : ''}
                             <b>Terms & Conditions:</b><br/>
                             1. Goods once sold will not be taken back.<br/>
                             2. 24% interest will be charged if not paid within 15 days.<br/>
@@ -754,11 +855,12 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                     <div class="header-title">
                         ${docTitle}<br/>
                         <span style="font-size: 14px; opacity: 0.9;">No: ${bill.weekly_sequence || '1'}</span>
+                        ${(bill.status && bill.status !== 'Paid') ? `<div style="font-size: 12px; margin-top: 5px; background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 4px; display: inline-block;">${bill.status.toUpperCase()}</div>` : ''}
                     </div>
                     <div style="text-align: right">
-                        <div style="font-size: 20px; font-weight: 800;">${storeName}</div>
-                        <div style="font-size: 12px;">${storeAddress}</div>
-                        <div style="font-size: 10px; opacity: 0.8;">Ref: #${bill.id}</div>
+                        <div style="font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;">${storeName}</div>
+                        <div style="font-size: 13px; margin-top: 5px; color: rgba(255,255,255,0.9);">${storeAddress}</div>
+                        <div style="font-size: 11px; margin-top: 2px; opacity: 0.8;">Ref: #${bill.id}</div>
                     </div>
                 </div>
 
@@ -778,6 +880,7 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                                 1. Goods once sold will not be taken back.<br/>
                                 2. Thank you for your business!
                             </div>
+                            ${bill.internalNotes ? `<div style="margin-top:15px; font-weight:700; font-size:12px; border: 1px dashed #cbd5e1; padding:8px; border-radius:4px;">REMARKS: ${bill.internalNotes}</div>` : ''}
                             <div style="font-weight:900; font-size:18px; margin-top:20px; color:#000;">Thank you, Visit Again!</div>
                         </div>
                         <div class="footer-right">
@@ -791,8 +894,12 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                             `) : ''}
 
                             ${(bill.totals?.discount > 0) ? `
-                                <div class="summ-row" style="color: #059669;"><span>DISCOUNT</span><span>-${currency}${(bill.totals.discount).toFixed(2)}</span></div>
+                                <div class="summ-row" style="color: #ef4444;"><span>DISCOUNT</span><span>-${currency}${(bill.totals.discount).toFixed(2)}</span></div>
                             ` : ''}
+                            ${(bill.totals?.loyaltyPointsDiscount > 0) ? `
+                                <div class="summ-row" style="color: #10b981;"><span>LOYALTY DISC</span><span>-${currency}${(bill.totals.loyaltyPointsDiscount).toFixed(2)}</span></div>
+                            ` : ''}
+                            <div class="summ-row"><span>ROUND OFF</span><span>${(bill.totals?.roundOff || 0) > 0 ? '+' : ''}${(bill.totals?.roundOff || 0).toFixed(2)}</span></div>
 
                             <div class="summ-row"><span>RECEIVED BALANCE</span><span>${currency}${(bill.amountReceived || 0).toFixed(2)}</span></div>
                             <div class="summ-row"><span>BALANCE DUE</span><span>${currency}${Math.max(0, (bill.totals?.total || 0) - (bill.amountReceived || 0)).toFixed(2)}</span></div>
@@ -828,6 +935,7 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                                 2. Interest will be charged @ 18% if not paid on time.<br/>
                                 3. Thank you for your business!
                             </div>
+                            ${bill.internalNotes ? `<div style="margin-top:15px; font-weight:700; font-size:12px; border: 1px dashed #cbd5e1; padding:10px; border-radius:6px; background:#f8fafc;">REMARKS: ${bill.internalNotes}</div>` : ''}
                             <div style="font-weight: 900; font-size: 20px; margin-top: 20px; color: ${colors.primary};">Thank you, Visit Again!</div>
                         </div>
                         <div class="footer-right">
@@ -840,10 +948,17 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                                 <div class="summ-row"><span>SGST</span><span>${currency} ${Number(bill.totals.tax / 2).toFixed(2)}</span></div>
                             `) : ''}
 
+                            ${(Number(bill.totals?.additionalCharges || 0) > 0) ? `
+                                <div class="summ-row" style="color: #000;"><span>EXTRA CHARGES</span><span>+${currency} ${Number(bill.totals.additionalCharges).toFixed(2)}</span></div>
+                            ` : ''}
                             ${(Number(bill.totals?.discount || 0) > 0) ? `
                                 <div class="summ-row" style="color: #ef4444;"><span>DISCOUNT</span><span>-${currency} ${Number(bill.totals.discount).toFixed(2)}</span></div>
                             ` : ''}
+                            ${(Number(bill.totals?.loyaltyPointsDiscount || 0) > 0) ? `
+                                <div class="summ-row" style="color: #10b981;"><span>LOYALTY DISCOUNT</span><span>-${currency} ${Number(bill.totals.loyaltyPointsDiscount).toFixed(2)}</span></div>
+                            ` : ''}
 
+                            <div class="summ-row"><span>ROUND OFF</span><span>${(bill.totals?.roundOff || 0) > 0 ? '+' : ''}${(bill.totals?.roundOff || 0).toFixed(2)}</span></div>
                             <div class="summ-row"><span>RECEIVED TOTAL</span><span>${currency} ${Number(bill.amountReceived || 0).toFixed(2)}</span></div>
                             <div class="summ-row"><span>BALANCE DUE</span><span>${currency} ${Math.max(0, Number(bill.totals?.total || 0) - Number(bill.amountReceived || 0)).toFixed(2)}</span></div>
                             <div class="grand-total-box"><span>GRAND TOTAL</span><span>${currency} ${Number(bill.totals?.total || 0).toFixed(2)}</span></div>
@@ -1041,6 +1156,7 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
             html,
             width,
             orientation: Print.Orientation.portrait,
+            printerUrl: settings?.invoice?.selectedPrinter?.url || settings?.invoice?.selectedPrinter?.id,
         });
 
         // Auto backup after print

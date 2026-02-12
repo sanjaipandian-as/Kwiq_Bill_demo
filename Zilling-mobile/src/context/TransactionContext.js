@@ -15,7 +15,7 @@ export const TransactionProvider = ({ children }) => {
     useEffect(() => {
         const loadTransactions = async () => {
             try {
-                const data = db.getAllSync('SELECT * FROM invoices ORDER BY date DESC', []);
+                const data = db.getAllSync('SELECT * FROM invoices ORDER BY date DESC');
                 // Parse items and payments JSON strings and normalize keys
                 const parsedData = data.map(tx => ({
                     ...tx,
@@ -38,7 +38,7 @@ export const TransactionProvider = ({ children }) => {
     const fetchTransactions = async () => {
         setLoading(true);
         try {
-            const data = db.getAllSync('SELECT * FROM invoices ORDER BY date DESC', []);
+            const data = db.getAllSync('SELECT * FROM invoices ORDER BY date DESC');
             // Parse items and payments JSON strings and normalize keys
             const parsedData = data.map(tx => ({
                 ...tx,
@@ -71,20 +71,29 @@ export const TransactionProvider = ({ children }) => {
 
             let weeklySequence = 1;
             try {
+                // Try to get max sequence
                 const row = db.getFirstSync(
                     'SELECT MAX(weekly_sequence) as maxSeq FROM invoices WHERE date >= ? AND date < ?',
                     [startOfWeek.toISOString(), endOfWeek.toISOString()]
                 );
                 weeklySequence = (Number(row?.maxSeq) || 0) + 1;
             } catch (e) {
-                console.error("Error calculating sequence:", e);
+                console.log("[TransactionContext] Sequence column might be missing, falling back to 1. Error:", e.message);
+                // Attempt an emergency migration if column is missing
+                try {
+                    db.execSync('ALTER TABLE invoices ADD COLUMN weekly_sequence INTEGER DEFAULT 1;');
+                    console.log("[TransactionContext] Emergency migration: weekly_sequence column added.");
+                } catch (migrationErr) {
+                    // Column might already exist but query failed for another reason, or table is busy
+                }
             }
+
 
             db.runSync(
                 `INSERT INTO invoices (
                     id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, 
-                    created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, weekly_sequence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     id,
                     data.customerId || '',
@@ -106,7 +115,8 @@ export const TransactionProvider = ({ children }) => {
                     data.additionalCharges || 0,
                     data.roundOff || 0,
                     data.amountReceived || 0,
-                    data.internalNotes || ''
+                    data.internalNotes || '',
+                    weeklySequence
                 ]
             );
 
@@ -116,69 +126,28 @@ export const TransactionProvider = ({ children }) => {
             // [AutoSave]
             triggerAutoSave();
 
-            // [Stock Update] - Decrement stock for sold items
-            if (data.items && Array.isArray(data.items)) {
-                data.items.forEach(item => {
-                    const pid = item.productId || item.id;
-                    const qty = parseFloat(item.quantity) || 0;
-                    if (pid && qty > 0) {
-                        try {
-                            // 1. Decrement Main Stock (Always)
-                            db.runSync(`UPDATE products SET stock = stock - ? WHERE id = ?`, [Number(qty), String(pid)]);
+            // [Loyalty Points & Balance Update]
+            if (data.customerId) {
+                try {
+                    const received = parseFloat(data.amountReceived) || 0;
+                    const total = parseFloat(data.total) || 0;
+                    const outstandingDelta = Math.max(0, total - received);
 
-                            // 2. Decrement Variant Stock (If applicable)
-                            if (item.variantName) {
-                                const productRow = db.getFirstSync('SELECT variants FROM products WHERE id = ?', [pid]);
-                                if (productRow && productRow.variants) {
-                                    let variantsArr = [];
-                                    try {
-                                        variantsArr = JSON.parse(productRow.variants);
-                                    } catch (e) { variantsArr = []; }
-
-                                    if (Array.isArray(variantsArr) && variantsArr.length > 0) {
-                                        let updated = false;
-                                        const newVariants = variantsArr.map(v => {
-                                            // loose match name
-                                            if (v.name && v.name.trim() === item.variantName.trim()) {
-                                                // Variant found, decrement its stock
-                                                // Handle stock as number or string safely
-                                                const currentStock = parseFloat(v.stock) || 0;
-                                                v.stock = Math.max(0, currentStock - qty);
-                                                updated = true;
-                                            }
-                                            return v;
-                                        });
-
-                                        if (updated) {
-                                            db.runSync('UPDATE products SET variants = ? WHERE id = ?', [JSON.stringify(newVariants), pid]);
-                                            console.log(`[TransactionContext] Variant stock deducted for ${pid} / ${item.variantName}`);
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Fallback: If pid is composite (contains '-'), try updating the prefix part
-                            if (typeof pid === 'string' && pid.includes('-') && !item.variantName) {
-                                const prefixId = pid.split('-')[0];
-                                if (prefixId) {
-                                    db.runSync(`UPDATE products SET stock = stock - ? WHERE id = ? AND id != ?`, [Number(qty), String(prefixId), String(pid)]);
-                                }
-                            }
-
-                            console.log(`[TransactionContext] Stock deducted for ${pid}: -${qty}`);
-                        } catch (stockErr) {
-                            console.error(`[TransactionContext] Failed to update stock for ${pid}:`, stockErr);
-                        }
-                    }
-                });
+                    // Update loyalty points (+1 per order), lifetime amountPaid, and current outstanding
+                    db.runSync(
+                        `UPDATE customers SET 
+                            loyaltyPoints = loyaltyPoints + 1,
+                            amountPaid = amountPaid + ?,
+                            outstanding = outstanding + ?
+                         WHERE id = ?`,
+                        [received, outstandingDelta, String(data.customerId)]
+                    );
+                    console.log(`[TransactionContext] Updated customer ${data.customerId}: +1 Loyalty, +${received} Paid, +${outstandingDelta} Due`);
+                } catch (custUpdateErr) {
+                    console.error('[TransactionContext] Failed to update customer stats:', custUpdateErr);
+                }
             }
 
-            // const newTx = { ...data, id, date, items: data.items || [], payments: data.payments || [] };
-            // setTransactions(prev => [newTx, ...prev]);
-
-            // [AutoSave]
-            triggerAutoSave();
-
             // [Stock Update] - Decrement stock for sold items
             if (data.items && Array.isArray(data.items)) {
                 data.items.forEach(item => {
@@ -186,49 +155,30 @@ export const TransactionProvider = ({ children }) => {
                     const qty = parseFloat(item.quantity) || 0;
                     if (pid && qty > 0) {
                         try {
-                            // 1. Decrement Main Stock (Always)
-                            db.runSync(`UPDATE products SET stock = stock - ? WHERE id = ?`, [qty, pid]);
-
-                            // 2. Decrement Variant Stock (If applicable)
+                            // ... stock update logic ...
+                            db.runSync(`UPDATE products SET stock = stock - ? WHERE id = ?`, [Number(qty), String(pid)]);
+                            // ... variant logic ...
                             if (item.variantName) {
                                 const productRow = db.getFirstSync('SELECT variants FROM products WHERE id = ?', [pid]);
                                 if (productRow && productRow.variants) {
                                     let variantsArr = [];
-                                    try {
-                                        variantsArr = JSON.parse(productRow.variants);
-                                    } catch (e) { variantsArr = []; }
-
+                                    try { variantsArr = JSON.parse(productRow.variants); } catch (e) { variantsArr = []; }
                                     if (Array.isArray(variantsArr) && variantsArr.length > 0) {
                                         let updated = false;
                                         const newVariants = variantsArr.map(v => {
-                                            // loose match name
                                             if (v.name && v.name.trim() === item.variantName.trim()) {
-                                                // Variant found, decrement its stock
-                                                // Handle stock as number or string safely
                                                 const currentStock = parseFloat(v.stock) || 0;
                                                 v.stock = Math.max(0, currentStock - qty);
                                                 updated = true;
                                             }
                                             return v;
                                         });
-
                                         if (updated) {
                                             db.runSync('UPDATE products SET variants = ? WHERE id = ?', [JSON.stringify(newVariants), pid]);
-                                            console.log(`[TransactionContext] Variant stock deducted for ${pid} / ${item.variantName}`);
                                         }
                                     }
                                 }
                             }
-
-                            // Fallback: If pid is composite (contains '-'), try updating the prefix part
-                            if (typeof pid === 'string' && pid.includes('-') && !item.variantName) {
-                                const prefixId = pid.split('-')[0];
-                                if (prefixId) {
-                                    db.runSync(`UPDATE products SET stock = stock - ? WHERE id = ? AND id != ?`, [qty, prefixId, pid]);
-                                }
-                            }
-
-                            console.log(`[TransactionContext] Stock deducted for ${pid}: -${qty}`);
                         } catch (stockErr) {
                             console.error(`[TransactionContext] Failed to update stock for ${pid}:`, stockErr);
                         }
@@ -292,7 +242,7 @@ export const TransactionProvider = ({ children }) => {
                 `UPDATE invoices SET 
                     customer_id = ?, customer_name = ?, date = ?, type = ?, items = ?, 
                     subtotal = ?, tax = ?, discount = ?, total = ?, status = ?, payments = ?, updated_at = ?, 
-                    taxType = ?, grossTotal = ?, itemDiscount = ?, additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?
+                    taxType = ?, grossTotal = ?, itemDiscount = ?, additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?, weekly_sequence = ?
                  WHERE id = ?`,
                 [
                     String(data.customerId || ''),
@@ -314,6 +264,7 @@ export const TransactionProvider = ({ children }) => {
                     data.roundOff || 0,
                     data.amountReceived || 0,
                     data.internalNotes || '',
+                    data.weekly_sequence || 1,
                     id
                 ]
             );

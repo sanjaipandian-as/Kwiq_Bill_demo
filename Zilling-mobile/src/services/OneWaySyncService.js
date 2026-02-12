@@ -1,7 +1,7 @@
 import { db } from './database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
-import { getAccessToken, getOrCreateFolder, uploadFileToFolder } from './googleDriveservices';
+import { getAccessToken, getOrCreateFolder, uploadFileToFolder, fetchWithTimeout } from './googleDriveservices';
 
 const PROCESSED_EVENTS_KEY = 'processed_events_ids';
 const PENDING_UPLOAD_QUEUE_KEY = 'pending_upload_queue';
@@ -110,7 +110,7 @@ export const SyncService = {
             const query = `'${folderId}' in parents and trashed=false`;
             // Note: Google Drive API pagination should be handled for large lists, 
             // but for this implementation we fetch the first page (usually 100-1000 files).
-            const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name`, {
+            const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name`, {
                 headers: { Authorization: `Bearer ${accessToken}` }
             });
             const data = await res.json();
@@ -135,52 +135,51 @@ export const SyncService = {
             // format: event_{ISO_TIMESTAMP}_{TYPE}_{EVENT_ID}.json
             files.sort((a, b) => a.name.localeCompare(b.name));
 
+            // 3. Download and Apply Events
+            const filesToProcess = files.filter(f => {
+                if (!f.name.startsWith('event_')) return false;
+                const parts = f.name.replace('.json', '').split('_');
+                const probableEventId = parts[parts.length - 1];
+                return !processedSet.has(probableEventId);
+            });
+
+            console.log(`[Sync] ${filesToProcess.length} new events to process.`);
+
+            // Optimization: Fetch event contents in parallel batches
+            const BATCH_SIZE = 10;
             let processedCount = 0;
 
-            for (const file of files) {
-                if (!file.name.startsWith('event_')) continue;
+            for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
+                const batch = filesToProcess.slice(i, i + BATCH_SIZE);
+                console.log(`[Sync] Downloading batch ${i / BATCH_SIZE + 1}...`);
 
-                // Optimization: Try to extract eventId from filename to skip download?
-                // event_2024-01-30T10:00:00.000Z_TYPE_EVENTID.json
-                const parts = file.name.replace('.json', '').split('_');
-                const probableEventId = parts[parts.length - 1]; // Last part is ID
+                const envelopes = await Promise.all(batch.map(async (file) => {
+                    try {
+                        const contentRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+                            headers: { Authorization: `Bearer ${accessToken}` }
+                        });
+                        return await contentRes.json();
+                    } catch (e) {
+                        console.error(`[Sync] Failed to download event ${file.name}:`, e.message);
+                        return null;
+                    }
+                }));
 
-                if (processedSet.has(probableEventId)) {
-                    console.log(`[Sync Debug] Skipping processed event (by filename ID): ${file.name}`);
-                    continue;
-                }
+                // Apply batch sequentially to ensure order
+                for (const envelope of envelopes) {
+                    if (!envelope || processedSet.has(envelope.eventId)) continue;
 
-                // Download content
-                const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-                    headers: { Authorization: `Bearer ${accessToken}` }
-                });
-                const envelope = await contentRes.json();
-
-                // Double check inner ID
-                // Double check inner ID
-                if (processedSet.has(envelope.eventId)) {
-                    console.log(`[Sync Debug] Skipping processed event (by inner ID): ${envelope.eventId}`);
-                    continue;
-                }
-
-                // Apply Event
-                try {
-                    await this.applyEvent(envelope);
-
-                    // Mark processed
-                    processedIds.push(envelope.eventId);
-                    processedSet.add(envelope.eventId);
-                    processedCount++;
-                } catch (applyError) {
-                    console.error(`[Sync] Failed to apply event ${envelope.eventId} (${envelope.type}):`, applyError.message);
-                    // We DO NOT mark it as processed here if it's a transient error, 
-                    // but for UNIQUE constraint, it's permanent. 
-                    // To avoid being stuck, we should probably mark it as processed 
-                    // IF it's a specific data conflict error.
-                    if (applyError.message.includes('UNIQUE constraint failed')) {
-                        console.log(`[Sync] Permanent conflict detected, skipping and marking as processed to avoid blocking.`);
+                    try {
+                        await this.applyEvent(envelope);
                         processedIds.push(envelope.eventId);
                         processedSet.add(envelope.eventId);
+                        processedCount++;
+                    } catch (applyError) {
+                        console.error(`[Sync] Failed to apply event ${envelope.eventId}:`, applyError.message);
+                        if (applyError.message.includes('UNIQUE constraint failed')) {
+                            processedIds.push(envelope.eventId);
+                            processedSet.add(envelope.eventId);
+                        }
                     }
                 }
             }

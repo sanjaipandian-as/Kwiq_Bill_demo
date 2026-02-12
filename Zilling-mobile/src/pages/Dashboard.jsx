@@ -7,7 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Receipt, ChevronRight, AlertTriangle, Clock, TrendingUp, IndianRupee, Menu,
-  Package, ArrowUpRight, Users, Settings, FileText, BarChart3, Scan, Check, CheckCircle2, ChevronDown
+  Package, ArrowUpRight, Users, Settings, FileText, BarChart3, Scan, Check, CheckCircle2, ChevronDown, Trophy
 } from 'lucide-react-native';
 
 import SideMenu from '../components/SideMenu';
@@ -23,9 +23,11 @@ const { width } = Dimensions.get('window');
 
 const getStartOfWeek = (date) => {
   const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.setDate(diff));
+  d.setDate(diff);
+  return d;
 };
 
 const StatTile = ({ title, value, sub }) => (
@@ -123,9 +125,11 @@ export default function Dashboard() {
         filteredTx = transactions.filter(t => new Date(t.date) >= monthStart);
         filteredExp = expenses.filter(e => new Date(e.date) >= monthStart);
         break;
-      default: // All Time (fallback) or custom logic if needed
-        filteredTx = transactions;
-        filteredExp = expenses;
+      default: // Last 7 Days (fallback)
+        const sevenDaysAgo = new Date(todayStart);
+        sevenDaysAgo.setDate(todayStart.getDate() - 7);
+        filteredTx = transactions.filter(t => new Date(t.date) >= sevenDaysAgo);
+        filteredExp = expenses.filter(e => new Date(e.date) >= sevenDaysAgo);
     }
 
     const totalSales = filteredTx.reduce((sum, t) => sum + (t.total || 0), 0);
@@ -186,15 +190,16 @@ export default function Dashboard() {
 
     const prodMap = {};
     productFilteredTx.forEach(t => {
-      (t.cart || []).forEach(item => {
-        if (!prodMap[item.name]) prodMap[item.name] = 0;
-        prodMap[item.name] += (item.quantity || 0);
+      (t.items || []).forEach(item => {
+        if (!prodMap[item.name]) prodMap[item.name] = { qty: 0, revenue: 0 };
+        prodMap[item.name].qty += (item.quantity || 0);
+        prodMap[item.name].revenue += (item.total || 0);
       });
     });
     const topProd = Object.entries(prodMap)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5)
-      .map(([name, qty]) => ({ name, qty }));
+      .sort(([, a], [, b]) => b.qty - a.qty)
+      .slice(0, 10)
+      .map(([name, data]) => ({ name, ...data }));
 
     // Global Pending Due (Total Outstanding Debt - Date Independent)
     const globalPendingAmount = transactions.reduce((sum, t) => {
@@ -213,7 +218,8 @@ export default function Dashboard() {
       paidCount: paid,
       lowStock,
       topCust,
-      topProd
+      topProd,
+      featuredProduct: topProd[0] || null
     };
   }, [transactions, products, expenses, dateFilter, productFilter]);
 
@@ -239,7 +245,7 @@ export default function Dashboard() {
                 </Pressable>
                 <View>
                   <Text style={styles.greeting}>Hello,</Text>
-                  <Text style={styles.userName}>{user?.name || 'Rahat Nur'}</Text>
+                  <Text style={styles.userName}>{user?.name || 'Sanjai Pandian'}</Text>
                 </View>
               </View>
 
@@ -275,7 +281,7 @@ export default function Dashboard() {
 
           {/* Action Grid */}
           <View style={styles.actionGrid}>
-            <IconButton icon={FileText} label="Create Invoice" color="#22c55e" onPress={() => navigation.navigate('Invoices')} />
+            <IconButton icon={FileText} label="Create Invoice" color="#22c55e" onPress={() => navigation.navigate('Billing')} />
             <IconButton icon={BarChart3} label="Reports" color="#22c55e" onPress={() => navigation.navigate('Reports')} />
             <IconButton icon={Users} label="Customers" color="#22c55e" onPress={() => navigation.navigate('Customers')} />
             <IconButton icon={Package} label="Products" color="#22c55e" onPress={() => navigation.navigate('Products')} />
@@ -286,7 +292,7 @@ export default function Dashboard() {
           {/* Financial Cards */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.finScroll}>
             <FinancialCard title="Total Revenue" value={`₹${metrics.totalSales.toLocaleString()}`} icon={TrendingUp} isPositive={true} />
-            <FinancialCard title="Total Expenses" value={`₹${metrics.totalExpenses.toLocaleString()}`} icon={Receipt} isPositive={false} />
+            <FinancialCard title="Total Expenses" value={`₹${metrics.totalExpenses.toLocaleString()}`} icon={IndianRupee} isPositive={false} />
             <FinancialCard title="Net Profit" value={`₹${metrics.netProfit.toLocaleString()}`} icon={IndianRupee} isPositive={metrics.netProfit >= 0} />
             <FinancialCard title="Pending Due" value={`₹${metrics.pendingAmount.toLocaleString()}`} icon={Clock} isPositive={false} />
           </ScrollView>
@@ -315,6 +321,27 @@ export default function Dashboard() {
             </View>
           )}
 
+          {/* Top Selling Card - Hero Section */}
+          {metrics.featuredProduct && (
+            <View style={[styles.contentCard, { backgroundColor: '#000', paddingVertical: 25 }]}>
+              <View style={[styles.cardHeaderRow, { marginBottom: 20 }]}>
+                <Trophy size={20} color="#fbbf24" />
+                <Text style={[styles.cardHeaderTitle, { color: '#fff' }]}>Best Selling Period Item</Text>
+              </View>
+              <View style={{ paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 20 }}>
+                <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: '#fbbf24', alignItems: 'center', justifyContent: 'center', elevation: 10 }}>
+                  <Text style={{ fontSize: 24, fontWeight: '900', color: '#000' }}>#1</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff' }}>{metrics.featuredProduct.name}</Text>
+                  <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>
+                    Sold {metrics.featuredProduct.qty} units • Revenue ₹{metrics.featuredProduct.revenue.toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Analytics Performance */}
           <View style={styles.analyticsCard}>
             <View style={styles.graphHeader}>
@@ -333,7 +360,7 @@ export default function Dashboard() {
                 <Text style={styles.barLabel}>Total Expenses</Text>
                 <Text style={styles.barVal}>₹{metrics.totalExpenses.toLocaleString()}</Text>
               </View>
-              <View style={styles.track}><View style={[styles.fill, { width: `${Math.min((metrics.totalExpenses / metrics.totalSales || 0) * 100, 100)}%`, backgroundColor: '#ef4444' }]} /></View>
+              <View style={styles.track}><View style={[styles.fill, { width: `${Math.min((metrics.totalExpenses / metrics.totalSales || 0.1) * 100, 100)}%`, backgroundColor: '#ef4444' }]} /></View>
             </View>
           </View>
 
@@ -342,7 +369,7 @@ export default function Dashboard() {
             <View style={styles.cardHeaderWithFilter}>
               <View style={styles.cardHeaderRow}>
                 <Package size={18} color="#000" />
-                <Text style={styles.cardHeaderTitle}>Top Selling Items</Text>
+                <Text style={styles.cardHeaderTitle}>Top 10 Selling Items</Text>
               </View>
               <Pressable style={styles.miniFilterBtn} onPress={() => setShowProductFilter(true)}>
                 <Text style={styles.miniFilterText}>{productFilter}</Text>

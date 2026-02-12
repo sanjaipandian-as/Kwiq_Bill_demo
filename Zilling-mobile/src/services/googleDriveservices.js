@@ -8,6 +8,32 @@ import { db } from './database';
 // Mutex for token refresh to prevent "previous promise did not settle" error
 let tokenRefreshPromise = null;
 
+/**
+ * Helper: Fetch with Timeout to prevent hanging connections
+ */
+export const fetchWithTimeout = async (url, options = {}, timeout = 10000) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => {
+    console.warn(`[Drive] Fetch timeout reached for: ${url}`);
+    controller.abort();
+  }, timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    if (error.name === 'AbortError') {
+      throw new Error('Connection timed out. Please check your internet.');
+    }
+    throw error;
+  }
+};
+
 export const getAccessToken = async () => {
   if (tokenRefreshPromise) {
     return tokenRefreshPromise;
@@ -17,6 +43,7 @@ export const getAccessToken = async () => {
     const driveScope = 'https://www.googleapis.com/auth/drive.file';
 
     try {
+      console.log('[Sync] Getting access token...');
       let currentUser = await GoogleSignin.getCurrentUser();
 
       // Attempt silent sign-in if no user is found
@@ -35,6 +62,7 @@ export const getAccessToken = async () => {
 
       const hasScope = currentUser?.scopes?.includes(driveScope);
       if (!hasScope) {
+        console.log('[Sync] Drive scope missing, requesting...');
         await GoogleSignin.addScopes({ scopes: [driveScope] });
       }
 
@@ -47,7 +75,7 @@ export const getAccessToken = async () => {
       return tokens.accessToken;
 
     } catch (error) {
-      if (error.message.includes('requires a user to be signed in')) {
+      if (error.message && error.message.includes('requires a user to be signed in')) {
         console.warn('[Sync] User session expired or not signed in. Refresh required.');
       }
       console.error('[Sync] getAccessToken Error:', error);
@@ -70,7 +98,7 @@ export const getOrCreateFolder = async (accessToken, folderName, parentId = null
     query += ` and '${parentId}' in parents`;
   }
 
-  const searchRes = await fetch(
+  const searchRes = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
@@ -89,7 +117,7 @@ export const getOrCreateFolder = async (accessToken, folderName, parentId = null
     metadata.parents = [parentId];
   }
 
-  const createRes = await fetch(
+  const createRes = await fetchWithTimeout(
     'https://www.googleapis.com/drive/v3/files',
     {
       method: 'POST',
@@ -109,7 +137,7 @@ export const getOrCreateFolder = async (accessToken, folderName, parentId = null
  */
 export const uploadFileToFolder = async (accessToken, folderId, fileName, content) => {
   // 1. Search for file in specific folder
-  const searchRes = await fetch(
+  const searchRes = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files?q=name='${fileName}' and '${folderId}' in parents and trashed=false`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
@@ -140,7 +168,7 @@ export const uploadFileToFolder = async (accessToken, folderId, fileName, conten
 
   const method = existingFile ? 'PATCH' : 'POST';
 
-  const uploadRes = await fetch(url, {
+  const uploadRes = await fetchWithTimeout(url, {
     method: method,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -205,7 +233,7 @@ export const restoreUserDataFromDrive = async (user) => {
     const folderName = `KwiqBilling-${user.id}`;
     // Find folder (don't create if missing, just search)
     const query = `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    const searchRes = await fetch(
+    const searchRes = await fetchWithTimeout(
       `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
@@ -223,7 +251,7 @@ export const restoreUserDataFromDrive = async (user) => {
       try {
         console.log(`[Restore] Searching for ${baseName}...`);
         const fileQuery = `name='${baseName}' and '${folderId}' in parents and trashed=false`;
-        const fRes = await fetch(
+        const fRes = await fetchWithTimeout(
           `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(fileQuery)}`,
           { headers: { Authorization: `Bearer ${accessToken}` } }
         );
@@ -231,7 +259,7 @@ export const restoreUserDataFromDrive = async (user) => {
 
         if (fData.files && fData.files.length > 0) {
           console.log(`[Restore] Found ${baseName} (ID: ${fData.files[0].id}), downloading...`);
-          const contentRes = await fetch(
+          const contentRes = await fetchWithTimeout(
             `https://www.googleapis.com/drive/v3/files/${fData.files[0].id}?alt=media`,
             { headers: { Authorization: `Bearer ${accessToken}` } }
           );
@@ -247,20 +275,23 @@ export const restoreUserDataFromDrive = async (user) => {
       return null;
     };
 
+    // Parallel Fetch All Data
+    console.log('[Restore] Fetching all backup files in parallel...');
+    const [settings, products, customers, expenses, invoices] = await Promise.all([
+      fetchFile('settings.json'),
+      fetchFile('products.json'),
+      fetchFile('customers.json'),
+      fetchFile('expenses.json'),
+      fetchFile('invoices.json')
+    ]);
+
     // 1. Restore Settings
-    const settings = await fetchFile('settings.json');
     if (settings && Array.isArray(settings) && settings.length > 0) {
-      // settings is stored as array [settingsObject] by fetchAllTableData
       await AsyncStorage.setItem('app_settings', JSON.stringify(settings[0]));
-      console.log('[Restore] Settings restored to AsyncStorage from Drive.');
-      // Add a visual confirmation for debug
-      // Note: We can't use Toast here easily without context, but logs help
-    } else {
-      console.log('[Restore] No settings.json found or it was empty/invalid.');
+      console.log('[Restore] Settings restored.');
     }
 
     // 2. Restore Products
-    const products = await fetchFile('products.json');
     if (products && Array.isArray(products)) {
       await db.withTransactionAsync(async () => {
         for (const p of products) {
@@ -275,7 +306,6 @@ export const restoreUserDataFromDrive = async (user) => {
     }
 
     // 3. Restore Customers
-    const customers = await fetchFile('customers.json');
     if (customers && Array.isArray(customers)) {
       await db.withTransactionAsync(async () => {
         for (const c of customers) {
@@ -290,7 +320,6 @@ export const restoreUserDataFromDrive = async (user) => {
     }
 
     // 4. Restore Expenses
-    const expenses = await fetchFile('expenses.json');
     if (expenses && Array.isArray(expenses)) {
       await db.withTransactionAsync(async () => {
         for (const e of expenses) {
@@ -305,7 +334,6 @@ export const restoreUserDataFromDrive = async (user) => {
     }
 
     // 5. Restore Invoices
-    const invoices = await fetchFile('invoices.json');
     if (invoices && Array.isArray(invoices)) {
       await db.withTransactionAsync(async () => {
         for (const i of invoices) {
@@ -384,7 +412,7 @@ export const saveUserDetailsToDrive = async (userDetails) => {
     // ... (Pasting original logic back in slightly cleaned form to coexist with new exports)
 
     // 3. Search for existing file
-    const searchResponse = await fetch(
+    const searchResponse = await fetchWithTimeout(
       `https://www.googleapis.com/drive/v3/files?q=name='${filename}'`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
@@ -414,7 +442,7 @@ export const saveUserDetailsToDrive = async (userDetails) => {
 
     const method = existingFile ? 'PATCH' : 'POST';
 
-    await fetch(url, {
+    await fetchWithTimeout(url, {
       method: method,
       headers: {
         Authorization: `Bearer ${accessToken}`,

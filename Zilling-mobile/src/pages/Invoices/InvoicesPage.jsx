@@ -66,7 +66,9 @@ export default function InvoicesPage() {
           total: invoice.total || 0,
           subtotal: invoice.subtotal || 0,
           tax: invoice.tax || 0,
-          discount: invoice.discount || 0
+          discount: invoice.discount || 0,
+          additionalCharges: invoice.additionalCharges || 0,
+          roundOff: invoice.roundOff || 0
         },
         customer: {
           name: invoice.customerName
@@ -95,7 +97,9 @@ export default function InvoicesPage() {
           total: invoice.total || 0,
           subtotal: invoice.subtotal || 0,
           tax: invoice.tax || 0,
-          discount: invoice.discount || 0
+          discount: invoice.discount || 0,
+          additionalCharges: invoice.additionalCharges || 0,
+          roundOff: invoice.roundOff || 0
         },
         customer: {
           name: invoice.customerName
@@ -265,6 +269,9 @@ export default function InvoicesPage() {
         subtotal: invoice.subtotal || 0,
         tax: invoice.tax || 0,
         discount: invoice.discount || 0,
+        additionalCharges: invoice.additionalCharges || 0,
+        roundOff: invoice.roundOff || 0,
+        internalNotes: invoice.internalNotes || '',
       };
 
       await printReceipt(billData, settings);
@@ -454,11 +461,24 @@ export default function InvoicesPage() {
                         <Text style={[styles.detailValue, { color: '#ef4444' }]}>-₹{selectedInvoice.discount.toFixed(2)}</Text>
                       </View>
                     )}
+                    {selectedInvoice.additionalCharges > 0 && (
+                      <View style={styles.totalRowSmall}>
+                        <Text style={styles.detailLabel}>Extra Charges</Text>
+                        <Text style={styles.detailValue}>+₹{selectedInvoice.additionalCharges.toFixed(2)}</Text>
+                      </View>
+                    )}
                     <View style={styles.totalRowLarge}>
                       <Text style={[styles.detailLabel, { fontSize: 16, color: '#000' }]}>Net Total</Text>
                       <Text style={[styles.detailValueLarge, { color: '#10b981' }]}>₹{selectedInvoice.total?.toFixed(2)}</Text>
                     </View>
                   </View>
+
+                  {selectedInvoice.internalNotes && selectedInvoice.internalNotes.trim() !== '' && (
+                    <View style={{ marginTop: 24, padding: 16, backgroundColor: '#fdfce6', borderRadius: 16, borderLeftWidth: 4, borderLeftColor: '#facc15' }}>
+                      <Text style={styles.detailLabel}>REMARKS</Text>
+                      <Text style={[styles.detailValue, { fontSize: 14, fontStyle: 'italic', color: '#854d0e' }]}>{selectedInvoice.internalNotes}</Text>
+                    </View>
+                  )}
 
                   <View style={styles.actionGrid}>
                     <TouchableOpacity style={styles.actionBtn} onPress={() => handleEditPress(selectedInvoice)}>

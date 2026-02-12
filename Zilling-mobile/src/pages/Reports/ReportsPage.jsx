@@ -50,9 +50,11 @@ const isSameDay = (d1, d2) => {
 
 const getStartOfWeek = (date) => {
   const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-  return new Date(d.setDate(diff));
+  d.setDate(diff);
+  return d;
 };
 
 // Custom Sparkline Component
@@ -284,18 +286,18 @@ export default function ReportsPage() {
         labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
         break;
       default:
-        const sevenDaysAgo = new Date(now);
-        sevenDaysAgo.setDate(now.getDate() - 7);
+        const sevenDaysAgo = new Date(todayStart);
+        sevenDaysAgo.setDate(todayStart.getDate() - 7);
         filteredTx = transactions.filter(t => new Date(t.date) >= sevenDaysAgo);
         filteredExp = expenses.filter(e => new Date(e.date) >= sevenDaysAgo);
         labels = ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7'];
     }
 
     // --- Current Values ---
-    // const totalSales = filteredTx.reduce((sum, t) => sum + (t.total || 0), 0);
-    // const orderCount = filteredTx.length;
-    // const totalExpenses = filteredExp.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-    // const netProfit = totalSales - totalExpenses;
+    const totalSales = filteredTx.reduce((sum, t) => sum + (t.total || 0), 0);
+    const orderCount = filteredTx.length;
+    const totalExpenses = filteredExp.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+    const netProfit = totalSales - totalExpenses;
 
     // --- Previous Values ---
     const prevSales = prevTx.reduce((sum, t) => sum + (t.total || 0), 0);

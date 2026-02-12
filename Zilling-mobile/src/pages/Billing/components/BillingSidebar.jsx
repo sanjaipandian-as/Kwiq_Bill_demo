@@ -28,7 +28,10 @@ const BillingSidebar = ({
     settings,
     billId,
     taxType = 'intra',
-    onTaxTypeChange
+    onTaxTypeChange,
+    isPrinterConnected = true,
+    onConnectPrinter,
+    remarks = ''
 }) => {
     const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
     const currentDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -96,10 +99,24 @@ const BillingSidebar = ({
                     <Text style={styles.summaryLabel}>Total Tax</Text>
                     <Text style={styles.summaryValue}>₹{totals.tax.toFixed(0)}</Text>
                 </View>
-                {(totals.itemDiscount + totals.discount) > 0 && (
+
+                {/* Bill Level Breakdown */}
+                {totals.itemDiscount > 0 && (
                     <View style={[styles.summaryRow, { marginTop: 4 }]}>
-                        <Text style={[styles.summaryLabel, { color: '#22c55e' }]}>Discounts</Text>
-                        <Text style={[styles.summaryValue, { color: '#22c55e' }]}>-₹{(totals.itemDiscount + totals.discount).toFixed(0)}</Text>
+                        <Text style={[styles.summaryLabel, { color: '#64748b' }]}>Item Discounts</Text>
+                        <Text style={[styles.summaryValue, { color: '#64748b' }]}>-₹{totals.itemDiscount.toFixed(0)}</Text>
+                    </View>
+                )}
+                {totals.additionalCharges > 0 && (
+                    <View style={[styles.summaryRow, { marginTop: 4 }]}>
+                        <Text style={[styles.summaryLabel, { color: '#000' }]}>Extra Charges</Text>
+                        <Text style={[styles.summaryValue, { color: '#000' }]}>+₹{totals.additionalCharges.toFixed(0)}</Text>
+                    </View>
+                )}
+                {totals.discount > 0 && (
+                    <View style={[styles.summaryRow, { marginTop: 4 }]}>
+                        <Text style={[styles.summaryLabel, { color: '#22c55e' }]}>Bill Discount</Text>
+                        <Text style={[styles.summaryValue, { color: '#22c55e' }]}>-₹{totals.discount.toFixed(0)}</Text>
                     </View>
                 )}
 
@@ -108,6 +125,13 @@ const BillingSidebar = ({
                 <Text style={styles.payableLabel}>TOTAL PAYABLE</Text>
                 <Text style={styles.payableAmount}>₹{totals.total.toFixed(0)}</Text>
             </View>
+
+            {remarks && remarks.trim() !== '' && (
+                <View style={styles.remarksDisplay}>
+                    <Text style={styles.labelSmall}>REMARKS</Text>
+                    <Text style={styles.remarksText}>{remarks}</Text>
+                </View>
+            )}
 
             {/* Payment Controls */}
             <View style={styles.paymentSection}>
@@ -186,10 +210,23 @@ const BillingSidebar = ({
                     customer={customer}
                     billId={billId}
                     paymentMode={paymentMode}
+                    remarks={remarks}
                 />
             </View>
 
             <View style={styles.finalActions}>
+                {/* Printer Status Indicator */}
+                <TouchableOpacity
+                    style={styles.printerStatusRow}
+                    onPress={onConnectPrinter}
+                    activeOpacity={0.7}
+                >
+                    <View style={[styles.statusDot, { backgroundColor: isPrinterConnected ? '#22c55e' : '#ef4444' }]} />
+                    <Text style={[styles.printerStatusText, { color: isPrinterConnected ? '#166534' : '#ef4444' }]}>
+                        {isPrinterConnected ? 'Printer Active' : 'Connect the Printer'}
+                    </Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity style={styles.mainCompleteBtn} onPress={() => generateAndExportBill('80mm')}>
                     <Save size={20} color="#000" />
                     <Text style={styles.mainCompleteBtnText}>Complete & Print Bill</Text>
@@ -265,10 +302,17 @@ const styles = StyleSheet.create({
     mainCompleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#22c55e', height: 64, borderRadius: 20 },
     mainCompleteBtnText: { fontSize: 16, fontWeight: '900', color: '#000' },
     secondarySaveBtn: { marginTop: 15, alignItems: 'center' },
-    secondarySaveBtnText: { fontSize: 13, fontWeight: '800', color: '#94a3b8', textDecorationLine: 'underline' }
+    secondarySaveBtnText: { fontSize: 13, fontWeight: '800', color: '#94a3b8', textDecorationLine: 'underline' },
+
+    printerStatusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 12 },
+    statusDot: { width: 8, height: 8, borderRadius: 4 },
+    printerStatusText: { fontSize: 12, fontWeight: '700' },
+
+    remarksDisplay: { backgroundColor: '#fdfce6', padding: 16, borderRadius: 18, borderLeftWidth: 4, borderLeftColor: '#facc15', marginBottom: 20 },
+    remarksText: { fontSize: 13, fontWeight: '700', color: '#854d0e', fontStyle: 'italic' }
 });
 
-const BillLivePreview = ({ items, totals, settings, template, taxType, customer, billId, paymentMode }) => {
+const BillLivePreview = ({ items, totals, settings, template, taxType, customer, billId, paymentMode, remarks }) => {
     const store = settings?.store || {};
     const showHsn = settings?.invoice?.showHsn !== false;
     const showTaxBreakup = settings?.invoice?.showTaxBreakup === true;
@@ -335,9 +379,8 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
             <View style={{ flexDirection: 'row', marginBottom: 4 }}>
                 <Text style={{ ...textStyle, width: 20 }}>Sn</Text>
                 <Text style={{ ...textStyle, flex: 1 }}>Item</Text>
-                <Text style={{ ...textStyle, width: 30, textAlign: 'center' }}>Qty</Text>
-                <Text style={{ ...textStyle, width: 45, textAlign: 'right' }}>Rate</Text>
-                <Text style={{ ...textStyle, width: 50, textAlign: 'right' }}>Amt</Text>
+                <Text style={{ ...textStyle, width: 60, textAlign: 'right' }}>Rate</Text>
+                <Text style={{ ...textStyle, width: 70, textAlign: 'right' }}>Amt</Text>
             </View>
 
             {/* Items List */}
@@ -352,9 +395,8 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
                                 {item.name} {item.variantName ? `(${item.variantName})` : ''}
                             </Text>
                             <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                                <Text style={{ ...textStyle, width: 30, textAlign: 'center' }}>{item.quantity}</Text>
-                                <Text style={{ ...textStyle, width: 45, textAlign: 'right' }}>{parseFloat(item.price || item.sellingPrice).toFixed(2)}</Text>
-                                <Text style={{ ...textStyle, width: 50, textAlign: 'right' }}>{item.total.toFixed(2)}</Text>
+                                <Text style={{ ...textStyle, width: 60, textAlign: 'right' }}>{parseFloat(item.price || item.sellingPrice).toFixed(2)}</Text>
+                                <Text style={{ ...textStyle, width: 70, textAlign: 'right' }}>{item.total.toFixed(2)}</Text>
                             </View>
                         </View>
                     );
@@ -366,13 +408,47 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
             {/* Totals */}
             <View style={{ alignItems: 'flex-end', gap: 2 }}>
                 <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
-                    <Text style={textStyle}>Items: {items.length}</Text>
+                    <Text style={textStyle}>Taxable Amount:</Text>
+                    <Text style={textStyle}>₹{totals.subtotal.toFixed(2)}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
+                    <Text style={textStyle}>Total Tax:</Text>
+                    <Text style={textStyle}>₹{totals.tax.toFixed(2)}</Text>
+                </View>
+                {totals.additionalCharges > 0 && (
+                    <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
+                        <Text style={textStyle}>Extra Charges:</Text>
+                        <Text style={textStyle}>₹{totals.additionalCharges.toFixed(2)}</Text>
+                    </View>
+                )}
+                {totals.discount > 0 && (
+                    <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
+                        <Text style={{ ...textStyle, color: '#000' }}>Bill Discount:</Text>
+                        <Text style={textStyle}>-₹{totals.discount.toFixed(2)}</Text>
+                    </View>
+                )}
+                {totals.loyaltyPointsDiscount > 0 && (
+                    <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
+                        <Text style={{ ...textStyle, color: '#10b981' }}>Loyalty Disc:</Text>
+                        <Text style={{ ...textStyle, color: '#10b981' }}>-₹{totals.loyaltyPointsDiscount.toFixed(2)}</Text>
+                    </View>
+                )}
+
+                <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#000', borderStyle: 'dashed', marginTop: 4, paddingTop: 4 }}>
+                    <Text style={boldStyle}>GRAND TOTAL:</Text>
                     <Text style={boldStyle}>₹{totals.total.toFixed(2)}</Text>
                 </View>
+
                 {totals.roundOff !== 0 && (
                     <Text style={{ ...textStyle, fontSize: 9 }}>Round Off: {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}</Text>
                 )}
             </View>
+
+            {remarks && remarks.trim() !== '' && (
+                <View style={{ marginTop: 8, padding: 8, backgroundColor: '#f9fafb', borderStyle: 'dashed', borderWidth: 1, borderColor: '#d1d5db' }}>
+                    <Text style={{ ...textStyle, fontSize: 9 }}>REMARKS: {remarks}</Text>
+                </View>
+            )}
 
             <View style={dividerStyle} />
 

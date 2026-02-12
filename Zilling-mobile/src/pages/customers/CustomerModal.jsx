@@ -150,18 +150,13 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
     }, [customer, isOpen]);
 
     const handleSaveInternal = async () => {
-        // Strict validation for "All Details Compulsory"
+        // Basic validation - only require Name and Phone
         const missing = [];
         if (!formData.fullName.trim()) missing.push('Full Name');
         if (!formData.phone.trim()) missing.push('Phone Number');
-        if (!formData.email.trim()) missing.push('Email Address');
-        if (!formData.address.street.trim()) missing.push('Street Address');
-        if (!formData.address.city.trim()) missing.push('City');
-        if (!formData.address.pincode.trim()) missing.push('Pincode');
-        if (!formData.address.state.trim()) missing.push('State');
 
         if (missing.length > 0) {
-            Alert.alert('Required Fields', `Please fill in all mandatory details:\n• ${missing.join('\n• ')}`);
+            Alert.alert('Required Fields', `Please fill in the following details:\n• ${missing.join('\n• ')}`);
             return;
         }
 
