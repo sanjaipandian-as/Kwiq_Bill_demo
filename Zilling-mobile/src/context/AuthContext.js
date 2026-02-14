@@ -29,8 +29,10 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
-  const googleLogin = async (idToken, userProfile) => {
+  const googleLogin = async (idToken, userProfile, onProgress) => {
     try {
+      if (onProgress) onProgress('Verifying credentials...', 0.1);
+
       const userData = {
         id: userProfile.id,
         email: userProfile.email,
@@ -41,6 +43,7 @@ export const AuthProvider = ({ children }) => {
       // 2. EXCHANGE: Send Google token to backend to get our own JWT
       let backendToken = idToken;
       try {
+        if (onProgress) onProgress('Connecting to server...', 0.2);
         console.log('Exchanging token with backend...');
         const authResponse = await services.auth.googleLogin(idToken);
         if (authResponse && authResponse.token) {
@@ -53,35 +56,50 @@ export const AuthProvider = ({ children }) => {
         }
       } catch (authError) {
         console.warn('Backend Auth Exchange failed:', authError.message);
-        const { Alert } = require('react-native');
-        Alert.alert(
-          "Server Connection Failed",
-          "Login successful with Google, but couldn't connect to Zilling Server. Onboarding data will only be saved to Google Drive. \n\nError: " + authError.message
-        );
+        // Alert removed to keep sync UI smooth
       }
 
       // 3. Save locally
-      await AsyncStorage.setItem('token', backendToken);
+      if (backendToken && backendToken !== idToken) {
+        await AsyncStorage.setItem('token', backendToken);
+      } else {
+        await AsyncStorage.removeItem('token');
+      }
       await AsyncStorage.setItem('user', JSON.stringify(userData));
 
       // 4. RESTORE: Fetch Snapshot & Settings from Drive (Before setting user state)
+      if (onProgress) onProgress('Restoring your backup...', 0.4);
       try {
         await restoreUserDataFromDrive(userData);
       } catch (restoreErr) {
         console.log('Restore failed:', restoreErr);
       }
 
-      // 5. Update State
-      setUser(userData);
-
-      // 6. AUTO-SYNC: Sync Down Events
+      // 6. AUTO-SYNC: Sync Down Events (Apply deltas)
       try {
-        await saveUserDetailsToDrive(userData);
+        console.log('Starting Initial Sync Down...');
+        if (onProgress) onProgress('Syncing recent transactions...', 0.6);
+
         const { SyncService } = require('../services/OneWaySyncService');
-        await SyncService.syncDown();
+
+        // Custom progress handler for the sync service
+        const syncProgressHandler = (msg) => {
+          if (onProgress) onProgress(msg, 0.7);
+        };
+
+        await SyncService.syncDown(syncProgressHandler);
+
+        if (onProgress) onProgress('Updating cloud backup...', 0.9);
+        await saveUserDetailsToDrive(userData);
       } catch (syncError) {
         console.log('Initial Sync Down failed:', syncError);
       }
+
+      // 5. Update State
+      if (onProgress) onProgress('Finalizing...', 1.0);
+      await new Promise(r => setTimeout(r, 500)); // Small delay for UX
+
+      setUser(userData);
 
       return userData;
     } catch (error) {
@@ -107,13 +125,8 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const skipLogin = () => {
-    const devUser = { id: 'dev-mode', name: 'Dev User', role: 'admin' };
-    setUser(devUser);
-  };
-
   return (
-    <AuthContext.Provider value={{ user, googleLogin, skipLogin, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, googleLogin, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

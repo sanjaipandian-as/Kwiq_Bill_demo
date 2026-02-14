@@ -8,10 +8,15 @@ import { ShieldCheck, Zap } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native'; // Added this import
 
+import DataSyncPage from './DataSyncPage';
+
 export default function LoginPage() {
-  const { googleLogin, skipLogin } = useAuth();
+  const { googleLogin } = useAuth();
   const navigation = useNavigation();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false); // New state for custom sync screen
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncMessage, setSyncMessage] = useState('Initializing...');
   const [error, setError] = useState(null);
 
   const handleGoogleLogin = async () => {
@@ -22,20 +27,29 @@ export default function LoginPage() {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const signInResult = await GoogleSignin.signIn();
 
-      // Get the data from the signInResult
       const idToken = signInResult.data?.idToken || signInResult.idToken;
       const userProfile = signInResult.data?.user || signInResult.user;
 
       if (idToken && userProfile) {
-        // Pass both to the updated local-only googleLogin
-        await googleLogin(idToken, userProfile);
+        // Switch to Sync UI immediately
+        setIsAuthenticating(false);
+        setIsSyncing(true);
 
-        // Navigation is handled automatically by AppNavigator if user state changes
-        // navigation.replace('Main', { screen: 'Dashboard' });
+        // Define progress callback
+        const onProgress = (msg, progress) => {
+          setSyncMessage(msg);
+          if (progress !== undefined) setSyncProgress(progress);
+        };
+
+        // Pass callback to googleLogin
+        await googleLogin(idToken, userProfile, onProgress);
+
+        // Navigation will happen automatically via AuthContext user state change
       } else {
         throw new Error('Failed to get user details from Google');
       }
     } catch (err) {
+      setIsSyncing(false); // Revert UI on error
       if (err.code === statusCodes.SIGN_IN_CANCELLED) {
         setError('Login cancelled.');
       } else if (err.code === statusCodes.DEVELOPER_ERROR) {
@@ -48,6 +62,15 @@ export default function LoginPage() {
       setIsAuthenticating(false);
     }
   };
+
+  if (isSyncing) {
+    return (
+      <DataSyncPage
+        progressMessage={syncMessage}
+        progressValue={syncProgress}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -95,8 +118,6 @@ export default function LoginPage() {
               </>
             )}
           </Pressable>
-
-
 
           <View style={styles.footerNote}>
             <ShieldCheck size={14} color="#64748b" />

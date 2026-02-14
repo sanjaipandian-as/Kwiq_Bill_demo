@@ -9,9 +9,8 @@ const SettingsContext = createContext();
 
 export const useSettings = () => useContext(SettingsContext);
 
-export const SettingsProvider = ({ children, user }) => { // Accept user prop
+export const SettingsProvider = ({ children, user }) => {
     const [settings, setSettings] = useState({
-        // ... (state initialization remains same)
         store: {
             name: '',
             legalName: '',
@@ -81,48 +80,70 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
     const [loading, setLoading] = useState(true);
     const [syncStatus, setSyncStatus] = useState('');
     const [lastEventSyncTime, setLastEventSyncTime] = useState(null);
-    const [isSettingsDirty, setIsSettingsDirty] = useState(false); // New: Tracks if MongoDB update is pending
+    const [isSettingsDirty, setIsSettingsDirty] = useState(false);
+    const [queueLength, setQueueLength] = useState(0);
+    const [isUploading, setIsUploading] = useState(false);
+
+    const checkQueueStatus = async () => {
+        try {
+            const { SyncService } = require('../services/OneWaySyncService');
+            const len = await SyncService.getPendingQueueLength();
+            setQueueLength(len);
+            return len;
+        } catch (e) {
+            console.log("Queue Check Error:", e);
+            return 0;
+        }
+    };
+
+    const loadSettings = async () => {
+        try {
+            const saved = await AsyncStorage.getItem('app_settings');
+            if (saved) {
+                setSettings(JSON.parse(saved));
+            }
+
+            const dirty = await AsyncStorage.getItem('settings_dirty');
+            if (dirty === 'true') setIsSettingsDirty(true);
+        } catch (error) {
+            console.error('Failed to load settings', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadSyncTime = async () => {
+        const time = await AsyncStorage.getItem('last_synced_timestamp');
+        if (time) setLastEventSyncTime(time);
+    };
 
     const syncAllData = async (isManual = true) => {
         if (isManual) setLoading(true);
         setSyncStatus('Starting sync...');
+        setIsUploading(true);
 
         try {
             const { SyncService } = require('../services/OneWaySyncService');
+
+            // 0. Update Queue Count
+            setSyncStatus('Checking pending uploads...');
+            let qLen = await checkQueueStatus();
+
             // 1. Retry pending uploads
-            setSyncStatus('Pushing local changes...');
-            await SyncService.retryQueue();
-
-            // 2. Fetch and apply new events (Drive Sync)
-            await SyncService.syncDown((msg) => setSyncStatus(msg));
-
-            // 3. Refresh Settings from MongoDB
-            setSyncStatus('Updating store profile...');
-            try {
-                const settingsRes = await services.settings.getSettings();
-                if (settingsRes.data) {
-                    setSettings(prev => {
-                        const merged = {
-                            ...prev,
-                            ...settingsRes.data,
-                            store: { ...prev.store, ...(settingsRes.data.store || {}) },
-                            tax: { ...prev.tax, ...(settingsRes.data.tax || {}) },
-                            invoice: { ...prev.invoice, ...(settingsRes.data.invoice || {}) },
-                            defaults: { ...prev.defaults, ...(settingsRes.data.defaults || {}) }
-                        };
-                        AsyncStorage.setItem('app_settings', JSON.stringify(merged));
-                        return merged;
-                    });
-                }
-            } catch (apiErr) {
-                console.log('[Sync] MongoDB Settings refresh skipped:', apiErr.message);
+            if (qLen > 0) {
+                setSyncStatus(`Pushing ${qLen} pending changes...`);
+                await SyncService.retryQueue();
+                qLen = await checkQueueStatus(); // Re-check after retry
             }
 
-            // 4. Retry Onboarding Sync if dirty
+            // 2. Fetch and apply new events (Drive Sync)
+            setSyncStatus('Checking for cloud updates...');
+            await SyncService.syncDown((msg) => setSyncStatus(msg));
+
+            // 3. Retry Onboarding Sync if dirty (MongoDB)
             const dirtyFlag = await AsyncStorage.getItem('settings_dirty');
             if (dirtyFlag === 'true') {
                 setSyncStatus('Finalizing cloud setup...');
-                console.log('[Sync] Retrying pending onboarding upload to MongoDB...');
                 const saved = await AsyncStorage.getItem('app_settings');
                 if (saved) {
                     const currentSettings = JSON.parse(saved);
@@ -136,9 +157,8 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
                         await services.settings.updateSettings(onboardingData);
                         await AsyncStorage.setItem('settings_dirty', 'false');
                         setIsSettingsDirty(false);
-                        console.log('[Sync] Pending onboarding uploaded successfully.');
                     } catch (e) {
-                        console.warn('[Sync] Onboarding retry failed (still offline?):', e.message);
+                        console.warn('[Sync] Onboarding retry failed:', e.message);
                     }
                 }
             }
@@ -150,26 +170,27 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
             return true;
         } catch (error) {
             console.error('Manual Sync Error:', error);
+            setSyncStatus('Sync Error');
             return false;
         } finally {
+            setIsUploading(false);
             if (isManual) setLoading(false);
+            checkQueueStatus();
         }
     };
 
     useEffect(() => {
         loadSettings();
         loadSyncTime();
+        checkQueueStatus();
 
-        // [Auto-Sync] Start background sync on mount
         const initAutoSync = async () => {
-            // Wait a bit for app to settle
             setTimeout(() => {
-                syncAllData(false); // Silent sync
+                syncAllData(false);
             }, 5000);
         };
         initAutoSync();
 
-        // [Auto-Sync] Schedule periodic sync (every 1 minute)
         const intervalId = setInterval(() => {
             console.log('[AutoSync] Triggering periodic sync...');
             syncAllData(false);
@@ -177,52 +198,6 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
 
         return () => clearInterval(intervalId);
     }, []);
-
-    const loadSyncTime = async () => {
-        const time = await AsyncStorage.getItem('last_synced_timestamp');
-        if (time) setLastEventSyncTime(time);
-    };
-
-    const loadSettings = async () => {
-        try {
-            // 1. Load from Local Storage (Drive/Offline)
-            const saved = await AsyncStorage.getItem('app_settings');
-            if (saved) {
-                setSettings(JSON.parse(saved));
-            }
-
-            const dirty = await AsyncStorage.getItem('settings_dirty');
-            if (dirty === 'true') setIsSettingsDirty(true);
-
-            // 2. Load from MongoDB (API) & Sync
-            try {
-                const response = await services.settings.getSettings();
-                if (response.data) {
-                    console.log('Settings synced from MongoDB');
-                    setSettings(prev => {
-                        // Merge remote settings with local defaults/overrides
-                        // We prioritize remote data for specific sections like 'store'
-                        const merged = {
-                            ...prev,
-                            ...response.data,
-                            store: { ...prev.store, ...(response.data.store || {}) },
-                            tax: { ...prev.tax, ...(response.data.tax || {}) },
-                            invoice: { ...prev.invoice, ...(response.data.invoice || {}) },
-                            defaults: { ...prev.defaults, ...(response.data.defaults || {}) }
-                        };
-                        AsyncStorage.setItem('app_settings', JSON.stringify(merged));
-                        return merged;
-                    });
-                }
-            } catch (apiError) {
-                console.log('MongoDB Settings Sync skipped (Offline/Auth):', apiError.message);
-            }
-        } catch (error) {
-            console.error('Failed to load settings', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const updateSettings = (section, updates) => {
         setSettings(prev => {
@@ -233,10 +208,8 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
                     ...updates
                 }
             };
-            // Save to Local Drive
             AsyncStorage.setItem('app_settings', JSON.stringify(newSettings));
 
-            // Save to MongoDB (Only User & Store details)
             const onboardingData = {
                 user: newSettings.user,
                 store: newSettings.store,
@@ -252,7 +225,6 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
                 setIsSettingsDirty(true);
             });
 
-            // Background: Google Drive Sync
             if (user && user.id) {
                 const { syncSettingsToDrive } = require('../services/googleDriveservices');
                 syncSettingsToDrive(user, newSettings)
@@ -267,38 +239,32 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
     const saveFullSettings = async (fullSettings) => {
         try {
             const updated = { ...fullSettings, lastUpdatedAt: new Date() };
-
-            // 1. Optimistic UI Update
             setSettings(updated);
-
-            // 2. Persist to Local Storage (Fast & Critical)
             await AsyncStorage.setItem('app_settings', JSON.stringify(updated));
 
-            // 3. Trigger Background Processes (Non-blocking)
-            // These run independently so the UI doesn't freeze waiting for network
+            let driveSuccess = false;
+            if (user && user.id) {
+                try {
+                    const { syncSettingsToDrive } = require('../services/googleDriveservices');
+                    driveSuccess = await syncSettingsToDrive(user, updated);
+                    if (driveSuccess) console.log('Background: Drive Sync Success');
+                    else console.warn('Background: Drive Sync Failed');
+                } catch (err) {
+                    console.error('Background: Drive Sync Error:', err);
+                }
+            }
 
-            // Background: MongoDB Sync
-            services.settings.updateSettings(updated)
-                .then(() => console.log('Background: Settings saved to MongoDB'))
-                .catch(err => console.warn('Background: MongoDB Sync Warning:', err.message));
+            try {
+                await services.settings.updateSettings(updated);
+                console.log('Background: Settings saved to MongoDB');
+            } catch (err) {
+                console.warn('Background: MongoDB Sync Warning:', err.message);
+            }
 
-            // Background: File System AutoSave
             setTimeout(() => {
                 triggerAutoSave().catch(e => console.warn('AutoSave Warning:', e));
             }, 100);
 
-            // Background: Google Drive Sync
-            if (user && user.id) {
-                const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                syncSettingsToDrive(user, updated)
-                    .then(success => {
-                        if (success) console.log('Background: Drive Sync Success');
-                        else console.warn('Background: Drive Sync Failed');
-                    })
-                    .catch(err => console.error('Background: Drive Sync Error:', err));
-            }
-
-            // Return immediately to allow UI to show "Success"
             return true;
         } catch (error) {
             console.error('Failed to save full settings locally', error);
@@ -307,19 +273,28 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
     };
 
     const forceResync = async () => {
+        const currentQueueLen = await checkQueueStatus();
+        if (currentQueueLen > 0) {
+            Alert.alert("Cannot Re-sync Now", `You have ${currentQueueLen} items pending upload. Please wait for them to finish uploading to avoid data loss.`);
+            return false;
+        }
+
         setLoading(true);
         setSyncStatus('Resetting sync state...');
+        setIsUploading(true);
+
         try {
             const { SyncService } = require('../services/OneWaySyncService');
             console.log('[SettingsContext] Forcing Re-sync...');
             await SyncService.resetSyncState();
-            await syncAllData(false); // Reuse existing sync logic
+            await syncAllData(false);
             return true;
         } catch (error) {
             console.error('Force Resync Error:', error);
             setSyncStatus('Error: ' + error.message);
             return false;
         } finally {
+            setIsUploading(false);
             setLoading(false);
         }
     };
@@ -348,9 +323,6 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
             const { syncUserDataToDrive } = require('../services/googleDriveservices');
 
             const allData = await fetchAllTableData();
-            // syncUserDataToDrive expects settings to be part of allData or handled separately
-            // In our fetchAllTableData, it usually returns { products, customers, etc. }
-            // Let's ensure settings is included
             allData.settings = [settings];
 
             const success = await syncUserDataToDrive(user, allData);
@@ -374,7 +346,10 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
             forceResync,
             lastEventSyncTime,
             syncStatus,
-            loading
+            loading,
+            queueLength,
+            isUploading,
+            checkQueueStatus
         }}>
             {children}
         </SettingsContext.Provider>

@@ -110,34 +110,70 @@ export const AdditionalChargesModal = ({ isOpen, onClose, onApply, initialValue 
     );
 };
 
-export const LoyaltyPointsModal = ({ isOpen, onClose, onApply, availablePoints = 0 }) => {
+export const LoyaltyPointsModal = ({ isOpen, onClose, onApply, availablePoints = 0, subtotal = 0 }) => {
     const [pointsToRedeem, setPointsToRedeem] = useState('');
-    const conversionRate = 1.0;
+    const conversionRate = 0.1; // 100 points = ₹10
+    const minRedeem = 100;
+    const multipleOf = 100;
+    const maxRedeemPercent = 0.5;
 
     useEffect(() => {
         if (isOpen) setPointsToRedeem('');
     }, [isOpen]);
 
+    const maxAllowedValue = subtotal * maxRedeemPercent;
+    const maxAllowedPoints = Math.floor(maxAllowedValue / conversionRate);
+
     const handleSubmit = () => {
-        const redeeem = parseInt(pointsToRedeem) || 0;
-        if (redeeem > availablePoints) {
-            alert(`Insufficient balance: ${availablePoints} pts available`);
+        const redeemValue = parseInt(pointsToRedeem) || 0;
+
+        if (redeemValue === 0) {
+            onApply(0, 0);
+            onClose();
             return;
         }
-        onApply(redeeem * conversionRate);
+
+        if (redeemValue < minRedeem) {
+            alert(`Minimum redemption is ${minRedeem} points.`);
+            return;
+        }
+
+        if (redeemValue % multipleOf !== 0) {
+            alert(`Points must be redeemed in multiples of ${multipleOf} (e.g., 100, 200, 300...).`);
+            return;
+        }
+
+        if (redeemValue > availablePoints) {
+            alert(`Insufficient balance: ${availablePoints} points available.`);
+            return;
+        }
+
+        const discountValue = redeemValue * conversionRate;
+        if (discountValue > maxAllowedValue) {
+            alert(`Maximum loyalty discount allowed is ₹${maxAllowedValue.toFixed(0)} (50% of subtotal). You can redeem up to ${maxAllowedPoints} points.`);
+            return;
+        }
+
+        onApply(discountValue, redeemValue);
         onClose();
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Loyalty Reward">
+        <Modal isOpen={isOpen} onClose={onClose} title="Redeem Loyalty">
             <View style={styles.container}>
-                <View style={styles.loyaltyHeader}>
-                    <Text style={styles.loyaltyTitle}>Available Balance</Text>
-                    <Text style={styles.loyaltyValue}>{availablePoints} pts</Text>
+                <View style={[styles.loyaltyHeader, { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }]}>
+                    <View>
+                        <Text style={[styles.loyaltyTitle, { color: '#64748b' }]}>Points Balance</Text>
+                        <Text style={[styles.loyaltyValue, { color: '#000' }]}>{availablePoints} pts</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[styles.loyaltyTitle, { color: '#64748b' }]}>Max Redeemable</Text>
+                        <Text style={[styles.loyaltyValue, { color: '#000' }]}>{Math.min(availablePoints, maxAllowedPoints)} pts</Text>
+                    </View>
                 </View>
 
                 <View style={styles.inputSection}>
-                    <Text style={styles.labelTitle}>POINTS TO REDEEM</Text>
+                    <Text style={styles.labelTitle}>POINTS TO REDEEM (Multiples of 100)</Text>
                     <Input
                         keyboardType="numeric"
                         value={pointsToRedeem}
@@ -145,13 +181,19 @@ export const LoyaltyPointsModal = ({ isOpen, onClose, onApply, availablePoints =
                         style={styles.premiumInput}
                         placeholder="0"
                     />
-                    <Text style={styles.rewardHint}>
-                        Savings Value: <Text style={{ color: '#000' }}>₹{((parseFloat(pointsToRedeem) || 0) * conversionRate).toFixed(0)}</Text>
-                    </Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                        <Text style={styles.rewardHint}>100 pts = ₹10</Text>
+                        <Text style={[styles.rewardHint, { color: '#000' }]}>
+                            Discount: ₹{((parseFloat(pointsToRedeem) || 0) * conversionRate).toFixed(0)}
+                        </Text>
+                    </View>
                 </View>
 
-                <TouchableOpacity style={styles.actionBtn} onPress={handleSubmit}>
-                    <Text style={styles.actionBtnText}>Redeem Reward</Text>
+                <TouchableOpacity
+                    style={[styles.actionBtn, { backgroundColor: '#000' }]}
+                    onPress={handleSubmit}
+                >
+                    <Text style={styles.actionBtnText}>Redeem Points</Text>
                 </TouchableOpacity>
             </View>
         </Modal>
@@ -222,9 +264,9 @@ const styles = StyleSheet.create({
     chip: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1.5, borderColor: '#f1f5f9' },
     chipText: { fontSize: 13, fontWeight: '800', color: '#475569' },
 
-    loyaltyHeader: { backgroundColor: '#f0fdf4', padding: 24, borderRadius: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#dcfce7' },
-    loyaltyTitle: { fontSize: 14, fontWeight: '700', color: '#166534' },
-    loyaltyValue: { fontSize: 20, fontWeight: '900', color: '#15803d' },
+    loyaltyHeader: { backgroundColor: '#f8fafc', padding: 24, borderRadius: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0' },
+    loyaltyTitle: { fontSize: 14, fontWeight: '700', color: '#64748b' },
+    loyaltyValue: { fontSize: 20, fontWeight: '900', color: '#000' },
     rewardHint: { textAlign: 'right', fontSize: 12, fontWeight: '800', color: '#94a3b8', marginTop: 4 },
 
     actionBtn: { backgroundColor: '#000', height: 60, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginTop: 8 },

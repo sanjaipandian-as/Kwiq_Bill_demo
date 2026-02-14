@@ -7,12 +7,14 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   FlatList,
   ActivityIndicator,
   Alert,
   StatusBar,
   Platform,
-  TextInput
+  TextInput,
+  Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -21,31 +23,34 @@ import {
   Search,
   Filter,
   TrendingUp,
-  AlertCircle,
-  Award,
   ChevronLeft,
-  ChevronRight,
   ChevronDown,
   History,
   UserCog,
-  Phone,
-  Mail,
-  User,
   Star,
-  CircleDollarSign,
-  CalendarDays,
+  IndianRupee,
   Trash2,
-  Edit
+  X,
+  Trophy,
+  Clock,
+  LayoutGrid,
+  ArrowRight
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useCustomers } from '../../context/CustomerContext';
 import { useTransactions } from '../../context/TransactionContext';
 import CustomerModal from './CustomerModal';
 
+import { useToast } from '../../context/ToastContext';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
+
+const { width } = Dimensions.get('window');
+
 export default function CustomersPage({ route }) {
   const navigation = useNavigation();
   const { customers, loading, refreshCustomers, addCustomer, updateCustomer, deleteCustomer } = useCustomers();
   const { transactions } = useTransactions();
+  const { showToast } = useToast();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -54,6 +59,15 @@ export default function CustomersPage({ route }) {
   const [filterType, setFilterType] = useState('All');
   const [expandedId, setExpandedId] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
+
+  // Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => { },
+    variant: 'danger'
+  });
 
   useEffect(() => {
     refreshCustomers();
@@ -81,7 +95,6 @@ export default function CustomersPage({ route }) {
   const getCustomerStats = useCallback((customerId) => {
     if (!transactions || !customerId) return { totalSpent: 0, totalVisits: 0, due: 0, lastVisit: null };
 
-    // Robust ID matching (number vs string)
     const customerTx = transactions.filter(t =>
       t.customerId === customerId ||
       String(t.customerId) === String(customerId)
@@ -90,11 +103,11 @@ export default function CustomersPage({ route }) {
     const totalSpent = customerTx.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0);
     const totalVisits = customerTx.length;
 
-    // Calculate Due based on remaining balance
     const due = customerTx.reduce((sum, t) => {
       const total = parseFloat(t.total || 0);
       const received = parseFloat(t.amountReceived || 0);
-      return sum + Math.max(0, total - received);
+      const d = Math.max(0, total - received);
+      return sum + d;
     }, 0);
 
     const lastVisit = customerTx.length > 0 ? customerTx[0].date : null;
@@ -112,8 +125,8 @@ export default function CustomersPage({ route }) {
     });
     const vips = (customers || []).filter(c => (c.tags || '').includes('VIP')).length;
     return {
-      revenue: revenue > 1000 ? `₹${(revenue / 1000).toFixed(1)}k` : `₹${revenue.toFixed(0)}`,
-      due: due > 1000 ? `₹${(due / 1000).toFixed(1)}k` : `₹${due.toFixed(0)}`,
+      revenue: revenue.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+      due: due.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
       vips,
       total: customers.length
     };
@@ -152,241 +165,227 @@ export default function CustomersPage({ route }) {
     try {
       if (selectedCustomer) {
         await updateCustomer(selectedCustomer.id, data);
+        showToast("Customer updated successfully", "success");
       } else {
         await addCustomer(data);
+        showToast("Customer added successfully", "success");
       }
       setIsModalOpen(false);
     } catch (error) {
-      Alert.alert('Error', 'Failed to save customer');
+      showToast("Failed to save customer", "error");
     }
   };
 
   const handleDelete = (id) => {
-    Alert.alert('Delete Customer', 'Are you sure? This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          try { await deleteCustomer(id); setIsModalOpen(false); } catch (err) { Alert.alert('Error', 'Failed to delete'); }
+    const customer = customers.find(c => c.id === id);
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete Customer?",
+      message: `Are you sure you want to remove ${customer?.name || 'this customer'}?\nThis will permanently delete their profile and loyalty points.`,
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteCustomer(id);
+          setIsModalOpen(false);
+          showToast("Customer deleted successfully", "success");
+        } catch (err) {
+          showToast("Failed to delete customer", "error");
         }
       }
-    ]);
+    });
   };
 
   const renderCustomerItem = ({ item }) => {
     const isExpanded = expandedId === item.id;
     const isVIP = (item.tags || '').includes('VIP');
+    const points = item.loyaltyPoints || 0;
 
     return (
       <TouchableOpacity
-        style={[styles.proCard, isExpanded && styles.proCardExpanded]}
+        style={[styles.premiumCard, isExpanded && styles.premiumCardActive]}
         activeOpacity={0.9}
         onPress={() => isExpanded ? setExpandedId(null) : handleEdit(item)}
       >
-        <View style={styles.cardMainContent}>
-          <View style={styles.cardHeader}>
-            <View style={[
-              styles.avatarBox,
-              {
-                backgroundColor: item.type === 'Business' ? '#f0f9ff' : '#f0fdf4',
-                borderColor: item.type === 'Business' ? '#bae6fd' : '#bbf7d0'
-              }
-            ]}>
-              <Text style={[styles.avatarLabel, { color: item.type === 'Business' ? '#0369a1' : '#15803d' }]}>
-                {(item.name || 'U').charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={styles.titleRow}>
-                <Text style={styles.proName} numberOfLines={1}>{item.name}</Text>
-                {isVIP && (
-                  <View style={styles.vipBadge}>
-                    <Star size={12} color="#f59e0b" fill="#f59e0b" />
-                    <Text style={styles.vipText}>VIP</Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.tagRow}>
-                <View style={styles.typeBadge}>
-                  <Users size={12} color="#64748b" />
-                  <Text style={styles.typeText}>{item.type ? item.type.toUpperCase() : 'INDIVIDUAL'}</Text>
+        <View style={styles.cardHeader}>
+          <View style={[styles.avatarContainer, { backgroundColor: '#f8fafc' }]}>
+            <Text style={styles.avatarText}>{(item.name || 'U').charAt(0).toUpperCase()}</Text>
+          </View>
+
+          <View style={styles.headerCore}>
+            <View style={styles.nameRow}>
+              <Text style={styles.customerName} numberOfLines={1}>{item.name}</Text>
+              {isVIP && (
+                <View style={styles.vipStripe}>
+                  <Star size={10} color="#000" fill="#000" />
+                  <Text style={styles.vipText}>VIP</Text>
                 </View>
-                {item.phone && (
-                  <View style={styles.phoneBadge}>
-                    <Phone size={12} color="#94a3b8" />
-                    <Text style={styles.phoneText}>{item.phone}</Text>
-                  </View>
-                )}
-              </View>
+              )}
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.phoneText}>{item.phone || 'No phone'}</Text>
+              <View style={styles.dot} />
+              <Text style={styles.typeText}>{item.type || 'Individual'}</Text>
             </View>
           </View>
 
-          <View style={styles.metricsGrid}>
-            <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>Total Revenue</Text>
-              <Text style={styles.metricValue}>₹{(item.totalSpent || 0).toLocaleString()}</Text>
-            </View>
-            <View style={styles.metricDivider} />
-            <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>Pending Due</Text>
-              <View style={styles.dueRow}>
-                <Text style={[styles.metricValue, item.due > 0 ? styles.redText : styles.greenText]}>
-                  ₹{(item.due || 0).toLocaleString()}
-                </Text>
-                {item.due > 0 && <AlertCircle size={16} color="#ef4444" />}
-              </View>
-            </View>
+          <View style={styles.loyaltyBadge}>
+            <Trophy size={14} color="#000" strokeWidth={2.5} />
+            <Text style={styles.loyaltyPointsText}>{points}</Text>
+            <Text style={styles.loyaltyLabel}>PTS</Text>
+          </View>
+        </View>
+
+        <View style={styles.cardStatsGrid}>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>TOTAL SPENT</Text>
+            <Text style={styles.statValue}>₹{(item.totalSpent || 0).toLocaleString()}</Text>
+          </View>
+          <View style={styles.statSeparator} />
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>OUTSTANDING</Text>
+            <Text style={[styles.statValue, item.due > 0 && styles.redText]}>
+              ₹{(item.due || 0).toLocaleString()}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.cardFooter}>
+          <View style={styles.visitBox}>
+            <Clock size={12} color="#94a3b8" />
+            <Text style={styles.visitText}>{item.totalVisits || 0} Visits</Text>
           </View>
 
-          <View style={styles.cardFooter}>
-            <View style={styles.visitStat}>
-              <CalendarDays size={14} color="#94a3b8" />
-              <Text style={styles.visitText}>{item.totalVisits || 0} VISITS COMPLETED</Text>
-            </View>
-
+          <View style={styles.footerActions}>
             <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation();
-                setExpandedId(isExpanded ? null : item.id);
-              }}
-              style={[styles.expandBtn, isExpanded && styles.expandBtnActive]}
+              onPress={(e) => { e.stopPropagation(); handleEdit(item, 'history'); }}
+              style={styles.historyBtn}
             >
-              <ChevronDown
-                size={24}
-                color={isExpanded ? "#fff" : "#000"}
-                strokeWidth={2.5}
-                style={{ transform: [{ rotate: isExpanded ? '180deg' : '0deg' }] }}
-              />
+              <History size={16} color="#000" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : item.id); }}
+              style={[styles.expandToggle, isExpanded && styles.expandToggleActive]}
+            >
+              <ChevronDown size={20} color={isExpanded ? "#fff" : "#000"} style={{ transform: [{ rotate: isExpanded ? '180deg' : '0deg' }] }} />
             </TouchableOpacity>
           </View>
-
-          {isExpanded && (
-            <View style={styles.expandedActions}>
-              <TouchableOpacity
-                style={styles.miniAction}
-                onPress={() => handleEdit(item, 'details')}
-              >
-                <UserCog size={18} color="#0f172a" />
-                <Text style={styles.miniActionText}>EDIT PROFILE</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.miniAction}
-                onPress={() => handleEdit(item, 'history')}
-              >
-                <History size={18} color="#0f172a" />
-                <Text style={styles.miniActionText}>VIEW HISTORY</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={() => handleDelete(item.id)}
-              >
-                <Trash2 size={18} color="#ef4444" />
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
+
+        {isExpanded && (
+          <View style={styles.actionDrawer}>
+            <TouchableOpacity style={styles.drawerBtn} onPress={() => handleEdit(item, 'details')}>
+              <UserCog size={18} color="#000" />
+              <Text style={styles.drawerBtnText}>Manage Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.drawerBtn, styles.deleteAction]} onPress={() => handleDelete(item.id)}>
+              <Trash2 size={18} color="#ef4444" />
+            </TouchableOpacity>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
 
   return (
-    <View style={styles.mainContainer}>
-      <SafeAreaView edges={['top']} style={styles.safeArea}>
-        <View style={styles.mainHeader}>
-          <View>
-            <Text style={styles.mainTitle}>Customers</Text>
-            <Text style={styles.subTitle}>{filteredCustomers.length} Verified Contacts</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
-              <ChevronLeft color="#fff" size={24} strokeWidth={2.5} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.addBtn} onPress={handleAddNew}>
-              <UserPlus color="#fff" size={24} strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-        </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-        <View style={styles.searchSection}>
-          <View style={styles.searchBar}>
-            <Search size={22} color="rgba(255,255,255,0.4)" strokeWidth={2.5} />
-            <TextInput
-              placeholder="Search by name or phone..."
-              value={searchTerm}
-              onChangeText={setSearchTerm}
-              style={styles.searchInput}
-              placeholderTextColor="rgba(255,255,255,0.3)"
-            />
-            {searchTerm !== '' && (
-              <TouchableOpacity onPress={() => setSearchTerm('')}>
-                <X size={20} color="rgba(255,255,255,0.4)" />
+      {/* Curved Mesh Header Wrapper */}
+      <View style={styles.headerContainer}>
+        <LinearGradient
+          colors={['#000', '#1a1a1a']}
+          style={styles.headerGradient}
+        >
+          <SafeAreaView edges={['top']}>
+            <View style={styles.topNav}>
+              <Pressable onPress={() => navigation.goBack()} style={styles.navIcon}>
+                <ChevronLeft size={24} color="#fff" />
+              </Pressable>
+              <View style={styles.navTitleBox}>
+                <Text style={styles.navTitle}>Customers</Text>
+                <Text style={styles.navSubtitle}>{customers.length} Contacts Saved</Text>
+              </View>
+              <TouchableOpacity style={styles.primaryAddBtn} onPress={handleAddNew}>
+                <UserPlus size={22} color="#000" strokeWidth={2.5} />
               </TouchableOpacity>
-            )}
-          </View>
-          <TouchableOpacity
-            style={[styles.filterAction, showFilters && styles.filterActionActive]}
-            onPress={() => setShowFilters(!showFilters)}
-          >
-            <Filter size={22} color={showFilters ? "#000" : "#fff"} strokeWidth={2.5} />
-          </TouchableOpacity>
-        </View>
+            </View>
 
-        {showFilters && (
-          <View style={styles.filtersWrapper}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-              {['All', 'Individual', 'Business', 'VIP'].map(f => (
-                <TouchableOpacity
-                  key={f}
-                  onPress={() => setFilterType(f)}
-                  style={[styles.filterChip, filterType === f && styles.filterChipActive]}
-                >
-                  <Text style={[styles.filterChipText, filterType === f && styles.filterChipTextActive]}>{f.toUpperCase()}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-      </SafeAreaView>
+            <View style={styles.searchAndFilter}>
+              <View style={styles.searchWrapper}>
+                <Search size={20} color="rgba(255,255,255,0.4)" />
+                <TextInput
+                  placeholder="Search by name or mobile..."
+                  value={searchTerm}
+                  onChangeText={setSearchTerm}
+                  style={styles.searchField}
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                />
+                {searchTerm !== '' && (
+                  <TouchableOpacity onPress={() => setSearchTerm('')}>
+                    <X size={18} color="rgba(255,255,255,0.4)" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity
+                style={[styles.filterBtn, showFilters && styles.filterBtnActive]}
+                onPress={() => setShowFilters(!showFilters)}
+              >
+                <Filter size={20} color={showFilters ? "#000" : "#fff"} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.heroCard}>
+              <View style={styles.heroHeader}>
+                <View>
+                  <Text style={styles.heroLabel}>Portfolio Value</Text>
+                  <Text style={styles.heroAmount}>₹{stats.revenue}</Text>
+                </View>
+                <View style={styles.heroIconBox}>
+                  <IndianRupee size={24} color="#000" />
+                </View>
+              </View>
+              <View style={styles.heroFooter}>
+                <View style={styles.heroStatItem}>
+                  <Text style={styles.heroStatLabel}>PENDING DUE</Text>
+                  <Text style={styles.heroStatValue}>₹{stats.due}</Text>
+                </View>
+                <View style={styles.heroStatDivider} />
+                <View style={styles.heroStatItem}>
+                  <Text style={styles.heroStatLabel}>VIP CLIENTS</Text>
+                  <Text style={styles.heroStatValue}>{stats.vips}</Text>
+                </View>
+              </View>
+            </View>
+          </SafeAreaView>
+        </LinearGradient>
+      </View>
 
       <FlatList
         data={filteredCustomers}
         keyExtractor={item => item.id}
         renderItem={renderCustomerItem}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={styles.listPadding}
         showsVerticalScrollIndicator={false}
         refreshing={loading}
         onRefresh={refreshCustomers}
         ListHeaderComponent={() => (
-          <View style={styles.statsSection}>
-            <View style={styles.featuredStatCard}>
-              <View style={[styles.statIconBox, { backgroundColor: '#f0fdfa', marginBottom: 0 }]}>
-                <CircleDollarSign size={24} color="#14b8a6" strokeWidth={2.5} />
-              </View>
-              <View style={{ marginLeft: 16, flex: 1 }}>
-                <Text style={styles.statCardLabel}>Portfolio Value</Text>
-                <Text style={[styles.featuredStatValue, { color: '#0f766e' }]}>{stats.revenue}</Text>
-              </View>
-              <View style={styles.trendBadge}>
-                <TrendingUp size={14} color="#14b8a6" />
-                <Text style={styles.trendText}>+12.5%</Text>
-              </View>
-            </View>
-
-            <View style={styles.proStatsGrid}>
-              <View style={styles.statCard}>
-                <View style={[styles.statIconBox, { backgroundColor: '#fef2f2' }]}>
-                  <AlertCircle size={22} color="#ef4444" strokeWidth={2.5} />
-                </View>
-                <Text style={styles.statCardLabel}>Outstandings</Text>
-                <Text style={[styles.statCardValue, { color: '#b91c1c' }]}>{stats.due}</Text>
-              </View>
-
-              <View style={styles.statCard}>
-                <View style={[styles.statIconBox, { backgroundColor: '#fffbeb' }]}>
-                  <Award size={22} color="#f59e0b" strokeWidth={2.5} />
-                </View>
-                <Text style={styles.statCardLabel}>VIP Portfolio</Text>
-                <Text style={[styles.statCardValue, { color: '#b45309' }]}>{stats.vips}</Text>
-              </View>
+          <View style={styles.dashboard}>
+            {showFilters && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
+                {['All', 'Individual', 'Business', 'VIP'].map(f => (
+                  <TouchableOpacity
+                    key={f}
+                    onPress={() => setFilterType(f)}
+                    style={[styles.filterChip, filterType === f && styles.filterChipOn]}
+                  >
+                    <Text style={[styles.filterChipLabel, filterType === f && styles.filterChipLabelOn]}>{f}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+            <View style={styles.sectionHeadRow}>
+              <Text style={styles.sectionTitleHeader}>Customer Directory</Text>
+              <LayoutGrid size={14} color="#cbd5e1" />
             </View>
           </View>
         )}
@@ -394,13 +393,10 @@ export default function CustomersPage({ route }) {
           loading ? (
             <ActivityIndicator size="large" color="#000" style={{ marginTop: 60 }} />
           ) : (
-            <View style={styles.emptyStateContainer}>
-              <Users size={64} color="#f1f5f9" strokeWidth={1} />
-              <Text style={styles.emptyTitle}>NO CUSTOMERS FOUND</Text>
-              <Text style={styles.emptyDesc}>Start growing your relationship with your customers today.</Text>
-              <TouchableOpacity style={styles.emptyBtn} onPress={handleAddNew}>
-                <Text style={styles.emptyBtnText}>ADD FIRST CUSTOMER</Text>
-              </TouchableOpacity>
+            <View style={styles.emptyState}>
+              <Users size={60} color="#cbd5e1" strokeWidth={1} />
+              <Text style={styles.emptyTitle}>No Customers Found</Text>
+              <Text style={styles.emptyDesc}>Try searching for someone else or add a new customer.</Text>
             </View>
           )
         }
@@ -414,120 +410,110 @@ export default function CustomersPage({ route }) {
         onSave={handleSave}
         onDelete={() => handleDelete(selectedCustomer.id)}
       />
+
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        onConfirm={confirmModal.onConfirm}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mainContainer: { flex: 1, backgroundColor: '#f8fafc' },
-  safeArea: { backgroundColor: '#000', borderBottomLeftRadius: 40, borderBottomRightRadius: 40, paddingBottom: 24 },
-  mainHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 20 },
-  mainTitle: { fontSize: 34, fontWeight: '900', color: '#fff', letterSpacing: -1.5 },
-  subTitle: { fontSize: 13, color: 'rgba(255,255,255,0.4)', fontWeight: '800', marginTop: -2, letterSpacing: 0.5, textTransform: 'uppercase' },
-  headerActions: { flexDirection: 'row', gap: 12 },
-  iconBtn: { width: 50, height: 50, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.12)' },
-  addBtn: { width: 50, height: 50, borderRadius: 18, backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center', shadowColor: '#10b981', shadowOpacity: 0.4, shadowRadius: 12, elevation: 8 },
+  container: { flex: 1, backgroundColor: '#fff' },
 
-  searchSection: { flexDirection: 'row', gap: 12, paddingHorizontal: 24, marginTop: 8 },
-  searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.07)', height: 56, borderRadius: 20, paddingHorizontal: 18, gap: 14, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.08)' },
-  searchInput: { flex: 1, fontSize: 16, fontWeight: '700', color: '#fff' },
-  filterAction: { width: 56, height: 56, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.07)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.08)' },
-  filterActionActive: { backgroundColor: '#fff', borderColor: '#fff' },
+  headerContainer: { backgroundColor: '#fff' },
+  headerGradient: { borderBottomLeftRadius: 32, borderBottomRightRadius: 32, paddingBottom: 5 },
 
-  filtersWrapper: { marginTop: 20 },
-  filterScroll: { paddingHorizontal: 24, gap: 10 },
-  filterChip: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.07)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.08)' },
-  filterChipActive: { backgroundColor: '#fff', borderColor: '#fff' },
-  filterChipText: { fontSize: 11, fontWeight: '900', color: 'rgba(255,255,255,0.4)', letterSpacing: 0.8 },
-  filterChipTextActive: { color: '#000' },
+  topNav: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingTop: 12, paddingBottom: 10, gap: 15 },
+  navIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+  navTitleBox: { flex: 1 },
+  navTitle: { fontSize: 22, fontWeight: '900', color: '#fff', letterSpacing: -0.8 },
+  navSubtitle: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.4)', marginTop: -2 },
+  primaryAddBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
 
-  statsSection: { paddingHorizontal: 24, marginTop: 24, marginBottom: 32, gap: 14 },
-  featuredStatCard: { flexDirection: 'row', alignItems: 'center', padding: 24, borderRadius: 32, borderWidth: 1.5, backgroundColor: '#fff', borderColor: '#f1f5f9', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 20, elevation: 3 },
-  featuredStatValue: { fontSize: 28, fontWeight: '900', letterSpacing: -1.2, marginTop: 2 },
-  trendBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f0fdfa', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, alignSelf: 'flex-start' },
-  trendText: { fontSize: 10, fontWeight: '900', color: '#14b8a6' },
+  searchAndFilter: { flexDirection: 'row', paddingHorizontal: 24, gap: 10, paddingBottom: 8 },
+  searchWrapper: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 14, paddingHorizontal: 12, gap: 8, height: 46 },
+  searchField: { flex: 1, fontSize: 14, fontWeight: '700', color: '#fff' },
+  filterBtn: { width: 46, height: 46, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  filterBtnActive: { backgroundColor: '#fff' },
 
-  proStatsGrid: { flexDirection: 'row', gap: 14 },
-  statCard: { flex: 1, padding: 22, borderRadius: 32, borderWidth: 1.5, backgroundColor: '#fff', borderColor: '#f1f5f9', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 15, elevation: 2 },
-  statIconBox: { width: 44, height: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
-  statCardLabel: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1, marginBottom: 2, textTransform: 'uppercase' },
-  statCardValue: { fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
+  heroCard: {
+    marginHorizontal: 24,
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 18,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 15, elevation: 6,
+    marginVertical: 14
+  },
+  heroHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  heroLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 },
+  heroAmount: { fontSize: 28, fontWeight: '900', color: '#000', marginTop: 2 },
+  heroIconBox: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+  heroFooter: { flexDirection: 'row', backgroundColor: '#f8fafc', borderRadius: 16, padding: 14, alignItems: 'center' },
+  heroStatItem: { flex: 1 },
+  heroStatLabel: { fontSize: 8, fontWeight: '800', color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' },
+  heroStatValue: { fontSize: 14, fontWeight: '900', color: '#000' },
+  heroStatDivider: { width: 1, height: 16, backgroundColor: '#e2e8f0', marginHorizontal: 12 },
 
-  listContent: { paddingBottom: 120 },
-  proCard: { backgroundColor: '#fff', marginHorizontal: 24, borderRadius: 32, marginBottom: 16, borderWidth: 1.5, borderColor: '#f1f5f9', shadowColor: '#000', shadowOpacity: 0.02, shadowRadius: 15, elevation: 1, overflow: 'hidden' },
-  proCardExpanded: { borderColor: '#10b981', backgroundColor: '#fff' },
-  cardMainContent: { padding: 20 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 18 },
-  avatarBox: { width: 58, height: 58, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
-  avatarLabel: { fontSize: 20, fontWeight: '900' },
-  proName: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -0.8 },
-  titleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  vipBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fffbeb', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: '#fef3c7' },
-  vipText: { fontSize: 11, fontWeight: '900', color: '#d97706' },
-  tagRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
-  typeBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: '#f1f5f9' },
-  typeText: { fontSize: 10, fontWeight: '900', color: '#64748b', letterSpacing: 0.5 },
-  phoneBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  chipScroll: { paddingHorizontal: 24, paddingVertical: 12, gap: 8 },
+  filterChip: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9' },
+  filterChipOn: { backgroundColor: '#000', borderColor: '#000' },
+  filterChipLabel: { fontSize: 11, fontWeight: '800', color: '#64748b' },
+  filterChipLabelOn: { color: '#fff' },
+
+  listPadding: { paddingBottom: 50 },
+  dashboard: { paddingBottom: 10 },
+
+  sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 24, marginBottom: 16, marginTop: 4 },
+  sectionTitleHeader: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1.2, textTransform: 'uppercase' },
+
+  premiumCard: { backgroundColor: '#fff', marginHorizontal: 24, borderRadius: 24, marginBottom: 16, borderWidth: 1, borderColor: '#f1f5f9', overflow: 'hidden' },
+  premiumCardActive: { borderColor: '#000', borderWidth: 1.2 },
+
+  cardHeader: { flexDirection: 'row', alignItems: 'center', padding: 18, gap: 14 },
+  avatarContainer: { width: 54, height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+  avatarText: { fontSize: 20, fontWeight: '900', color: '#000' },
+  headerCore: { flex: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  customerName: { fontSize: 18, fontWeight: '900', color: '#000' },
+  vipStripe: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#000', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  vipText: { fontSize: 10, fontWeight: '900', color: '#fff' },
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   phoneText: { fontSize: 13, fontWeight: '700', color: '#94a3b8' },
+  dot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#cbd5e1', marginHorizontal: 8 },
+  typeText: { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' },
 
-  metricsGrid: { flexDirection: 'row', backgroundColor: '#f8fafc', borderRadius: 24, marginTop: 20, padding: 18, gap: 12 },
-  metricItem: { flex: 1, gap: 4 },
-  metricDivider: { width: 1.5, backgroundColor: '#f1f5f9', marginVertical: 4 },
-  metricLabel: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.8, textTransform: 'uppercase' },
-  metricValue: { fontSize: 18, fontWeight: '900', color: '#000' },
-  dueRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  loyaltyBadge: { alignItems: 'center', backgroundColor: '#f8fafc', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, minWidth: 55, borderWidth: 1, borderColor: '#f1f5f9' },
+  loyaltyPointsText: { fontSize: 16, fontWeight: '900', color: '#000', marginTop: 2 },
+  loyaltyLabel: { fontSize: 8, fontWeight: '900', color: '#64748b' },
 
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, paddingTop: 16, borderTopWidth: 1.5, borderTopColor: '#f1f5f9' },
-  visitStat: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  visitText: { fontSize: 11, fontWeight: '900', color: '#64748b', letterSpacing: 0.5 },
-  expandBtn: { width: 48, height: 48, borderRadius: 18, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' },
-  expandBtnActive: { backgroundColor: '#000', borderColor: '#000' },
+  cardStatsGrid: { flexDirection: 'row', backgroundColor: '#f8fafc', marginHorizontal: 16, borderRadius: 18, padding: 16, marginBottom: 4 },
+  statBox: { flex: 1, alignItems: 'center' },
+  statLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5 },
+  statValue: { fontSize: 16, fontWeight: '900', color: '#000', marginTop: 4 },
+  statSeparator: { width: 1, height: '70%', backgroundColor: '#e2e8f0', alignSelf: 'center' },
 
-  expandedActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 20,
-    paddingTop: 16,
-    borderTopWidth: 1.5,
-    borderTopColor: '#f1f5f9',
-    alignItems: 'center'
-  },
-  miniAction: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1.5,
-    borderColor: '#f1f5f9'
-  },
-  miniActionText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#0f172a',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase'
-  },
-  deleteBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#fef2f2',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#fee2e2'
-  },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, paddingTop: 12 },
+  visitBox: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  visitText: { fontSize: 12, fontWeight: '800', color: '#94a3b8' },
+  footerActions: { flexDirection: 'row', gap: 8 },
+  historyBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+  expandToggle: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+  expandToggleActive: { backgroundColor: '#000', borderColor: '#000' },
 
-  emptyStateContainer: { alignItems: 'center', marginTop: 100, paddingHorizontal: 40 },
-  emptyTitle: { fontSize: 18, fontWeight: '900', color: '#000', marginTop: 20 },
-  emptyDesc: { fontSize: 14, color: '#94a3b8', textAlign: 'center', marginTop: 8, lineHeight: 22, fontWeight: '600' },
-  emptyBtn: { marginTop: 24, backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 18 },
-  emptyBtnText: { color: '#fff', fontWeight: '900', fontSize: 14 },
+  actionDrawer: { flexDirection: 'row', padding: 18, paddingTop: 0, gap: 10 },
+  drawerBtn: { flex: 1, flexDirection: 'row', height: 48, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: '#f1f5f9' },
+  drawerBtnText: { fontSize: 13, fontWeight: '800', color: '#000' },
+  deleteAction: { flex: 0, width: 48, backgroundColor: '#fff1f2', borderColor: '#ffe4e6' },
 
-  greenText: { color: '#10b981' },
+  emptyState: { alignItems: 'center', marginTop: 80, gap: 15 },
+  emptyTitle: { fontSize: 18, fontWeight: '900', color: '#000' },
+  emptyDesc: { fontSize: 14, fontWeight: '600', color: '#94a3b8', textAlign: 'center', paddingHorizontal: 50 },
+
   redText: { color: '#ef4444' }
 });

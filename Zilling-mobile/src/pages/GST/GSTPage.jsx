@@ -1,162 +1,86 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions } from 'react-native';
+import React, { useMemo, useState, useEffect } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    Pressable,
+    Dimensions,
+    LayoutAnimation,
+    Platform,
+    UIManager,
+    StatusBar,
+    Modal,
+    Alert
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { ChevronLeft, Download, TrendingUp, DollarSign, Percent, FileText } from 'lucide-react-native';
+import {
+    ChevronLeft,
+    Download,
+    TrendingUp,
+    Calendar,
+    ArrowUpRight,
+    ShieldCheck,
+    Clock,
+    CircleSlash,
+    ArrowRight,
+    Globe,
+    Building2,
+    Landmark,
+    Filter,
+    X,
+    ChevronRight,
+    CalendarDays,
+    ChevronLeft as ChevronLeftIcon,
+    ChevronRight as ChevronRightIcon
+} from 'lucide-react-native';
 import { useTransactions } from '../../context/TransactionContext';
-import Svg, { Circle, G, Path, Text as SvgText, Line, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import * as XLSX from 'xlsx';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+
+// Enable LayoutAnimation for Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const { width } = Dimensions.get('window');
 
-// --- Charts Components ---
+// --- Premium Component: Stat Card ---
+const ModernStat = ({ label, value, subValue, icon: Icon, color = "#000", isPrimary = false, flex = 1 }) => (
+    <View style={[styles.statCard, isPrimary && styles.primaryStatCard, { flex }]}>
+        <View style={styles.statHeader}>
+            <View style={[styles.statIconContainer, { backgroundColor: isPrimary ? 'rgba(255,255,255,0.2)' : color + '10' }]}>
+                <Icon size={16} color={isPrimary ? '#fff' : color} />
+            </View>
+            <Text style={[styles.statLabel, isPrimary && { color: 'rgba(255,255,255,0.7)' }]}>{label}</Text>
+        </View>
+        <View style={styles.statBody}>
+            <Text style={[styles.statValue, isPrimary && { color: '#fff' }]}>₹{value}</Text>
+            {subValue && (
+                <Text style={[styles.statSubText, isPrimary && { color: '#4ade80' }]}>• {subValue}</Text>
+            )}
+        </View>
+    </View>
+);
 
-const DonutChart = ({ data, size = 160, strokeWidth = 20 }) => {
-    const center = size / 2;
-    const radius = (size - strokeWidth) / 2;
-    const circumference = 2 * Math.PI * radius;
-
-    let startAngle = -90;
-    const total = data.reduce((sum, item) => sum + item.value, 0);
-
-    return (
-        <View style={{ alignItems: 'center', justifyContent: 'center', marginVertical: 20 }}>
-            <Svg width={size} height={size}>
-                {/* Background Circle */}
-                <Circle
-                    cx={center} cy={center} r={radius}
-                    stroke="#f1f5f9" strokeWidth={strokeWidth}
-                    fill="transparent"
-                />
-                {data.map((item, index) => {
-                    const strokeDashoffset = circumference - (circumference * item.value) / (total || 1);
-                    const angle = (item.value / (total || 1)) * 360;
-
-                    const el = (
-                        <Circle
-                            key={index}
-                            cx={center} cy={center} r={radius}
-                            stroke={item.color}
-                            strokeWidth={strokeWidth}
-                            strokeDasharray={`${circumference} ${circumference}`}
-                            strokeDashoffset={strokeDashoffset}
-                            strokeLinecap="round"
-                            fill="transparent"
-                            rotation={startAngle}
-                            origin={`${center}, ${center}`}
-                        />
-                    );
-                    startAngle += angle;
-                    return el;
-                })}
-                {/* Center Text */}
-                <SvgText
-                    x={center} y={center - 10}
-                    fill="#64748b" fontSize="12" fontWeight="600"
-                    textAnchor="middle" alignmentBaseline="middle"
-                >
-                    Total Tax
-                </SvgText>
-                <SvgText
-                    x={center} y={center + 12}
-                    fill="#0f172a" fontSize="18" fontWeight="800"
-                    textAnchor="middle" alignmentBaseline="middle"
-                >
-                    ₹{total.toLocaleString()}
-                </SvgText>
-            </Svg>
-
-            {/* Legend */}
-            <View style={styles.legendContainer}>
-                {data.map((item, index) => (
-                    <View key={index} style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                        <Text style={styles.legendLabel}>{item.label}</Text>
-                        <Text style={styles.legendValue}>{Math.round((item.value / (total || 1)) * 100)}%</Text>
-                    </View>
-                ))}
+// --- Premium Component: Info Row ---
+const TrackingRow = ({ title, description, date, isLast = false }) => (
+    <View style={styles.trackingRow}>
+        <View style={styles.trackingLeft}>
+            <View style={styles.trackingDotContainer}>
+                <View style={styles.trackingDot} />
+                {!isLast && <View style={styles.trackingLine} />}
+            </View>
+            <View style={styles.trackingContent}>
+                <Text style={styles.trackingTitle}>{title}</Text>
+                <Text style={styles.trackingDesc}>{description}</Text>
             </View>
         </View>
-    );
-};
-
-const LineChart = ({ data, width: chartWidth = width - 80, height = 180 }) => {
-    if (!data || data.length < 2) return null;
-
-    const padding = 20;
-    const graphWidth = chartWidth - padding * 2;
-    const graphHeight = height - padding * 2;
-
-    const maxValue = Math.max(...data.map(d => d.value));
-    const minValue = 0;
-
-    const points = data.map((d, i) => {
-        const x = (i / (data.length - 1)) * graphWidth + padding;
-        const y = graphHeight - ((d.value - minValue) / (maxValue - minValue || 1)) * graphHeight + padding;
-        return `${x},${y}`;
-    }).join(' ');
-
-    return (
-        <View style={{ alignItems: 'center', marginVertical: 10 }}>
-            <Svg width={chartWidth} height={height}>
-                <Defs>
-                    <SvgGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-                        <Stop offset="0" stopColor="#2563eb" stopOpacity="0.2" />
-                        <Stop offset="1" stopColor="#2563eb" stopOpacity="0" />
-                    </SvgGradient>
-                </Defs>
-
-                {/* Grid Lines */}
-                {[0, 0.25, 0.5, 0.75, 1].map((t, i) => (
-                    <Line
-                        key={i}
-                        x1={padding} y1={graphHeight * t + padding}
-                        x2={chartWidth - padding} y2={graphHeight * t + padding}
-                        stroke="#e2e8f0" strokeWidth="1"
-                    />
-                ))}
-
-                {/* The Line */}
-                <Path
-                    d={`M${points}`}
-                    fill="none"
-                    stroke="#2563eb"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                />
-
-                {/* Area under line (optional, simplified for 'clear' look) */}
-                <Path
-                    d={`M${padding},${graphHeight + padding} L${data.map((d, i) => {
-                        const x = (i / (data.length - 1)) * graphWidth + padding;
-                        const y = graphHeight - ((d.value - minValue) / (maxValue - minValue || 1)) * graphHeight + padding;
-                        return `${x},${y}`;
-                    }).join(' ')} L${chartWidth - padding},${graphHeight + padding} Z`}
-                    fill="url(#gradient)"
-                    stroke="none"
-                />
-            </Svg>
-            <View style={styles.chartLabels}>
-                {data.map((d, i) => (i % 2 === 0 || i === data.length - 1) && (
-                    <Text key={i} style={[styles.dateLabel, { left: (i / (data.length - 1)) * 100 + '%' }]}>
-                        {d.label}
-                    </Text>
-                ))}
-            </View>
-        </View>
-    );
-};
-
-// --- Main Page ---
-
-const GSTCard = ({ title, amount, color, icon: Icon }) => (
-    <View style={styles.gstCard}>
-        <View style={[styles.iconWrapper, { backgroundColor: color + '15' }]}>
-            <Icon size={20} color={color} />
-        </View>
-        <View>
-            <Text style={styles.cardLabel}>{title}</Text>
-            <Text style={[styles.cardValue, { color }]}>₹{amount.toLocaleString()}</Text>
+        <View style={styles.trackingRight}>
+            <Clock size={12} color="#94a3b8" />
+            <Text style={styles.trackingDate}>{date}</Text>
         </View>
     </View>
 );
@@ -164,285 +88,615 @@ const GSTCard = ({ title, amount, color, icon: Icon }) => (
 export default function GSTPage() {
     const navigation = useNavigation();
     const { transactions } = useTransactions();
-    const [period, setPeriod] = useState('This Month');
+    const [period, setPeriod] = useState('Today');
+    const [selectedCustomDate, setSelectedCustomDate] = useState(null);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
-    const gstData = useMemo(() => {
+    // Calendar State
+    const [currentCalView, setCurrentCalView] = useState(new Date());
+
+    const filteredTransactions = useMemo(() => {
         const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
         let filtered = transactions;
-        if (period === 'This Month') {
-            filtered = transactions.filter(t => new Date(t.date) >= startOfMonth);
-        }
 
+        if (period === 'Today') {
+            filtered = transactions.filter(t => new Date(t.date) >= startOfToday);
+        } else if (period === 'Yesterday') {
+            const yesterday = new Date(startOfToday);
+            yesterday.setDate(yesterday.getDate() - 1);
+            filtered = transactions.filter(t => {
+                const d = new Date(t.date);
+                return d >= yesterday && d < startOfToday;
+            });
+        } else if (period === 'This Week') {
+            const startOfWeek = new Date(startOfToday);
+            startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay());
+            filtered = transactions.filter(t => new Date(t.date) >= startOfWeek);
+        } else if (period === 'This Month') {
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            filtered = transactions.filter(t => new Date(t.date) >= startOfMonth);
+        } else if (period === 'This Year') {
+            const startOfYear = new Date(now.getFullYear(), 0, 1);
+            filtered = transactions.filter(t => new Date(t.date) >= startOfYear);
+        } else if (period === 'All Time') {
+            filtered = transactions;
+        } else if (period === 'Custom' && selectedCustomDate) {
+            const targetDate = new Date(selectedCustomDate);
+            targetDate.setHours(0, 0, 0, 0);
+            const endDate = new Date(targetDate);
+            endDate.setDate(targetDate.getDate() + 1);
+            filtered = transactions.filter(t => {
+                const d = new Date(t.date);
+                return d >= targetDate && d < endDate;
+            });
+        }
+        return filtered;
+    }, [transactions, period, selectedCustomDate]);
+
+    const gstData = useMemo(() => {
         let totalSales = 0;
         let totalGST = 0;
         let sgst = 0;
         let cgst = 0;
         let igst = 0;
+        let taxableValue = 0;
 
-        // Daily aggregation for Line Chart
-        const dailyMap = {};
+        filteredTransactions.forEach(t => {
+            const tax = parseFloat(t.tax || t.taxAmount || 0);
+            const t_totals = t.totals || {};
 
-        filtered.forEach(t => {
-            const tax = t.taxAmount || 0;
+            let final_sgst = parseFloat(t_totals.sgst || 0);
+            let final_cgst = parseFloat(t_totals.cgst || 0);
+            let final_igst = parseFloat(t_totals.igst || 0);
 
-            // Estimating split if not present (Demo Logic)
-            let t_sgst = 0, t_cgst = 0, t_igst = 0;
-            if (t.taxDetails) {
-                t_sgst = t.taxDetails.sgst || 0;
-                t_cgst = t.taxDetails.cgst || 0;
-                t_igst = t.taxDetails.igst || 0;
-            } else {
-                t_sgst = tax / 2;
-                t_cgst = tax / 2;
+            if (final_sgst === 0 && final_cgst === 0 && final_igst === 0 && tax > 0) {
+                if (t.taxType === 'inter') {
+                    final_igst = tax;
+                } else {
+                    final_sgst = tax / 2;
+                    final_cgst = tax / 2;
+                }
             }
 
-            totalSales += (t.total || 0);
+            totalSales += parseFloat(t.total || 0);
             totalGST += tax;
-            sgst += t_sgst;
-            cgst += t_cgst;
-            igst += t_igst;
-
-            // Trend Data
-            const d = new Date(t.date || Date.now());
-            const dayKey = `${d.getDate()}/${d.getMonth() + 1}`;
-            if (!dailyMap[dayKey]) dailyMap[dayKey] = 0;
-            dailyMap[dayKey] += tax;
+            sgst += final_sgst;
+            cgst += final_cgst;
+            igst += final_igst;
+            taxableValue += parseFloat(t.subtotal || 0);
         });
 
-        // Format trend data
-        const trendData = Object.keys(dailyMap).length > 0
-            ? Object.entries(dailyMap).map(([label, value]) => ({ label, value }))
-            : [{ label: 'Start', value: 0 }, { label: 'Now', value: 0 }]; // Empty state fallback
+        const formation = (val) => val.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-        return { totalSales, totalGST, sgst, cgst, igst, trendData };
-    }, [transactions, period]);
+        return {
+            totalSales: formation(totalSales),
+            totalGST: formation(totalGST),
+            sgst: formation(sgst),
+            cgst: formation(cgst),
+            igst: formation(igst),
+            taxableValue: formation(taxableValue)
+        };
+    }, [filteredTransactions]);
 
-    const pieData = [
-        { label: 'SGST', value: gstData.sgst, color: '#e11d48' },
-        { label: 'CGST', value: gstData.cgst, color: '#0891b2' },
-        { label: 'IGST', value: gstData.igst, color: '#d97706' },
-    ].filter(d => d.value > 0);
+    const handleExportExcel = async () => {
+        if (filteredTransactions.length === 0) {
+            Alert.alert("No Data", "There are no transactions in this period to export.");
+            return;
+        }
 
-    // If no data, show a placeholder segment
-    if (pieData.length === 0) pieData.push({ label: 'No Data', value: 1, color: '#e2e8f0' });
+        try {
+            // Map data to the format shown in the user's image
+            const exportData = filteredTransactions.map(t => {
+                const date = new Date(t.date);
+                const formattedDate = `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
+
+                const tax = parseFloat(t.tax || t.taxAmount || 0);
+                const t_totals = t.totals || {};
+
+                let s = parseFloat(t_totals.sgst || 0);
+                let c = parseFloat(t_totals.cgst || 0);
+                let i = parseFloat(t_totals.igst || 0);
+
+                if (s === 0 && c === 0 && i === 0 && tax > 0) {
+                    if (t.taxType === 'inter') i = tax;
+                    else { s = tax / 2; c = tax / 2; }
+                }
+
+                return {
+                    "Invoice Date": formattedDate,
+                    "Invoice Number": t.id?.substring(0, 8) || "N/A",
+                    "Customer Name": t.customerName || "Walk-in",
+                    "GSTIN": t.customerGstin || "",
+                    "State": t.taxType === 'inter' ? 'Inter-State' : 'State',
+                    "Taxable Value": parseFloat(t.subtotal || 0).toFixed(2),
+                    "CGST Amount": c.toFixed(2),
+                    "SGST Amount": s.toFixed(2),
+                    "IGST Amount": i.toFixed(2),
+                    "Total Tax": tax.toFixed(2),
+                    "Invoice Total": parseFloat(t.total || 0).toFixed(2)
+                };
+            });
+
+            // Create worksheet
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "GST Report");
+
+            // Generate base64 string
+            const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+
+            // Define file path
+            const fileName = `GST_Report_${period.replace(' ', '_')}_${Date.now()}.xlsx`;
+            const fileUri = FileSystem.documentDirectory + fileName;
+
+            // Write file to local storage
+            await FileSystem.writeAsStringAsync(fileUri, wbout, { encoding: 'base64' });
+
+            // Share the file
+            if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(fileUri, {
+                    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    dialogTitle: 'Download GST Report',
+                    UTI: 'com.microsoft.excel.xlsx'
+                });
+            } else {
+                Alert.alert("Success", "Report saved to: " + fileUri);
+            }
+        } catch (error) {
+            console.error("Export Error:", error);
+            Alert.alert("Error", "Failed to generate Excel report.");
+        }
+    };
+
+    const changePeriod = (p) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setPeriod(p);
+        setIsFilterOpen(false);
+    };
+
+    const handleCustomDateSelect = (date) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setSelectedCustomDate(date);
+        setPeriod('Custom');
+        setIsCalendarOpen(false);
+    };
+
+    const getPeriodLabel = () => {
+        if (period === 'Custom' && selectedCustomDate) {
+            const d = new Date(selectedCustomDate);
+            return `${d.getDate()} ${d.toLocaleString('default', { month: 'short' })} ${d.getFullYear()}`;
+        }
+        return period;
+    };
+
+    // Calendar Helpers
+    const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+    const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
+
+    const calendarHeader = currentCalView.toLocaleString('default', { month: 'long', year: 'numeric' });
+    const daysArr = Array.from({ length: getDaysInMonth(currentCalView.getFullYear(), currentCalView.getMonth()) }, (_, i) => i + 1);
+    const startPadding = Array.from({ length: getFirstDayOfMonth(currentCalView.getFullYear(), currentCalView.getMonth()) });
+
+    const shiftMonth = (offset) => {
+        const newDate = new Date(currentCalView.getFullYear(), currentCalView.getMonth() + offset, 1);
+        setCurrentCalView(newDate);
+    };
 
     return (
         <View style={styles.container}>
+            <StatusBar barStyle="dark-content" backgroundColor="#fff" />
             <SafeAreaView style={styles.safeArea} edges={['top']}>
+                {/* Header */}
                 <View style={styles.header}>
-                    <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-                        <ChevronLeft size={24} color="#000" />
+                    <Pressable onPress={() => navigation.goBack()} style={styles.iconBtn}>
+                        <ChevronLeft size={22} color="#000" />
                     </Pressable>
-                    <Text style={styles.headerTitle}>GST Reports</Text>
-                    <Pressable style={styles.downloadBtn}>
-                        <Download size={20} color="#000" />
+                    <View style={styles.headerMain}>
+                        <Text style={styles.headerTitle}>GST Analytics</Text>
+                        <Text style={styles.headerSubtitle}>Compliance Tracking</Text>
+                    </View>
+                    <Pressable style={styles.iconBtn} onPress={handleExportExcel}>
+                        <Download size={18} color="#000" />
                     </Pressable>
                 </View>
 
-                <ScrollView contentContainerStyle={styles.content}>
-                    {/* Period Selector */}
-                    <View style={styles.periodSelector}>
-                        {['This Month', 'All Time'].map(p => (
-                            <Pressable
-                                key={p}
-                                onPress={() => setPeriod(p)}
-                                style={[styles.periodBtn, period === p && styles.periodBtnActive]}
-                            >
-                                <Text style={[styles.periodText, period === p && styles.periodTextActive]}>{p}</Text>
-                            </Pressable>
-                        ))}
-                    </View>
+                {/* Main Filter Bar */}
+                <View style={styles.mainFilterBar}>
+                    <View style={styles.activeFilterGroup}>
+                        <Pressable
+                            style={[styles.mainChip, period === 'Today' && styles.activeMainChip]}
+                            onPress={() => changePeriod('Today')}
+                        >
+                            <Text style={[styles.mainChipText, period === 'Today' && styles.activeMainChipText]}>Today</Text>
+                        </Pressable>
 
-                    {/* Summary Cards */}
-                    <View style={styles.summaryGrid}>
-                        <View style={styles.fullWidthCard}>
-                            <View style={styles.rowBetween}>
-                                <Text style={styles.totalLabel}>Total Sales (Inc. Tax)</Text>
-                                <TrendingUp size={20} color="#22c55e" />
+                        {period !== 'Today' && (
+                            <View style={styles.activeLabelBox}>
+                                <Text style={styles.activeLabelText}>{getPeriodLabel()}</Text>
+                                <Pressable onPress={() => changePeriod('Today')} style={styles.clearBtnAlt}>
+                                    <X size={12} color="#000" strokeWidth={3} />
+                                </Pressable>
                             </View>
-                            <Text style={styles.bigAmount}>₹{gstData.totalSales.toLocaleString()}</Text>
-                            <Text style={styles.subText}>Top line revenue</Text>
-                        </View>
+                        )}
+                    </View>
 
-                        <View style={styles.gstGrid}>
-                            <GSTCard title="Total GST" amount={gstData.totalGST} color="#6366f1" icon={Percent} />
-                            <GSTCard title="SGST" amount={gstData.sgst} color="#e11d48" icon={DollarSign} />
-                            <GSTCard title="CGST" amount={gstData.cgst} color="#0891b2" icon={DollarSign} />
-                            <GSTCard title="IGST" amount={gstData.igst} color="#d97706" icon={DollarSign} />
+                    <View style={styles.filterGroupRight}>
+                        <Pressable
+                            style={[styles.filterActionBtn, period === 'Custom' && styles.filterActionBtnActive]}
+                            onPress={() => setIsCalendarOpen(true)}
+                        >
+                            <Calendar size={16} color={period === 'Custom' ? '#fff' : '#000'} />
+                        </Pressable>
+                        <Pressable style={styles.filterActionBtn} onPress={() => setIsFilterOpen(true)}>
+                            <Filter size={16} color="#000" />
+                        </Pressable>
+                    </View>
+                </View>
+
+                <ScrollView
+                    contentContainerStyle={styles.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                >
+                    {/* Hero Visualization */}
+                    <View style={styles.heroCard}>
+                        <View style={styles.heroHeader}>
+                            <View>
+                                <Text style={styles.heroLabel}>Net Tax Payable</Text>
+                                <Text style={styles.heroAmount}>₹{gstData.totalGST}</Text>
+                            </View>
+                            <View style={styles.heroIconBox}>
+                                <ShieldCheck size={24} color="#fff" />
+                            </View>
+                        </View>
+                        <View style={styles.heroFooter}>
+                            <View style={styles.heroStatItem}>
+                                <Text style={styles.heroStatLabel}>GROSS SALES</Text>
+                                <Text style={styles.heroStatValue}>₹{gstData.totalSales}</Text>
+                            </View>
+                            <View style={styles.heroStatDivider} />
+                            <View style={styles.heroStatItem}>
+                                <Text style={styles.heroStatLabel}>TAXABLE VALUE</Text>
+                                <Text style={styles.heroStatValue}>₹{gstData.taxableValue}</Text>
+                            </View>
                         </View>
                     </View>
 
-                    {/* Tax Breakdown (Donut Chart) */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Tax Composition</Text>
-                        <View style={styles.chartCard}>
-                            <DonutChart data={pieData} />
+                    <Text style={styles.sectionHeader}>Tax Breakdown</Text>
+
+                    {/* Improved Component Grid */}
+                    <View style={styles.taxGroup}>
+                        <View style={styles.statsGrid}>
+                            <ModernStat
+                                label="SGST"
+                                value={gstData.sgst}
+                                subValue="State"
+                                icon={Building2}
+                                color="#ef4444"
+                            />
+                            <ModernStat
+                                label="CGST"
+                                value={gstData.cgst}
+                                subValue="Central"
+                                icon={Landmark}
+                                color="#3b82f6"
+                            />
+                        </View>
+
+                        <View style={styles.fullWidthStat}>
+                            <ModernStat
+                                label="IGST (Integrated Tax)"
+                                value={gstData.igst}
+                                subValue="Inter-state Transactions"
+                                icon={Globe}
+                                color="#f59e0b"
+                            />
                         </View>
                     </View>
 
-                    {/* Trend (Line Chart) */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Collection Trend</Text>
-                        <View style={styles.chartCard}>
-                            <LineChart data={gstData.trendData} />
+                    {/* Compliance Section */}
+                    <View style={styles.timelineSection}>
+                        <View style={styles.sectionHeadRow}>
+                            <Text style={styles.sectionHeaderNoTop}>Compliance Timeline</Text>
+                            <ArrowRight size={14} color="#cbd5e1" />
+                        </View>
+
+                        <View style={styles.whiteCard}>
+                            <TrackingRow
+                                title="GSTR-1"
+                                description="Invoice-wise Outward supplies data"
+                                date="Monthly"
+                            />
+                            <TrackingRow
+                                title="GSTR-3B"
+                                description="Monthly self-declaration summary"
+                                date="Monthly"
+                                isLast={true}
+                            />
                         </View>
                     </View>
 
-                    {/* Essential Info */}
-                    <View style={styles.infoCard}>
-                        <View style={styles.infoHeader}>
-                            <FileText size={20} color="#64748b" />
-                            <Text style={styles.infoTitle}>Filing Information</Text>
-                        </View>
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>GSTR-1 Due Date</Text>
-                            <Text style={styles.infoValue}>11th of Next Month</Text>
-                        </View>
-                        <View style={styles.divider} />
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>GSTR-3B Due Date</Text>
-                            <Text style={styles.infoValue}>20th of Next Month</Text>
-                        </View>
+                    {/* Pro Footer */}
+                    <View style={styles.advisoryBox}>
+                        <CircleSlash size={16} color="#94a3b8" />
+                        <Text style={styles.advisoryText}>
+                            Calculated from internal transaction logs. Always verify with your actual GST portal records before final settlement.
+                        </Text>
                     </View>
-
                 </ScrollView>
             </SafeAreaView>
+
+            {/* Filter Drawer */}
+            <Modal
+                visible={isFilterOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setIsFilterOpen(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setIsFilterOpen(false)}>
+                    <View style={styles.filterModal}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>History Settings</Text>
+                            <Pressable onPress={() => setIsFilterOpen(false)} style={styles.modalCloseBtn}>
+                                <X size={18} color="#64748b" />
+                            </Pressable>
+                        </View>
+
+                        <ScrollView style={styles.modalScroll}>
+                            {[
+                                { id: 'Today', label: 'Today', icon: Clock },
+                                { id: 'Yesterday', label: 'Yesterday', icon: Clock },
+                                { id: 'This Week', label: 'This Week', icon: Calendar },
+                                { id: 'This Month', label: 'This Month', icon: Calendar },
+                                { id: 'This Year', label: 'This Year', icon: Calendar },
+                                { id: 'All Time', label: 'All Time', icon: Globe },
+                            ].map(item => (
+                                <Pressable
+                                    key={item.id}
+                                    style={[styles.filterItem, period === item.id && styles.activeFilterItem]}
+                                    onPress={() => changePeriod(item.id)}
+                                >
+                                    <View style={styles.filterItemLeft}>
+                                        <item.icon size={18} color={period === item.id ? '#000' : '#94a3b8'} />
+                                        <Text style={[styles.filterItemLabel, period === item.id && styles.activeFilterItemLabel]}>{item.label}</Text>
+                                    </View>
+                                    <ChevronRight size={16} color="#cbd5e1" />
+                                </Pressable>
+                            ))}
+                        </ScrollView>
+                    </View>
+                </Pressable>
+            </Modal>
+
+            {/* Premium Specific Date Picker Modal */}
+            <Modal
+                visible={isCalendarOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setIsCalendarOpen(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setIsCalendarOpen(false)}>
+                    <View style={styles.premiumCal}>
+                        <View style={styles.calTop}>
+                            <View style={styles.calNav}>
+                                <Pressable onPress={() => shiftMonth(-1)} style={styles.calNavBtn}>
+                                    <ChevronLeftIcon size={20} color="#000" />
+                                </Pressable>
+                                <Text style={styles.calMonthLabel}>{calendarHeader}</Text>
+                                <Pressable onPress={() => shiftMonth(1)} style={styles.calNavBtn}>
+                                    <ChevronRightIcon size={20} color="#000" />
+                                </Pressable>
+                            </View>
+                            <Pressable onPress={() => setIsCalendarOpen(false)} style={styles.calClose}>
+                                <X size={20} color="#94a3b8" />
+                            </Pressable>
+                        </View>
+
+                        <View style={styles.calWeekRow}>
+                            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                                <Text key={i} style={styles.calWeekText}>{d}</Text>
+                            ))}
+                        </View>
+
+                        <View style={styles.calGrid}>
+                            {startPadding.map((_, i) => (
+                                <View key={`p-${i}`} style={styles.calDayCell} />
+                            ))}
+                            {daysArr.map(day => {
+                                const isSelected = selectedCustomDate &&
+                                    selectedCustomDate.getDate() === day &&
+                                    selectedCustomDate.getMonth() === currentCalView.getMonth() &&
+                                    selectedCustomDate.getFullYear() === currentCalView.getFullYear();
+                                return (
+                                    <Pressable
+                                        key={day}
+                                        style={[styles.calDayCell, isSelected && styles.calDayActive]}
+                                        onPress={() => handleCustomDateSelect(new Date(currentCalView.getFullYear(), currentCalView.getMonth(), day))}
+                                    >
+                                        <Text style={[styles.calDayText, isSelected && styles.calDayTextActive]}>{day}</Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+
+                        <Pressable
+                            style={styles.calTodayBtn}
+                            onPress={() => handleCustomDateSelect(new Date())}
+                        >
+                            <Text style={styles.calTodayText}>Go to Today</Text>
+                        </Pressable>
+                    </View>
+                </Pressable>
+            </Modal>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f8fafc' },
+    container: { flex: 1, backgroundColor: '#fff' },
     safeArea: { flex: 1 },
+
     header: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 20,
+        paddingHorizontal: 24,
         paddingBottom: 15,
         backgroundColor: '#fff',
+        gap: 16
     },
-    backBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        backgroundColor: '#f1f5f9',
-        alignItems: 'center',
-        justifyContent: 'center',
+    iconBtn: {
+        width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9'
     },
-    headerTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
-    downloadBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        backgroundColor: '#f1f5f9',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    content: { paddingBottom: 40 },
+    headerMain: { flex: 1 },
+    headerTitle: { fontSize: 20, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+    headerSubtitle: { fontSize: 13, fontWeight: '600', color: '#94a3b8', marginTop: 1 },
 
-    periodSelector: {
-        flexDirection: 'row',
-        paddingHorizontal: 20,
-        paddingVertical: 15,
-        gap: 10
-    },
-    periodBtn: {
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 20,
-        backgroundColor: '#fff',
-        borderWidth: 1,
-        borderColor: '#e2e8f0'
-    },
-    periodBtnActive: {
-        backgroundColor: '#0f172a',
-        borderColor: '#0f172a'
-    },
-    periodText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-    periodTextActive: { color: '#fff' },
-
-    summaryGrid: { paddingHorizontal: 20, gap: 15, marginBottom: 25 },
-    fullWidthCard: {
-        backgroundColor: '#fff',
-        borderRadius: 20,
-        padding: 20,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        elevation: 1,
-        shadowColor: '#64748b', shadowOpacity: 0.05, shadowRadius: 10
-    },
-    rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    totalLabel: { fontSize: 13, fontWeight: '600', color: '#64748b', textTransform: 'uppercase' },
-    bigAmount: { fontSize: 32, fontWeight: '800', color: '#0f172a' },
-    subText: { fontSize: 12, color: '#94a3b8', marginTop: 4 },
-
-    gstGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-    gstCard: {
-        backgroundColor: '#fff',
-        flex: 1,
-        minWidth: '48%',
-        padding: 16,
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        elevation: 1,
-        gap: 12
-    },
-    iconWrapper: {
-        width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center'
-    },
-    cardLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 4 },
-    cardValue: { fontSize: 18, fontWeight: '700' },
-
-    section: { paddingHorizontal: 20, marginBottom: 25 },
-    sectionTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 15 },
-    chartCard: {
-        backgroundColor: '#fff',
-        padding: 20,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        gap: 20,
-        alignItems: 'center'
-    },
-
-    // Legend Styles
-    legendContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 16, marginTop: 20 },
-    legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    legendDot: { width: 8, height: 8, borderRadius: 4 },
-    legendLabel: { fontSize: 12, color: '#64748b', fontWeight: '600' },
-    legendValue: { fontSize: 12, color: '#0f172a', fontWeight: '700' },
-
-    // Line Chart Labels
-    chartLabels: {
+    // Main Filter Bar
+    mainFilterBar: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        width: '100%',
-        paddingHorizontal: 20,
-        marginTop: 0,
-        height: 20
+        alignItems: 'center',
+        paddingHorizontal: 24,
+        paddingVertical: 18,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderColor: '#f1f5f9'
     },
-    dateLabel: {
-        color: '#94a3b8',
-        fontSize: 10,
-        position: 'absolute'
+    activeFilterGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    mainChip: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 12,
+        backgroundColor: '#f1f5f9',
+    },
+    activeMainChip: {
+        backgroundColor: '#000',
+    },
+    mainChipText: { fontSize: 13, fontWeight: '900', color: '#64748b' },
+    activeMainChipText: { color: '#fff' },
+    activeLabelBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        backgroundColor: '#f8fafc',
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: '#000'
+    },
+    activeLabelText: { fontSize: 12, fontWeight: '900', color: '#000' },
+    clearBtnAlt: { padding: 2 },
+
+    filterGroupRight: { flexDirection: 'row', gap: 10 },
+    filterActionBtn: {
+        width: 42,
+        height: 42,
+        borderRadius: 12,
+        backgroundColor: '#fff',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5
+    },
+    filterActionBtnActive: {
+        backgroundColor: '#000',
+        borderColor: '#000'
     },
 
-    infoCard: {
-        marginHorizontal: 20,
-        backgroundColor: '#fff',
-        padding: 20,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: '#e2e8f0'
+    scrollContent: { paddingBottom: 40 },
+
+    heroCard: {
+        marginHorizontal: 24,
+        backgroundColor: '#000',
+        borderRadius: 28,
+        padding: 24,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 10,
+        marginBottom: 30,
+        marginTop: 20
     },
-    infoHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
-    infoTitle: { fontSize: 15, fontWeight: '700', color: '#1e293b' },
-    infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    infoLabel: { fontSize: 14, color: '#64748b' },
-    infoValue: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
-    divider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 15 }
+    heroHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 },
+    heroLabel: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: 1 },
+    heroAmount: { fontSize: 36, fontWeight: '900', color: '#fff', marginTop: 4 },
+    heroIconBox: { width: 50, height: 50, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+    heroFooter: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 20, padding: 16, alignItems: 'center' },
+    heroStatItem: { flex: 1 },
+    heroStatLabel: { fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.5)', marginBottom: 4 },
+    heroStatValue: { fontSize: 14, fontWeight: '900', color: '#fff' },
+    heroStatDivider: { width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 15 },
+
+    sectionHeader: { fontSize: 12, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1.5, textTransform: 'uppercase', marginHorizontal: 24, marginBottom: 16, marginTop: 10 },
+    sectionHeaderNoTop: { fontSize: 12, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1.5, textTransform: 'uppercase' },
+    sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 24, marginBottom: 16 },
+
+    taxGroup: { marginHorizontal: 24, gap: 12 },
+    statsGrid: { flexDirection: 'row', gap: 12 },
+    fullWidthStat: { marginTop: 0 },
+    statCard: {
+        backgroundColor: '#fff',
+        borderRadius: 24,
+        padding: 18,
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        justifyContent: 'space-between',
+        minHeight: 110
+    },
+    statHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+    statIconContainer: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+    statLabel: { fontSize: 12, fontWeight: '800', color: '#94a3b8' },
+    statBody: { gap: 4 },
+    statValue: { fontSize: 20, fontWeight: '900', color: '#000' },
+    statSubText: { fontSize: 11, fontWeight: '700', color: '#94a3b8' },
+
+    timelineSection: { marginTop: 35 },
+    whiteCard: { marginHorizontal: 24, backgroundColor: '#fff', borderRadius: 24, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+    trackingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 12 },
+    trackingLeft: { flexDirection: 'row', flex: 1, gap: 12 },
+    trackingDotContainer: { alignItems: 'center', width: 12 },
+    trackingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#000', marginTop: 5 },
+    trackingLine: { width: 2, flex: 1, backgroundColor: '#f1f5f9', marginVertical: 4 },
+    trackingContent: { flex: 1 },
+    trackingTitle: { fontSize: 15, fontWeight: '800', color: '#000' },
+    trackingDesc: { fontSize: 12, fontWeight: '600', color: '#94a3b8', marginTop: 2, lineHeight: 18 },
+    trackingRight: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
+    trackingDate: { fontSize: 11, fontWeight: '800', color: '#64748b' },
+
+    advisoryBox: { marginHorizontal: 24, marginTop: 35, backgroundColor: '#f8fafc', borderRadius: 18, padding: 16, flexDirection: 'row', gap: 12, alignItems: 'center' },
+    advisoryText: { flex: 1, fontSize: 11, fontWeight: '600', color: '#94a3b8', lineHeight: 16 },
+
+    // Modal Styles
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+    filterModal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, maxHeight: '80%' },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+    modalTitle: { fontSize: 18, fontWeight: '900', color: '#000' },
+    modalCloseBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
+    modalScroll: { marginBottom: 10 },
+    filterItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderColor: '#f8fafc' },
+    activeFilterItem: { backgroundColor: '#f8fafc', paddingHorizontal: 12, borderRadius: 16, borderColor: 'transparent' },
+    filterItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+    filterItemLabel: { fontSize: 15, fontWeight: '700', color: '#475569' },
+    activeFilterItemLabel: { color: '#000', fontWeight: '900' },
+
+    // Premium Calendar Styles
+    premiumCal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
+    calTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
+    calNav: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+    calNavBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', borderRadius: 8 },
+    calMonthLabel: { fontSize: 17, fontWeight: '900', color: '#000' },
+    calClose: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
+
+    calWeekRow: { flexDirection: 'row', marginBottom: 15 },
+    calWeekText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '900', color: '#cbd5e1' },
+
+    calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+    calDayCell: { width: width / 7 - 10, height: 45, margin: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
+    calDayActive: { backgroundColor: '#000' },
+    calDayText: { fontSize: 14, fontWeight: '700', color: '#475569' },
+    calDayTextActive: { color: '#fff', fontWeight: '900' },
+
+    calTodayBtn: { marginTop: 25, height: 50, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWeight: 1, borderColor: '#f1f5f9' },
+    calTodayText: { fontSize: 14, fontWeight: '800', color: '#000' }
 });

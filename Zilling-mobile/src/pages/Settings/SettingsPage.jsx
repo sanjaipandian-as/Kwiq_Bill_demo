@@ -31,7 +31,8 @@ import {
   Headset,
   ExternalLink,
   Globe,
-  MessageSquare
+  MessageSquare,
+  FileText
 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
@@ -45,8 +46,9 @@ import { Card } from '../../components/ui/Card';
 import services from '../../services/api';
 
 const SettingsPage = ({ navigation }) => {
+  // Trigger clear cache
   const { logout } = useAuth();
-  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, lastEventSyncTime, syncStatus, loading } = useSettings();
+  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, lastEventSyncTime, syncStatus, loading, queueLength, isUploading } = useSettings();
   const { fetchCustomers } = useCustomers();
   const { fetchProducts } = useProducts();
   const { fetchTransactions } = useTransactions();
@@ -76,9 +78,18 @@ const SettingsPage = ({ navigation }) => {
   );
 
   const handleLogout = () => {
+    if (queueLength > 0) {
+      Alert.alert(
+        "Sync in Progress",
+        `You have ${queueLength} items pending upload. Logging out now will cause PERMANENT DATA LOSS for these items.\n\nPlease wait for the "Uploading Details" to show 0 items before logging out.`,
+        [{ text: "OK, I'll Wait" }]
+      );
+      return;
+    }
+
     Alert.alert(
       "Confirm Logout",
-      "Are you sure you want to log out?",
+      "Are you sure you want to log out? Local data will be cleared.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -540,6 +551,37 @@ const SettingsPage = ({ navigation }) => {
 
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#6366f1' }]}>
+                  <FileText size={20} color="#fff" />
+                </View>
+                <Text style={styles.cardTitle}>Bill Template</Text>
+              </View>
+              <View style={styles.cardPadding}>
+                <Text style={styles.sectionSubtitle}>Choose Thermal Receipt Style</Text>
+
+                <View style={styles.segmentedControl}>
+                  {['Standard', 'Compact', 'Minimal'].map(bt => (
+                    <TouchableOpacity
+                      key={bt}
+                      onPress={() => handleChange('invoice', 'billTemplate', bt)}
+                      style={[
+                        styles.segmentBtn,
+                        (localSettings.invoice.billTemplate || 'Standard') === bt && styles.segmentBtnActive
+                      ]}
+                    >
+                      <Text style={[
+                        styles.segmentText,
+                        (localSettings.invoice.billTemplate || 'Standard') === bt && styles.segmentTextActive
+                      ]}>{bt}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={styles.helperTextSmall}>Applies to thermal printer formatting.</Text>
+              </View>
+            </Card>
+
+            <Card style={styles.card}>
+              <View style={styles.cardHeader}>
                 <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <Calculator size={20} color="#fff" />
                 </View>
@@ -648,6 +690,49 @@ const SettingsPage = ({ navigation }) => {
                   <Text style={styles.actionButtonText}>Instant Cloud Backup</Text>
                 </TouchableOpacity>
 
+                {/* --- Uploading Details Section --- */}
+                <View style={{ marginTop: 20, marginBottom: 10 }}>
+                  <Text style={[styles.cardTitle, { fontSize: 16, marginBottom: 8 }]}>Uploading Details</Text>
+
+                  <View style={styles.uploadInfoBox}>
+                    <View style={styles.uploadRow}>
+                      <Text style={styles.uploadLabel}>Pending Uploads:</Text>
+                      <Text style={[styles.uploadValue, { color: queueLength > 0 ? '#ef4444' : '#10b981' }]}>
+                        {queueLength} items
+                      </Text>
+                    </View>
+
+                    <View style={[styles.uploadRow, { marginTop: 8 }]}>
+                      <Text style={styles.uploadLabel}>Status:</Text>
+                      {isUploading ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <ActivityIndicator size="small" color="#3b82f6" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#3b82f6', fontWeight: '600' }}>Syncing to Drive...</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.uploadValue}>Idle</Text>
+                      )}
+                    </View>
+
+                    {queueLength > 0 && (
+                      <View style={[styles.uploadRow, { marginTop: 8 }]}>
+                        <Text style={styles.uploadLabel}>Est. Time:</Text>
+                        <Text style={styles.uploadValue}>~{queueLength * 2} seconds</Text>
+                      </View>
+                    )}
+
+                    {queueLength > 0 && (
+                      <View style={styles.queueWarning}>
+                        <AlertCircle size={14} color="#b45309" />
+                        <Text style={styles.queueWarningText}>
+                          Do not logout or force re-sync until all pending items are uploaded (0 items).
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+                {/* ------------------------------------- */}
+
                 {/* Real-time Status Indicator */}
                 {(syncStatus && syncStatus !== 'Ready') ? (
                   <View style={{
@@ -668,75 +753,87 @@ const SettingsPage = ({ navigation }) => {
                   </View>
                 ) : null}
 
-                <View style={[styles.syncActionsRow, { marginTop: 12 }]}>
-                  <TouchableOpacity
-                    onPress={async () => {
-                      showToast("Syncing...", "info");
-                      const success = await syncAllData();
-                      if (success) {
-                        showToast("Sync Completed Successfully", "success");
-                        // Refresh all data contexts to show new items/loyalty
-                        fetchCustomers();
-                        fetchProducts();
-                        fetchTransactions();
-                      } else {
-                        showToast("Sync Failed", "error");
-                      }
-                    }}
-                    style={[styles.miniSyncBtn, { flex: 1.5 }]}
-                  >
-                    <RotateCcw size={16} color="#fff" />
-                    <Text style={styles.miniSyncBtnText}>Sync Now</Text>
-                  </TouchableOpacity>
+                {queueLength === 0 ? (
+                  <>
+                    <View style={[styles.syncActionsRow, { marginTop: 12 }]}>
+                      <TouchableOpacity
+                        onPress={async () => {
+                          showToast("Syncing...", "info");
+                          const success = await syncAllData();
+                          if (success) {
+                            showToast("Sync Completed Successfully", "success");
+                            fetchCustomers();
+                            fetchProducts();
+                            fetchTransactions();
+                          } else {
+                            showToast("Sync Failed", "error");
+                          }
+                        }}
+                        style={[styles.miniSyncBtn, { flex: 1.5 }]}
+                      >
+                        <RotateCcw size={16} color="#fff" />
+                        <Text style={styles.miniSyncBtnText}>Sync Now</Text>
+                      </TouchableOpacity>
 
-                  <View style={styles.syncStatusBadge}>
-                    <CheckCircle2 size={12} color="#059669" />
-                    <Text style={styles.syncStatusText}>
-                      {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}
+                      <View style={styles.syncStatusBadge}>
+                        <CheckCircle2 size={12} color="#059669" />
+                        <Text style={styles.syncStatusText}>
+                          {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.dangerZone}>
+                      <Text style={styles.dangerTitle}>Advanced Recovery</Text>
+                      <Text style={[styles.helperText, { marginBottom: 12, fontSize: 11 }]}>
+                        Force Re-sync clears your local meta-data and attempts to rebuild your database by re-importing every event from Google Drive. Use this only if you notice missing data or sync errors.
+                      </Text>
+
+                      <TouchableOpacity
+                        onPress={() => {
+                          Alert.alert(
+                            "Force Full Re-sync?",
+                            "This will clear local sync history and re-download all events from Drive. Your local data will be updated to match the Cloud exactly.",
+                            [
+                              { text: "Cancel", style: "cancel" },
+                              {
+                                text: "Yes, Re-sync",
+                                onPress: async () => {
+                                  showToast("Resetting Sync State...", "info");
+                                  const success = await forceResync();
+                                  if (success) {
+                                    showToast("Re-sync Completed", "success");
+                                    fetchCustomers();
+                                    fetchProducts();
+                                    fetchTransactions();
+                                  } else {
+                                    showToast("Re-sync Failed", "error");
+                                  }
+                                }
+                              }
+                            ]
+                          );
+                        }}
+                        style={styles.dangerButton}
+                      >
+                        <RotateCcw size={16} color="#ef4444" />
+                        <Text style={styles.dangerButtonText}>Force Re-sync (Fix Missing Data)</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <View style={{ marginTop: 20, padding: 12, backgroundColor: '#f1f5f9', borderRadius: 8, alignItems: 'center' }}>
+                    <Shield size={24} color="#64748b" style={{ marginBottom: 8 }} />
+                    <Text style={{ fontWeight: '600', color: '#475569', textAlign: 'center' }}>
+                      Sync Actions Locked
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4 }}>
+                      Please wait for pending uploads to finish before initiating manual syncs to prevent data conflicts.
                     </Text>
                   </View>
-                </View>
-
-                <View style={styles.divider} />
-
-                <View style={styles.dangerZone}>
-                  <Text style={styles.dangerTitle}>Advanced Recovery</Text>
-                  <Text style={[styles.helperText, { marginBottom: 12, fontSize: 11 }]}>
-                    Force Re-sync clears your local meta-data and attempts to rebuild your database by re-importing every event from Google Drive. Use this only if you notice missing data or sync errors.
-                  </Text>
-
-                  <TouchableOpacity
-                    onPress={() => {
-                      Alert.alert(
-                        "Force Full Re-sync?",
-                        "This will clear local sync history and re-download all events from Drive. Your local data will be updated to match the Cloud exactly.",
-                        [
-                          { text: "Cancel", style: "cancel" },
-                          {
-                            text: "Yes, Re-sync",
-                            onPress: async () => {
-                              showToast("Resetting Sync State...", "info");
-                              const success = await forceResync();
-                              if (success) {
-                                showToast("Re-sync Completed", "success");
-                                // After full re-sync, must refresh all lists
-                                fetchCustomers();
-                                fetchProducts();
-                                fetchTransactions();
-                              } else {
-                                showToast("Re-sync Failed", "error");
-                              }
-                            }
-                          }
-                        ]
-                      );
-                    }}
-                    style={styles.dangerButton}
-                  >
-                    <RotateCcw size={16} color="#ef4444" />
-                    <Text style={styles.dangerButtonText}>Force Re-sync (Fix Missing Data)</Text>
-                  </TouchableOpacity>
-                </View>
+                )}
               </View>
             </Card>
 
@@ -1385,6 +1482,45 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontWeight: '700',
     fontSize: 13
+  },
+  uploadInfoBox: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+  },
+  uploadRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  uploadLabel: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  uploadValue: {
+    fontSize: 14,
+    color: '#0f172a',
+    fontWeight: '700',
+  },
+  queueWarning: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#fff7ed',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ffedd5',
+    gap: 8,
+  },
+  queueWarningText: {
+    fontSize: 12,
+    color: '#9a3412',
+    flex: 1,
+    lineHeight: 18,
   }
 });
 

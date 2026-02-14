@@ -254,6 +254,13 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
            
            <div class="dashed"></div>
            
+           ${bill.loyaltyPointsEarned ? `
+               <div class="text-center" style="font-size: 11px; margin-bottom: 5px;">
+                   <b>LOYALTY POINTS EARNED: ${bill.loyaltyPointsEarned}</b>
+               </div>
+               <div class="dashed"></div>
+           ` : ''}
+           
            <div class="footer">
                ${bill.internalNotes ? `<div style="text-align: left; background: #eee; padding: 5px; margin-bottom: 5px; font-size: 10px;">REMARKS: ${bill.internalNotes}</div>` : ''}
                Thank You! Visit Again.<br/>
@@ -1244,7 +1251,11 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
     }
 };
 
+let isSharingInProgress = false;
+
 export const shareReceiptPDF = async (bill, settings = {}) => {
+    if (isSharingInProgress) return;
+    isSharingInProgress = true;
     try {
         const html = generateReceiptHTML(bill, settings);
         const { uri } = await Print.printToFileAsync({ html });
@@ -1252,6 +1263,8 @@ export const shareReceiptPDF = async (bill, settings = {}) => {
     } catch (error) {
         console.error('Share error:', error);
         Alert.alert('Error', 'Failed to share receipt');
+    } finally {
+        isSharingInProgress = false;
     }
 };
 
@@ -1259,6 +1272,8 @@ export const shareReceiptPDF = async (bill, settings = {}) => {
  * Bulk Print/Share Logic
  */
 export const shareBulkReceiptsPDF = async (bills, settings = {}) => {
+    if (isSharingInProgress) return;
+    isSharingInProgress = true;
     try {
         if (!bills || bills.length === 0) return;
 
@@ -1315,5 +1330,7 @@ export const shareBulkReceiptsPDF = async (bills, settings = {}) => {
     } catch (error) {
         console.error('Bulk Share error:', error);
         Alert.alert('Error', 'Failed to generate bulk PDF');
+    } finally {
+        isSharingInProgress = false;
     }
 };
