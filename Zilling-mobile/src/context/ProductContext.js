@@ -40,26 +40,33 @@ export const ProductProvider = ({ children }) => {
       const sku = data.sku || data.barcode || "";
 
       db.runSync(
-        `INSERT OR REPLACE INTO products (id, name, sku, category, price, stock, min_stock, unit, tax_rate, variants, variant, created_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, data.name, sku, data.category, data.price, data.stock || 0, data.minStock || 0, data.unit, data.tax_rate, JSON.stringify(data.variants || []), data.variant || null, new Date().toISOString()]
+        `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, data.name, sku, data.category, data.price, data.costPrice || 0, data.stock || 0, data.minStock || 0, data.unit, data.tax_rate, JSON.stringify(data.variants || []), data.variant || null, new Date().toISOString()]
       );
 
-      const newProduct = { ...data, id, sku };
+      const newProduct = {
+        ...data,
+        id,
+        sku,
+        cost_price: data.costPrice || 0,
+        tax_rate: data.tax_rate || 0
+      };
       setProducts(prev => [newProduct, ...prev]);
 
       // [AutoSave]
       triggerAutoSave();
 
       // [Sync]
+      let synced = false;
       try {
         const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-        SyncService.createAndUploadEvent(EventTypes.PRODUCT_CREATED, newProduct);
+        synced = await SyncService.createAndUploadEvent(EventTypes.PRODUCT_CREATED, newProduct);
       } catch (e) {
         console.log('Sync Add Product Error:', e);
       }
 
-      return newProduct;
+      return { ...newProduct, synced };
     } catch (err) {
       console.error('Add Product SQL Error:', err);
       throw err;
@@ -72,12 +79,13 @@ export const ProductProvider = ({ children }) => {
       console.log(`[ProductContext] Update Product ID: ${id}, SKU: ${sku}`);
 
       db.runSync(
-        `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, stock = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, cost_price = ?, stock = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
         [
           data.name,
           sku,
           data.category,
           data.price,
+          data.costPrice || 0,
           data.stock,
           data.minStock || 0,
           data.unit,
@@ -89,23 +97,30 @@ export const ProductProvider = ({ children }) => {
         ]
       );
 
-      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...data, sku } : p));
+      setProducts(prev => prev.map(p => p.id === id ? {
+        ...p,
+        ...data,
+        sku,
+        cost_price: data.costPrice !== undefined ? data.costPrice : p.cost_price
+      } : p));
 
       // [AutoSave]
       triggerAutoSave();
 
       // [Sync]
+      let synced = false;
       try {
         const { SyncService, EventTypes } = require('../services/OneWaySyncService');
         // Construct full updated object
         const oldProduct = products.find(p => p.id === id);
         if (oldProduct) {
           const finalProduct = { ...oldProduct, ...data, sku };
-          SyncService.createAndUploadEvent(EventTypes.PRODUCT_UPDATED, finalProduct);
+          synced = await SyncService.createAndUploadEvent(EventTypes.PRODUCT_UPDATED, finalProduct);
         }
       } catch (e) {
         console.log('Sync Update Product Error:', e);
       }
+      return synced;
     } catch (err) {
       console.error('Update Product SQL Error:', err);
       throw err;
@@ -159,10 +174,15 @@ export const ProductProvider = ({ children }) => {
     }
   };
 
-  const updateStock = async (id, newStock) => {
+  const updateStock = async (id, newStock, newMinStock = null) => {
     try {
-      db.runSync('UPDATE products SET stock = ? WHERE id = ?', [newStock, id]);
-      setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: newStock } : p));
+      if (newMinStock !== null) {
+        db.runSync('UPDATE products SET stock = ?, min_stock = ? WHERE id = ?', [newStock, newMinStock, id]);
+        setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: newStock, minStock: newMinStock, min_stock: newMinStock } : p));
+      } else {
+        db.runSync('UPDATE products SET stock = ? WHERE id = ?', [newStock, id]);
+        setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: newStock } : p));
+      }
 
       // [AutoSave]
       triggerAutoSave();
@@ -170,7 +190,10 @@ export const ProductProvider = ({ children }) => {
       // [Sync]
       try {
         const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-        SyncService.createAndUploadEvent(EventTypes.PRODUCT_STOCK_ADJUSTED, { id, stock: newStock });
+        const payload = { id, stock: newStock };
+        if (newMinStock !== null) payload.minStock = newMinStock;
+
+        SyncService.createAndUploadEvent(EventTypes.PRODUCT_STOCK_ADJUSTED, payload);
       } catch (e) {
         console.log('Sync Stock Adjust Error:', e);
       }
@@ -196,6 +219,7 @@ export const ProductProvider = ({ children }) => {
           sku,
           category: p.category || 'General',
           price: parseFloat(p.price || p.sellingPrice || 0),
+          cost_price: parseFloat(p.costPrice || p.cost_price || 0),
           stock: parseInt(p.stock || 0),
           unit: p.unit || 'pcs',
           tax_rate: parseFloat(p.taxRate || p.tax_rate || 0),
@@ -210,10 +234,10 @@ export const ProductProvider = ({ children }) => {
       await db.withTransactionAsync(async () => {
         for (const p of productsToInsert) {
           await db.runAsync(
-            `INSERT OR REPLACE INTO products (id, name, sku, category, price, stock, min_stock, unit, tax_rate, variants, variant, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-              p.id, p.name, p.sku, p.category, p.price, p.stock, p.min_stock || 0, p.unit, p.tax_rate,
+              p.id, p.name, p.sku, p.category, p.price, p.cost_price, p.stock, p.min_stock || 0, p.unit, p.tax_rate,
               JSON.stringify(p.variants), p.variant, p.created_at
             ]
           );

@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import { Platform, Alert } from 'react-native';
@@ -80,17 +80,24 @@ export const downloadExpensesPDF = async (expenses) => {
 
         if (Platform.OS === 'android' && FileSystem.StorageAccessFramework) {
             try {
+                // The isSharing lock already guards the entry to this function,
+                // which prevents multiple simultaneous permission requests from here.
                 const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
                 if (permissions.granted) {
-                    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+                    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
                     const fileName = `Expenses_${new Date().getTime()}.pdf`;
                     const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, fileName, 'application/pdf');
-                    await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+                    await FileSystem.writeAsStringAsync(newUri, base64, { encoding: 'base64' });
                     Alert.alert('Success', 'PDF saved successfully');
                     return;
                 }
             } catch (safError) {
-                console.warn('SAF Error, falling back to Share:', safError);
+                if (safError.message.includes("unfinished permission request")) {
+                    console.warn('SAF Permission already pending:', safError);
+                    Alert.alert("Permission Error", "A folder selection window is already open. Please complete or cancel it before trying again.");
+                } else {
+                    console.warn('SAF Error, falling back to Share:', safError);
+                }
             }
         }
 

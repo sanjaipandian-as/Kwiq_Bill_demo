@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 const PRODUCTION_URL = 'https://zilling-backend.onrender.com';
-const LOCAL_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000';
+const LOCAL_URL = 'http://10.203.95.84:5001';
 
 // Toggle this to true when deploying the APK
 const IS_PRODUCTION = false;

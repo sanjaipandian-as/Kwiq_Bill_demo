@@ -1,6 +1,15 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import { View, Text, Animated, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react-native';
+import {
+    View,
+    Text,
+    Animated,
+    StyleSheet,
+    TouchableOpacity,
+    Platform,
+    PanResponder,
+    Dimensions
+} from 'react-native';
+import { CheckCircle2, AlertCircle, Info, X, AlertTriangle } from 'lucide-react-native';
 
 const ToastContext = createContext();
 
@@ -8,22 +17,16 @@ export const useToast = () => useContext(ToastContext);
 
 export const ToastProvider = ({ children }) => {
     const [toasts, setToasts] = useState([]);
-
-    // Use a ref to keep track of toast IDs to ensure uniqueness
     const toastIdRef = useRef(0);
 
-    const showToast = useCallback((message, type = 'success', duration = 3000) => {
+    const showToast = useCallback((message, type = 'success', duration = 4000) => {
         const id = toastIdRef.current++;
-        const newToast = { id, message, type };
-
-        setToasts((prev) => [...prev, newToast]);
-
-        // Auto remove
-        if (duration > 0) {
-            setTimeout(() => {
-                removeToast(id);
-            }, duration);
-        }
+        // Limit to 3 toasts at a time to prevent clutter
+        setToasts((prev) => {
+            const current = [...prev, { id, message, type, duration }];
+            if (current.length > 3) return current.slice(current.length - 3);
+            return current;
+        });
     }, []);
 
     const removeToast = useCallback((id) => {
@@ -35,7 +38,11 @@ export const ToastProvider = ({ children }) => {
             {children}
             <View style={styles.container} pointerEvents="box-none">
                 {toasts.map((toast) => (
-                    <ToastItem key={toast.id} toast={toast} onRemove={() => removeToast(toast.id)} />
+                    <ToastItem
+                        key={toast.id}
+                        toast={toast}
+                        onRemove={() => removeToast(toast.id)}
+                    />
                 ))}
             </View>
         </ToastContext.Provider>
@@ -43,10 +50,62 @@ export const ToastProvider = ({ children }) => {
 };
 
 const ToastItem = ({ toast, onRemove }) => {
+    const { message, type, duration } = toast;
+    const translateY = useRef(new Animated.Value(-100)).current;
     const opacity = useRef(new Animated.Value(0)).current;
-    const translateY = useRef(new Animated.Value(-20)).current;
+    const scale = useRef(new Animated.Value(0.9)).current;
+
+    // Timer ref to clear it if user interacts
+    const timerRef = useRef(null);
+
+    // PanResponder for swipe dismissal
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponder: () => true,
+            onPanResponderMove: (_, gestureState) => {
+                // Determine drag direction (mostly vertical)
+                if (gestureState.dy < 0) {
+                    translateY.setValue(gestureState.dy);
+                }
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy < -50) {
+                    // Swiped up enough - dismiss
+                    animateOut();
+                } else {
+                    // Snap back
+                    Animated.spring(translateY, {
+                        toValue: 0,
+                        useNativeDriver: true,
+                    }).start();
+                }
+            }
+        })
+    ).current;
+
+    const animateOut = () => {
+        Animated.parallel([
+            Animated.timing(opacity, {
+                toValue: 0,
+                duration: 300,
+                useNativeDriver: true,
+            }),
+            Animated.timing(translateY, {
+                toValue: -50,
+                duration: 300,
+                useNativeDriver: true,
+            }),
+            Animated.timing(scale, {
+                toValue: 0.8,
+                duration: 300,
+                useNativeDriver: true,
+            })
+        ]).start(() => onRemove());
+    };
 
     useEffect(() => {
+        // Entrance Animation
         Animated.parallel([
             Animated.timing(opacity, {
                 toValue: 1,
@@ -56,49 +115,90 @@ const ToastItem = ({ toast, onRemove }) => {
             Animated.spring(translateY, {
                 toValue: 0,
                 friction: 6,
+                tension: 50,
+                useNativeDriver: true,
+            }),
+            Animated.spring(scale, {
+                toValue: 1,
+                friction: 6,
+                tension: 50,
                 useNativeDriver: true,
             })
         ]).start();
+
+        // Auto Dismiss Timer
+        if (duration > 0) {
+            timerRef.current = setTimeout(() => {
+                animateOut();
+            }, duration);
+        }
+
+        return () => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
     }, []);
 
-    // Handle manual removal animation
-    const handleRemove = () => {
-        Animated.parallel([
-            Animated.timing(opacity, {
-                toValue: 0,
-                duration: 250,
-                useNativeDriver: true,
-            }),
-            Animated.timing(translateY, {
-                toValue: -20,
-                duration: 250,
-                useNativeDriver: true,
-            })
-        ]).start(() => onRemove());
-    };
-
-    // Updated Premium Styles
-    const getStyles = () => {
-        switch (toast.type) {
-            case 'error': return { iconColor: '#ef4444', icon: AlertCircle };
-            case 'info': return { iconColor: '#3b82f6', icon: Info };
+    const getToastConfig = () => {
+        switch (type) {
+            case 'error': return {
+                icon: AlertCircle,
+                bg: '#FEF2F2',
+                border: '#FECACA',
+                text: '#DC2626',
+                title: 'Error'
+            };
+            case 'warning': return {
+                icon: AlertTriangle,
+                bg: '#FFFBEB',
+                border: '#FDE68A',
+                text: '#D97706',
+                title: 'Warning'
+            };
+            case 'info': return {
+                icon: Info,
+                bg: '#EFF6FF',
+                border: '#BFDBFE',
+                text: '#2563EB',
+                title: 'Info'
+            };
             case 'success':
-            default: return { iconColor: '#22c55e', icon: CheckCircle2 };
+            default: return {
+                icon: CheckCircle2,
+                bg: '#F0FDF4',
+                border: '#BBF7D0',
+                text: '#16A34A',
+                title: 'Success'
+            };
         }
     };
 
-    const styleConfig = getStyles();
-    const Icon = styleConfig.icon;
+    const config = getToastConfig();
+    const Icon = config.icon;
 
     return (
-        <Animated.View style={[styles.toast, { opacity, transform: [{ translateY }] }]}>
-            <View style={styles.content}>
-                <View style={[styles.iconContainer, { backgroundColor: styleConfig.iconColor + '20' }]}>
-                    <Icon size={18} color={styleConfig.iconColor} strokeWidth={2.5} />
+        <Animated.View
+            style={[
+                styles.toastContainer,
+                { opacity, transform: [{ translateY }, { scale }] }
+            ]}
+            {...panResponder.panHandlers}
+        >
+            <View style={[styles.card, { borderLeftColor: config.text }]}>
+                <View style={[styles.iconBox, { backgroundColor: config.bg }]}>
+                    <Icon size={22} color={config.text} strokeWidth={2.5} />
                 </View>
-                <Text style={styles.message}>{toast.message}</Text>
-                <TouchableOpacity onPress={handleRemove} style={styles.closeBtn}>
-                    <X size={14} color="#666" />
+
+                <View style={styles.contentBox}>
+                    <Text style={[styles.title, { color: config.text }]}>{config.title}</Text>
+                    <Text style={styles.message}>{message}</Text>
+                </View>
+
+                <TouchableOpacity
+                    onPress={animateOut}
+                    style={styles.closeButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                    <X size={18} color="#94a3b8" />
                 </TouchableOpacity>
             </View>
         </Animated.View>
@@ -112,49 +212,59 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
         alignItems: 'center',
-        zIndex: 10000,
-        paddingHorizontal: 20
+        zIndex: 99999,
+        paddingHorizontal: 16,
     },
-    toast: {
+    toastContainer: {
         width: '100%',
         maxWidth: 400,
         marginBottom: 12,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
+        shadowColor: '#64748b',
+        shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.15,
-        shadowRadius: 8,
-        elevation: 8,
+        shadowRadius: 15,
+        elevation: 10,
     },
-    content: {
+    card: {
         flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 14,
-        paddingVertical: 12,
+        alignItems: 'flex-start', // Top align for multi-line
+        backgroundColor: '#ffffff',
         borderRadius: 16,
-        backgroundColor: '#1e1e1e', // Soft black/dark grey
+        padding: 14,
         borderWidth: 1,
-        borderColor: '#333',
+        borderColor: '#f1f5f9',
+        borderLeftWidth: 4,
     },
-    iconContainer: {
-        width: 32,
-        height: 32,
+    iconBox: {
+        width: 38,
+        height: 38,
         borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: 12
+        marginRight: 12,
+    },
+    contentBox: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingVertical: 1, // Visual centering adjust
+    },
+    title: {
+        fontSize: 13,
+        fontWeight: '800',
+        marginBottom: 2,
+        letterSpacing: 0.3,
+        textTransform: 'uppercase',
     },
     message: {
-        flex: 1,
-        color: '#fff',
         fontSize: 14,
+        color: '#334155',
         fontWeight: '600',
-        letterSpacing: 0.3
+        lineHeight: 20,
     },
-    closeBtn: {
-        padding: 6,
+    closeButton: {
+        padding: 4,
         marginLeft: 8,
-        backgroundColor: '#333',
-        borderRadius: 10
+        marginTop: 2,
     }
 });
 

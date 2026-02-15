@@ -10,7 +10,9 @@ import {
     Alert,
     TouchableOpacity,
     Platform,
-    KeyboardAvoidingView
+    KeyboardAvoidingView,
+    Dimensions,
+    TextInput
 } from 'react-native';
 import {
     X,
@@ -21,22 +23,27 @@ import {
     Building,
     Printer,
     FileText,
-    CheckCircle2,
-    History,
-    ChevronRight,
+    Clock,
     ChevronDown,
     Trash2,
-    Briefcase,
+    Award,
+    Trophy,
+    ShieldCheck,
+    Save,
+    Star,
+    LayoutGrid,
     Calendar,
-    Clock,
-    Tag,
-    Pencil,
-    CirclePlus,
-    Check
+    ArrowRight,
+    CircleDollarSign,
+    ChevronRight,
+    CreditCard
 } from 'lucide-react-native';
 import { useTransactions } from '../../context/TransactionContext';
 import { shareReceiptPDF, shareBulkReceiptsPDF } from '../../utils/printUtils';
 import { Input } from '../../components/ui/Input';
+import { LinearGradient } from 'expo-linear-gradient';
+
+const { width, height } = Dimensions.get('window');
 
 const STATE_OPTIONS = [
     "Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chandigarh", "Chhattisgarh",
@@ -65,6 +72,16 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
             .filter(t => t.customerId == (customer.id || customer._id))
             .sort((a, b) => new Date(b.date) - new Date(a.date));
     }, [customer, transactions]);
+
+    const stats = useMemo(() => {
+        if (history.length === 0) return { total: 0, pending: 0, count: 0 };
+        const total = history.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0);
+        const pending = history.reduce((sum, t) => {
+            const due = (parseFloat(t.total) || 0) - (parseFloat(t.amountReceived) || 0);
+            return sum + Math.max(0, due);
+        }, 0);
+        return { total, pending, count: history.length };
+    }, [history]);
 
     const [formData, setFormData] = useState({
         fullName: '',
@@ -150,7 +167,6 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
     }, [customer, isOpen]);
 
     const handleSaveInternal = async () => {
-        // Basic validation - only require Name and Phone
         const missing = [];
         if (!formData.fullName.trim()) missing.push('Full Name');
         if (!formData.phone.trim()) missing.push('Phone Number');
@@ -178,107 +194,118 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
 
     const renderHistoryItem = ({ item: tx }) => {
         const date = new Date(tx.date);
-        const isPaid = tx.status === 'Paid';
+        const isPaid = (tx.status || '').toUpperCase() === 'PAID';
+        const due = (parseFloat(tx.total) || 0) - (parseFloat(tx.amountReceived) || 0);
 
         return (
-            <View style={styles.historyCard}>
-                <View style={styles.historyCardHeader}>
-                    <View style={styles.historyInfo}>
-                        <View style={styles.historyDateRow}>
-                            <Calendar size={12} color="#64748b" />
-                            <Text style={styles.historyDateText}>{date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
-                        </View>
-                        <Text style={styles.invoiceId}>Invoice #{tx.id}</Text>
+            <Pressable style={styles.ledgerCard} onPress={() => shareReceiptPDF(tx)}>
+                <View style={styles.ledgerCardTop}>
+                    <View style={styles.ledgerDateBox}>
+                        <Text style={styles.ledgerDay}>{date.getDate()}</Text>
+                        <Text style={styles.ledgerMonth}>{date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</Text>
                     </View>
-                    <View style={[styles.statusBadge, isPaid ? styles.statusPaid : styles.statusUnpaid]}>
-                        <Text style={[styles.statusText, isPaid ? styles.statusTextPaid : styles.statusTextUnpaid]}>
-                            {isPaid ? 'PAID' : 'PENDING'}
+                    <View style={styles.ledgerMainInfo}>
+                        <Text style={styles.ledgerInvText}>INV-#{tx.id?.substring(0, 6).toUpperCase()}</Text>
+                        <View style={styles.ledgerStatusRow}>
+                            <View style={[styles.statusIndicator, { backgroundColor: isPaid ? '#22c55e' : '#ef4444' }]} />
+                            <Text style={[styles.statusLabelText, { color: isPaid ? '#22c55e' : '#ef4444' }]}>
+                                {isPaid ? 'PAID FULL' : `DUE ₹${due.toLocaleString()}`}
+                            </Text>
+                        </View>
+                    </View>
+                    <View style={styles.ledgerAmountBox}>
+                        <Text style={styles.ledgerTotalAmount}>₹{(tx.total || 0).toLocaleString()}</Text>
+                        <ChevronRight size={16} color="#cbd5e1" />
+                    </View>
+                </View>
+
+                <View style={styles.ledgerItemsList}>
+                    {(tx.items || []).slice(0, 1).map((item, idx) => (
+                        <Text key={idx} style={styles.ledgerItemPreview} numberOfLines={1}>
+                            {item.name} {tx.items.length > 1 ? `+${tx.items.length - 1} more` : ''}
                         </Text>
-                    </View>
-                </View>
-
-                <View style={styles.historyDivider} />
-
-                <View style={styles.historyItemsContainer}>
-                    {(tx.items || []).slice(0, 3).map((item, idx) => (
-                        <View key={idx} style={styles.historyItemRow}>
-                            <Text style={styles.historyItemName} numberOfLines={1}>{item.name}</Text>
-                            <Text style={styles.historyItemPrice}>₹{(item.total || item.price * item.quantity).toLocaleString()}</Text>
-                        </View>
                     ))}
-                    {(tx.items || []).length > 3 && (
-                        <Text style={styles.moreItemsText}>+ {(tx.items.length - 3)} more items...</Text>
-                    )}
                 </View>
-
-                <View style={styles.historyFooter}>
-                    <View>
-                        <Text style={styles.totalLabel}>TOTAL AMOUNT</Text>
-                        <Text style={styles.totalAmount}>₹{(tx.total || 0).toLocaleString()}</Text>
-                    </View>
-                    <TouchableOpacity
-                        style={[styles.printMiniBtn, { backgroundColor: '#10b981', borderColor: '#059669' }]}
-                        onPress={() => shareReceiptPDF(tx)}
-                    >
-                        <Printer size={16} color="#fff" />
-                        <Text style={[styles.printMiniText, { color: '#fff' }]}>RECEIPT</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+            </Pressable>
         );
+    };
+
+    const toggleVIP = () => {
+        const isVIP = formData.tags.includes('VIP');
+        const newTags = isVIP ? formData.tags.filter(t => t !== 'VIP') : [...formData.tags, 'VIP'];
+        setFormData({ ...formData, tags: newTags });
     };
 
     const renderProfileForm = () => (
         <ScrollView style={styles.formScroll} contentContainerStyle={styles.formContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.formCard}>
-                <View style={styles.sectionHeader}>
-                    <View style={styles.sectionIconBox}>
-                        <User size={18} color="#0f172a" />
+            {/* Header Hero Stats for existing client */}
+            {customer && (
+                <View style={styles.formHero}>
+                    <View style={styles.heroStatItem}>
+                        <Text style={styles.heroStatLabel}>LEDGER TOTAL</Text>
+                        <Text style={styles.heroStatValue}>₹{stats.total.toLocaleString()}</Text>
                     </View>
-                    <Text style={styles.sectionTitle}>PERSONAL DETAILS</Text>
+                    <View style={styles.heroStatDivider} />
+                    <View style={styles.heroStatItem}>
+                        <Text style={styles.heroStatLabel}>LOYALTY PTS</Text>
+                        <Text style={styles.heroStatValue}>{formData.loyaltyPoints}</Text>
+                    </View>
+                </View>
+            )}
+
+            <View style={styles.inputGroup}>
+                <View style={styles.groupHeader}>
+                    <Text style={styles.groupTitle}>Primary Information</Text>
+                    <TouchableOpacity
+                        style={[styles.vipBadge, formData.tags.includes('VIP') && styles.vipBadgeOn]}
+                        onPress={toggleVIP}
+                    >
+                        <Star size={12} color={formData.tags.includes('VIP') ? "#fff" : "#64748b"} fill={formData.tags.includes('VIP') ? "#fff" : "none"} />
+                        <Text style={[styles.vipBadgeText, formData.tags.includes('VIP') && styles.vipBadgeTextOn]}>VIP CLIENT</Text>
+                    </TouchableOpacity>
                 </View>
 
-                <Input
-                    label="Customer Name"
-                    required
-                    value={formData.fullName}
-                    onChangeText={(text) => setFormData({ ...formData, fullName: text })}
-                    placeholder="Enter full name"
-                />
+                <View style={styles.fieldContainer}>
+                    <Text style={styles.fieldLabel}>FULL NAME <Text style={styles.reqText}>*</Text></Text>
+                    <View style={styles.inputWrapper}>
+                        <User size={18} color="#94a3b8" />
+                        <TextInput
+                            style={styles.fieldInput}
+                            value={formData.fullName}
+                            onChangeText={(text) => setFormData({ ...formData, fullName: text })}
+                            placeholder="e.g. Rahul Sharma"
+                            placeholderTextColor="#cbd5e1"
+                        />
+                    </View>
+                </View>
 
-                <View style={styles.rowInputs}>
-                    <View style={styles.flex1}>
-                        <Input
-                            label="Mobile Number"
-                            required
+                <View style={styles.fieldContainer}>
+                    <Text style={styles.fieldLabel}>CONTACT NUMBER <Text style={styles.reqText}>*</Text></Text>
+                    <View style={styles.inputWrapper}>
+                        <Phone size={18} color="#94a3b8" />
+                        <TextInput
+                            style={styles.fieldInput}
                             value={formData.phone}
                             onChangeText={(text) => setFormData({ ...formData, phone: text })}
-                            placeholder="10-digit number"
+                            placeholder="10-digit mobile number"
+                            placeholderTextColor="#cbd5e1"
                             keyboardType="phone-pad"
                             maxLength={10}
                         />
                     </View>
-                    <View style={styles.flex1}>
-                        <Input
-                            label="Email (Optional)"
-                            value={formData.email}
-                            onChangeText={(text) => setFormData({ ...formData, email: text })}
-                            placeholder="john@example.com"
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                        />
-                    </View>
                 </View>
 
-                <View style={styles.typeSelector}>
+                <View style={styles.typeSelectorRow}>
                     {['Individual', 'Business'].map(type => (
                         <TouchableOpacity
                             key={type}
                             onPress={() => setFormData({ ...formData, customerType: type })}
-                            style={[styles.typeBtn, formData.customerType === type && styles.typeBtnActive]}
+                            style={[styles.typeOption, formData.customerType === type && styles.typeOptionActive]}
                         >
-                            {formData.customerType === type && <CheckCircle2 size={16} color="#000" />}
-                            <Text style={[styles.typeBtnText, formData.customerType === type && styles.typeBtnTextActive]}>
+                            <View style={[styles.typeRadio, formData.customerType === type && styles.typeRadioActive]}>
+                                {formData.customerType === type && <View style={styles.radioInner} />}
+                            </View>
+                            <Text style={[styles.typeOptionText, formData.customerType === type && styles.typeOptionTextActive]}>
                                 {type}
                             </Text>
                         </TouchableOpacity>
@@ -286,197 +313,236 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 </View>
             </View>
 
-            <View style={styles.formCard}>
-                <View style={styles.sectionHeader}>
-                    <View style={[styles.sectionIconBox, { backgroundColor: '#f0fdf4', borderColor: '#dcfce7' }]}>
-                        <MapPin size={18} color="#15803d" />
-                    </View>
-                    <Text style={styles.sectionTitle}>ADDRESS & LOCATION</Text>
-                </View>
+            <View style={styles.inputGroup}>
+                <Text style={styles.groupTitle}>Extended Details</Text>
 
-                <Input
-                    label="Street Address"
-                    value={formData.address.street}
-                    onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, street: text } })}
-                    placeholder="House no., Building, Street"
-                />
-
-                <View style={styles.rowInputs}>
-                    <View style={styles.flex1}>
-                        <Input
-                            label="City"
-                            value={formData.address.city}
-                            onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, city: text } })}
-                            placeholder="City name"
+                <View style={styles.fieldContainer}>
+                    <Text style={styles.fieldLabel}>EMAIL ADDRESS</Text>
+                    <View style={styles.inputWrapper}>
+                        <Mail size={18} color="#94a3b8" />
+                        <TextInput
+                            style={styles.fieldInput}
+                            value={formData.email}
+                            onChangeText={(text) => setFormData({ ...formData, email: text })}
+                            placeholder="client@mail.com"
+                            placeholderTextColor="#cbd5e1"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
                         />
                     </View>
-                    <View style={styles.flex1}>
-                        <Input
-                            label="Pincode"
-                            value={formData.address.pincode}
-                            onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, pincode: text } })}
-                            placeholder="000000"
-                            keyboardType="numeric"
-                            maxLength={6}
-                        />
-                    </View>
-                </View>
-
-                <View style={styles.rowInputs}>
-                    <View style={styles.flex1}>
-                        <Text style={styles.inputLabel}>State</Text>
-                        <TouchableOpacity style={styles.premiumPicker} onPress={() => openPicker("State", STATE_OPTIONS, 'state')}>
-                            <Text style={[styles.pickerText, !formData.address.state && styles.placeholderText]} numberOfLines={1}>
-                                {formData.address.state || "Select State"}
-                            </Text>
-                            <ChevronDown size={16} color="#64748b" />
-                        </TouchableOpacity>
-                    </View>
-                    <View style={styles.flex1}>
-                        <Text style={styles.inputLabel}>Source</Text>
-                        <TouchableOpacity style={styles.premiumPicker} onPress={() => openPicker("Lead Source", SOURCE_OPTIONS, 'source')}>
-                            <Text style={[styles.pickerText, !formData.source && styles.placeholderText]} numberOfLines={1}>
-                                {formData.source || "Select..."}
-                            </Text>
-                            <ChevronDown size={16} color="#64748b" />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </View>
-
-            <View style={styles.formCard}>
-                <View style={styles.sectionHeader}>
-                    <View style={[styles.sectionIconBox, { backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
-                        <Briefcase size={18} color="#c2410c" />
-                    </View>
-                    <Text style={styles.sectionTitle}>ADDITIONAL DETAILS</Text>
                 </View>
 
                 {formData.customerType === 'Business' && (
-                    <Input
-                        label="GSTIN Number"
-                        value={formData.gstin}
-                        onChangeText={(text) => setFormData({ ...formData, gstin: text })}
-                        placeholder="22AAAAA0000A1Z5"
-                        autoCapitalize="characters"
-                    />
+                    <View style={styles.fieldContainer}>
+                        <Text style={styles.fieldLabel}>GST IDENTIFICATION NUMBER</Text>
+                        <View style={styles.inputWrapper}>
+                            <Building size={18} color="#94a3b8" />
+                            <TextInput
+                                style={styles.fieldInput}
+                                value={formData.gstin}
+                                onChangeText={(text) => setFormData({ ...formData, gstin: text })}
+                                placeholder="22AAAAA0000A1Z5"
+                                placeholderTextColor="#cbd5e1"
+                                autoCapitalize="characters"
+                            />
+                        </View>
+                    </View>
                 )}
 
-                <Input
-                    label="Private Notes"
+                <View style={styles.fieldContainer}>
+                    <Text style={styles.fieldLabel}>LEAD SOURCE</Text>
+                    <TouchableOpacity style={styles.dropdownInput} onPress={() => openPicker("Select Lead Source", SOURCE_OPTIONS, 'source')}>
+                        <LayoutGrid size={18} color="#94a3b8" />
+                        <Text style={[styles.dropdownValue, !formData.source && styles.placeholder]}>
+                            {formData.source || "Select Source"}
+                        </Text>
+                        <ChevronDown size={18} color="#94a3b8" />
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+                <Text style={styles.groupTitle}>Work / Shipping Address</Text>
+
+                <View style={styles.fieldContainer}>
+                    <Text style={styles.fieldLabel}>STREET / BUILDING</Text>
+                    <View style={styles.inputWrapper}>
+                        <MapPin size={18} color="#94a3b8" />
+                        <TextInput
+                            style={styles.fieldInput}
+                            value={formData.address.street}
+                            onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, street: text } })}
+                            placeholder="Unit No, Building Name"
+                            placeholderTextColor="#cbd5e1"
+                        />
+                    </View>
+                </View>
+
+                <View style={styles.gridRow}>
+                    <View style={[styles.fieldContainer, { flex: 1 }]}>
+                        <Text style={styles.fieldLabel}>CITY</Text>
+                        <TextInput
+                            style={styles.simpleInput}
+                            value={formData.address.city}
+                            onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, city: text } })}
+                            placeholder="City"
+                            placeholderTextColor="#cbd5e1"
+                        />
+                    </View>
+                    <View style={[styles.fieldContainer, { flex: 1 }]}>
+                        <Text style={styles.fieldLabel}>PINCODE</Text>
+                        <TextInput
+                            style={styles.simpleInput}
+                            value={formData.address.pincode}
+                            onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, pincode: text } })}
+                            placeholder="400001"
+                            placeholderTextColor="#cbd5e1"
+                            keyboardType="numeric"
+                        />
+                    </View>
+                </View>
+
+                <View style={styles.fieldContainer}>
+                    <Text style={styles.fieldLabel}>STATE</Text>
+                    <TouchableOpacity style={styles.dropdownInput} onPress={() => openPicker("Select State", STATE_OPTIONS, 'state')}>
+                        <Text style={[styles.dropdownValue, !formData.address.state && styles.placeholder]}>
+                            {formData.address.state || "Select Professional State"}
+                        </Text>
+                        <ChevronDown size={18} color="#94a3b8" />
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+                <Text style={styles.groupTitle}>Internal Notes</Text>
+                <TextInput
+                    style={styles.textArea}
                     value={formData.notes}
                     onChangeText={(text) => setFormData({ ...formData, notes: text })}
-                    placeholder="Add any internal notes here..."
+                    placeholder="Briefly describe client preferences or specific requirements..."
+                    placeholderTextColor="#cbd5e1"
                     multiline
-                    numberOfLines={3}
+                    numberOfLines={4}
                 />
             </View>
-            <View style={{ height: 100 }} />
+
+            <View style={{ height: 120 }} />
         </ScrollView>
     );
 
     return (
         <RNModal visible={isOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
             <View style={styles.container}>
-                <View style={styles.modalHeader}>
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.modalTitle}>
-                            {activeTab === 'history' ? 'MANAGE HISTORY' : (customer ? 'UPDATE CUSTOMER' : 'NEW CUSTOMER')}
-                        </Text>
-                        <Text style={styles.modalSub}>
-                            {activeTab === 'history' ? `Transactions for ${formData.fullName}` : (customer ? `Manage ${formData.fullName}` : 'Add a new member to your portfolio')}
-                        </Text>
-                    </View>
-                    <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                        <X size={20} color="#000" strokeWidth={3} />
-                    </TouchableOpacity>
-                </View>
-
-                {customer && (
-                    <View style={styles.tabsWrapper}>
-                        <TouchableOpacity
-                            style={[styles.tabItem, activeTab === 'details' && styles.tabItemActive]}
-                            onPress={() => setActiveTab('details')}
-                        >
-                            <User size={16} color={activeTab === 'details' ? '#000' : '#94a3b8'} strokeWidth={activeTab === 'details' ? 3 : 2} />
-                            <Text style={[styles.tabItemText, activeTab === 'details' && styles.tabItemTextActive]}>PROFILE</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.tabItem, activeTab === 'history' && styles.tabItemActive]}
-                            onPress={() => setActiveTab('history')}
-                        >
-                            <History size={16} color={activeTab === 'history' ? '#000' : '#94a3b8'} strokeWidth={activeTab === 'history' ? 3 : 2} />
-                            <Text style={[styles.tabItemText, activeTab === 'history' && styles.tabItemTextActive]}>HISTORY</Text>
-                            {history.length > 0 && <View style={styles.tabBadge}><Text style={styles.tabBadgeText}>{history.length}</Text></View>}
-                        </TouchableOpacity>
-                    </View>
-                )}
-
-                <View style={styles.contentArea}>
-                    {activeTab === 'details' ? (
-                        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-                            {renderProfileForm()}
-                        </KeyboardAvoidingView>
-                    ) : (
-                        <View style={styles.historyContainer}>
-                            {history.length === 0 ? (
-                                <View style={styles.emptyHistory}>
-                                    <View style={styles.emptyIconBg}>
-                                        <FileText size={40} color="#cbd5e1" />
-                                    </View>
-                                    <Text style={styles.emptyTitle}>NO PURCHASES YET</Text>
-                                    <Text style={styles.emptySub}>Transactions will appear here once recorded.</Text>
-                                </View>
-                            ) : (
-                                <FlatList
-                                    data={history}
-                                    keyExtractor={item => item.id.toString()}
-                                    renderItem={renderHistoryItem}
-                                    contentContainerStyle={styles.historyListContent}
-                                    showsVerticalScrollIndicator={false}
-                                />
-                            )}
+                <View style={styles.topHeader}>
+                    <View style={styles.dragHandle} />
+                    <View style={styles.headerTitleRow}>
+                        <View style={styles.titleContent}>
+                            <Text style={styles.mainTitle}>{customer ? 'Update Profile' : 'Add New Client'}</Text>
+                            <Text style={styles.subTitle}>Business Intelligence & Ledger</Text>
                         </View>
-                    )}
-                </View>
-
-                <View style={styles.stickyFooter}>
-                    {activeTab === 'history' ? (
-                        <TouchableOpacity
-                            style={[styles.btnPrimary, { backgroundColor: '#10b981', shadowColor: '#10b981' }]}
-                            onPress={async () => {
-                                if (history.length === 0) return;
-                                await shareBulkReceiptsPDF(history);
-                            }}
-                        >
-                            <Printer size={20} color="#fff" />
-                            <Text style={styles.btnPrimaryText}>BATCH EXPORT RECEIPTS</Text>
+                        <TouchableOpacity onPress={onClose} style={styles.headerX}>
+                            <X size={20} color="#000" />
                         </TouchableOpacity>
-                    ) : (
-                        <View style={styles.footerBtns}>
-                            {customer && (
-                                <TouchableOpacity onPress={onDelete} style={styles.btnDanger}>
-                                    <Trash2 size={20} color="#ef4444" />
-                                </TouchableOpacity>
-                            )}
+                    </View>
+
+                    {customer && (
+                        <View style={styles.tabContainer}>
                             <TouchableOpacity
-                                onPress={handleSaveInternal}
-                                style={[styles.btnPrimary, isSubmitting && styles.btnDisabled, { flex: 1 }]}
-                                disabled={isSubmitting}
+                                style={[styles.tabBtn, activeTab === 'details' && styles.tabBtnActive]}
+                                onPress={() => setActiveTab('details')}
                             >
-                                <Check size={20} color="#fff" strokeWidth={3} />
-                                <Text style={styles.btnPrimaryText}>{isSubmitting ? 'PROCESSING...' : 'SAVE CUSTOMER'}</Text>
+                                <User size={16} color={activeTab === 'details' ? '#000' : '#94a3b8'} />
+                                <Text style={[styles.tabText, activeTab === 'details' && styles.tabTextActive]}>PROFILE</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.tabBtn, activeTab === 'history' && styles.tabBtnActive]}
+                                onPress={() => setActiveTab('history')}
+                            >
+                                <CreditCard size={16} color={activeTab === 'history' ? '#000' : '#94a3b8'} />
+                                <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>LEDGER</Text>
+                                {history.length > 0 && (
+                                    <View style={styles.ledgerCount}>
+                                        <Text style={styles.ledgerCountText}>{history.length}</Text>
+                                    </View>
+                                )}
                             </TouchableOpacity>
                         </View>
                     )}
                 </View>
 
+                <View style={styles.mainBody}>
+                    {activeTab === 'details' ? renderProfileForm() : (
+                        <View style={styles.ledgerContainer}>
+                            {history.length === 0 ? (
+                                <View style={styles.ledgerEmpty}>
+                                    <View style={styles.emptyArt}>
+                                        <CreditCard size={32} color="#cbd5e1" />
+                                    </View>
+                                    <Text style={styles.emptyHeading}>No Transactions Yet</Text>
+                                    <Text style={styles.emptyText}>Billed invoices will automatically appear here.</Text>
+                                </View>
+                            ) : (
+                                <View style={{ flex: 1 }}>
+                                    <View style={styles.ledgerStatsOverlay}>
+                                        <View style={styles.statMiniCard}>
+                                            <Text style={styles.miniLabel}>OUTSTANDING</Text>
+                                            <Text style={[styles.miniValue, stats.pending > 0 && { color: '#ef4444' }]}>₹{stats.pending.toLocaleString()}</Text>
+                                        </View>
+                                        <View style={styles.statMiniDivider} />
+                                        <View style={styles.statMiniCard}>
+                                            <Text style={styles.miniLabel}>LIFETIME VALUE</Text>
+                                            <Text style={styles.miniValue}>₹{stats.total.toLocaleString()}</Text>
+                                        </View>
+                                    </View>
+                                    <FlatList
+                                        data={history}
+                                        keyExtractor={item => item.id.toString()}
+                                        renderItem={renderHistoryItem}
+                                        contentContainerStyle={styles.ledgerList}
+                                        showsVerticalScrollIndicator={false}
+                                    />
+                                </View>
+                            )}
+                        </View>
+                    )}
+                </View>
+
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+                    <View style={styles.modalFooter}>
+                        {activeTab === 'details' ? (
+                            <View style={styles.footerActions}>
+                                {customer && (
+                                    <TouchableOpacity onPress={onDelete} style={styles.binBtn}>
+                                        <Trash2 size={22} color="#ef4444" />
+                                    </TouchableOpacity>
+                                )}
+                                <TouchableOpacity
+                                    onPress={handleSaveInternal}
+                                    style={[styles.saveBtn, isSubmitting && styles.loading]}
+                                    disabled={isSubmitting}
+                                >
+                                    <Save size={18} color="#fff" />
+                                    <Text style={styles.saveText}>{isSubmitting ? 'PROCESSING' : 'SAVE CHANGES'}</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity
+                                style={styles.exportFullBtn}
+                                onPress={() => history.length > 0 && shareBulkReceiptsPDF(history)}
+                            >
+                                <Printer size={18} color="#fff" />
+                                <Text style={styles.exportText}>EXPORT DETAILED LEDGER</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </KeyboardAvoidingView>
+
                 {pickerVisible && (
-                    <View style={styles.pickerBackdrop}>
+                    <View style={styles.overlay}>
                         <Pressable style={StyleSheet.absoluteFill} onPress={() => setPickerVisible(false)} />
-                        <View style={styles.pickerSheet}>
-                            <View style={styles.pickerHeader}>
-                                <Text style={styles.pickerTitle}>{pickerTitle.toUpperCase()}</Text>
+                        <View style={styles.sheet}>
+                            <View style={styles.sheetHeader}>
+                                <Text style={styles.sheetLabel}>{pickerTitle}</Text>
                                 <TouchableOpacity onPress={() => setPickerVisible(false)}>
                                     <X size={20} color="#000" />
                                 </TouchableOpacity>
@@ -485,11 +551,11 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                                 data={pickerOptions}
                                 keyExtractor={(item) => item}
                                 renderItem={({ item }) => (
-                                    <TouchableOpacity style={styles.pickerOption} onPress={() => handlePickerSelect(item)}>
-                                        <Text style={styles.pickerOptionText}>{item}</Text>
+                                    <TouchableOpacity style={styles.option} onPress={() => handlePickerSelect(item)}>
+                                        <Text style={styles.optionLabel}>{item}</Text>
                                         {((currentPickerField === 'state' && formData.address.state === item) ||
                                             (currentPickerField === 'source' && formData.source === item)) &&
-                                            <Check size={20} color="#10b981" strokeWidth={3} />
+                                            <ShieldCheck size={18} color="#000" />
                                         }
                                     </TouchableOpacity>
                                 )}
@@ -503,89 +569,104 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f9fafb' }, // Changed bg
-    modalHeader: { flexDirection: 'row', alignItems: 'center', padding: 20, paddingTop: 24, paddingBottom: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-    modalTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a' },
-    modalSub: { fontSize: 13, color: '#64748b', marginTop: 2, fontWeight: '500' },
-    closeBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+    container: { flex: 1, backgroundColor: '#fff' },
+    topHeader: { backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#f1f5f9' },
+    dragHandle: { width: 36, height: 4, backgroundColor: '#e2e8f0', borderRadius: 2, alignSelf: 'center', marginTop: 10 },
+    headerTitleRow: { flexDirection: 'row', padding: 24, paddingBottom: 16, alignItems: 'center', justifyContent: 'space-between' },
+    titleContent: { gap: 2 },
+    mainTitle: { fontSize: 24, fontWeight: '900', color: '#000', letterSpacing: -1 },
+    subTitle: { fontSize: 13, fontWeight: '700', color: '#94a3b8' },
+    headerX: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
 
-    tabsWrapper: { flexDirection: 'row', padding: 16, gap: 12, backgroundColor: '#fff' },
-    tabItem: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: 'transparent' },
-    tabItemActive: { backgroundColor: '#f0f9ff', borderColor: '#e0f2fe' },
-    tabItemText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
-    tabItemTextActive: { color: '#0284c7' },
-    tabBadge: { backgroundColor: '#fff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 },
-    tabBadgeText: { fontSize: 10, fontWeight: '800', color: '#0284c7' },
+    tabContainer: { flexDirection: 'row', paddingHorizontal: 24, gap: 12, paddingBottom: 0 },
+    tabBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 12, borderBottomWidth: 2, borderColor: 'transparent' },
+    tabBtnActive: { borderColor: '#000' },
+    tabText: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5 },
+    tabTextActive: { color: '#000' },
+    ledgerCount: { backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+    ledgerCountText: { fontSize: 9, fontWeight: '900', color: '#64748b' },
 
-    contentArea: { flex: 1 },
+    mainBody: { flex: 1 },
     formScroll: { flex: 1 },
-    formContent: { padding: 20, gap: 24 },
-    formCard: { backgroundColor: '#fff', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, gap: 20 },
+    formContent: { padding: 24, gap: 32 },
+    formHero: { flexDirection: 'row', backgroundColor: '#000', borderRadius: 24, padding: 20, marginBottom: 8 },
+    heroStatItem: { flex: 1, alignItems: 'center' },
+    heroStatLabel: { fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.4)', letterSpacing: 1, marginBottom: 4 },
+    heroStatValue: { fontSize: 18, fontWeight: '900', color: '#fff' },
+    heroStatDivider: { width: 1, height: '80%', backgroundColor: 'rgba(255,255,255,0.1)', alignSelf: 'center' },
 
-    sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 0 },
-    sectionIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
-    sectionTitle: { fontSize: 13, fontWeight: '900', color: '#0f172a', letterSpacing: 0.8 },
+    inputGroup: { gap: 16 },
+    groupHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    groupTitle: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1.2, textTransform: 'uppercase' },
+    vipBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9' },
+    vipBadgeOn: { backgroundColor: '#000', borderColor: '#000' },
+    vipBadgeText: { fontSize: 10, fontWeight: '900', color: '#64748b' },
+    vipBadgeTextOn: { color: '#fff' },
 
-    rowInputs: { flexDirection: 'row', gap: 16 },
-    flex1: { flex: 1 },
-    inputLabel: { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 8, letterSpacing: 0.5 },
-    divider: { height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 32 },
+    fieldContainer: { gap: 8 },
+    fieldLabel: { fontSize: 11, fontWeight: '800', color: '#475569', letterSpacing: 0.5 },
+    reqText: { color: '#ef4444' },
+    inputWrapper: { flexDirection: 'row', height: 52, backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 14, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#f1f5f9' },
+    fieldInput: { flex: 1, fontSize: 15, fontWeight: '700', color: '#000' },
+    simpleInput: { height: 52, backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 14, fontSize: 15, fontWeight: '700', color: '#000', borderWidth: 1, borderColor: '#f1f5f9' },
 
-    typeSelector: { flexDirection: 'row', gap: 12, marginTop: 4 },
-    typeBtn: { flex: 1, flexDirection: 'row', height: 48, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', gap: 8 },
-    typeBtnActive: { borderColor: '#0f172a', backgroundColor: '#fff', borderWidth: 1.5 },
-    typeBtnText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-    typeBtnTextActive: { color: '#0f172a', fontWeight: '800' },
+    typeSelectorRow: { flexDirection: 'row', gap: 12 },
+    typeOption: { flex: 1, height: 52, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: '#f1f5f9' },
+    typeOptionActive: { borderColor: '#000', backgroundColor: '#fff' },
+    typeRadio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
+    typeRadioActive: { borderColor: '#000' },
+    radioInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#000' },
+    typeOptionText: { fontSize: 14, fontWeight: '800', color: '#64748b' },
+    typeOptionTextActive: { color: '#000' },
 
-    premiumPicker: { flexDirection: 'row', height: 50, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 14, alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff' },
-    pickerText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
-    placeholderText: { color: '#94a3b8' },
+    dropdownInput: { flexDirection: 'row', height: 52, backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'space-between', gap: 12, borderWidth: 1, borderColor: '#f1f5f9' },
+    dropdownValue: { flex: 1, fontSize: 15, fontWeight: '700', color: '#000' },
+    placeholder: { color: '#cbd5e1' },
 
-    historyContainer: { flex: 1 },
-    historyListContent: { padding: 16, gap: 16, paddingBottom: 100 },
-    historyCard: { backgroundColor: '#fff', borderRadius: 20, padding: 18, borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, elevation: 1 },
-    historyCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-    historyInfo: { gap: 4 },
-    historyDateRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    historyDateText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-    invoiceId: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
-    statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1 },
-    statusPaid: { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' },
-    statusUnpaid: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
-    statusText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
-    statusTextPaid: { color: '#16a34a' },
-    statusTextUnpaid: { color: '#ef4444' },
+    gridRow: { flexDirection: 'row', gap: 12 },
+    textArea: { minHeight: 100, backgroundColor: '#f8fafc', borderRadius: 16, padding: 14, fontSize: 14, fontWeight: '600', color: '#000', textAlignVertical: 'top', borderWidth: 1, borderColor: '#f1f5f9' },
 
-    historyDivider: { height: 1, backgroundColor: '#f1f5f9', marginBottom: 14 },
-    historyItemsContainer: { gap: 8, marginBottom: 16 },
-    historyItemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    historyItemName: { fontSize: 13, fontWeight: '500', color: '#475569', flex: 1, marginRight: 8 },
-    historyItemPrice: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-    moreItemsText: { fontSize: 11, fontWeight: '600', color: '#94a3b8', marginTop: 2, fontStyle: 'italic' },
+    ledgerContainer: { flex: 1, backgroundColor: '#f8fafc' },
+    ledgerStatsOverlay: { flexDirection: 'row', backgroundColor: '#fff', margin: 24, marginBottom: 0, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+    statMiniCard: { flex: 1, alignItems: 'center' },
+    miniLabel: { fontSize: 8, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5 },
+    miniValue: { fontSize: 15, fontWeight: '900', color: '#000', marginTop: 4 },
+    statMiniDivider: { width: 1, height: '60%', backgroundColor: '#f1f5f9', alignSelf: 'center' },
 
-    historyFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-    totalLabel: { fontSize: 10, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.5 },
-    totalAmount: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
-    printMiniBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f1f5f9', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' },
-    printMiniText: { fontSize: 10, fontWeight: '800', color: '#0f172a' },
+    ledgerList: { padding: 24, gap: 12 },
+    ledgerCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+    ledgerCardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    ledgerDateBox: { width: 44, height: 44, backgroundColor: '#f8fafc', borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+    ledgerDay: { fontSize: 16, fontWeight: '900', color: '#000' },
+    ledgerMonth: { fontSize: 9, fontWeight: '900', color: '#94a3b8' },
+    ledgerMainInfo: { flex: 1, gap: 2 },
+    ledgerInvText: { fontSize: 14, fontWeight: '900', color: '#000' },
+    ledgerStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    statusIndicator: { width: 6, height: 6, borderRadius: 3 },
+    statusLabelText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.2 },
+    ledgerAmountBox: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    ledgerTotalAmount: { fontSize: 16, fontWeight: '900', color: '#000' },
+    ledgerItemsList: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f8fafc' },
+    ledgerItemPreview: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
 
-    emptyHistory: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60, paddingHorizontal: 40 },
-    emptyIconBg: { width: 80, height: 80, borderRadius: 24, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-    emptyTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
-    emptySub: { fontSize: 14, color: '#64748b', marginTop: 8, textAlign: 'center' },
+    ledgerEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
+    emptyArt: { width: 72, height: 72, borderRadius: 24, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+    emptyHeading: { fontSize: 18, fontWeight: '900', color: '#000' },
+    emptyText: { fontSize: 14, fontWeight: '600', color: '#94a3b8', textAlign: 'center' },
 
-    stickyFooter: { padding: 16, paddingBottom: Platform.OS === 'ios' ? 32 : 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f1f5f9', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 10, elevation: 5 },
-    footerBtns: { flexDirection: 'row', gap: 12 },
-    btnPrimary: { height: 52, borderRadius: 14, backgroundColor: '#0f172a', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
-    btnPrimaryText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-    btnDanger: { width: 52, height: 52, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fee2e2' },
-    btnDisabled: { opacity: 0.6 },
+    modalFooter: { padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#f1f5f9' },
+    footerActions: { flexDirection: 'row', gap: 12 },
+    binBtn: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#fff1f2', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ffe4e6' },
+    saveBtn: { flex: 1, height: 56, borderRadius: 16, backgroundColor: '#000', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+    saveText: { fontSize: 15, fontWeight: '900', color: '#fff' },
+    loading: { opacity: 0.7 },
+    exportFullBtn: { height: 56, borderRadius: 16, backgroundColor: '#000', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+    exportText: { fontSize: 15, fontWeight: '900', color: '#fff' },
 
-    pickerBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 1000 },
-    pickerSheet: { backgroundColor: '#fff', borderTopLeftRadius: 36, borderTopRightRadius: 36, height: '60%', padding: 24 },
-    pickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-    pickerTitle: { fontSize: 14, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
-    pickerCloseBtn: { padding: 4 },
-    pickerOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 20, borderBottomWidth: 1.5, borderBottomColor: '#f1f5f9' },
-    pickerOptionText: { fontSize: 16, fontWeight: '700', color: '#000' }
+    overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end', zIndex: 1000 },
+    sheet: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, maxHeight: height * 0.7 },
+    sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+    sheetLabel: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1 },
+    option: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 18, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
+    optionLabel: { fontSize: 15, fontWeight: '800', color: '#000' }
 });

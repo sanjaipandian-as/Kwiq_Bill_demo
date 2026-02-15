@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StatusBar, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StatusBar, ScrollView, LayoutAnimation, UIManager } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Plus, X, Upload, Save, Share2, Scan, ChevronDown } from 'lucide-react-native';
@@ -31,6 +31,11 @@ import ProductStep from './components/steps/ProductStep';
 import CustomerStep from './components/steps/CustomerStep';
 import PaymentStep from './components/steps/PaymentStep';
 import SummaryStep from './components/steps/SummaryStep';
+
+// Enable LayoutAnimation for Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export default function BillingPage({ navigation, route }) {
   const { addTransaction, editTransaction } = useTransactions();
@@ -88,13 +93,14 @@ export default function BillingPage({ navigation, route }) {
       id: 1,
       customer: null,
       cart: [],
-      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0 },
+      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0 },
       paymentMode: 'Cash',
       amountReceived: '',
       remarks: '',
       billDiscount: 0,
       additionalCharges: 0,
       loyaltyPointsDiscount: 0,
+      loyaltyPointsRedeemed: 0,
       status: 'Paid',
       taxType: settings?.tax?.defaultTaxType || 'intra'
     }
@@ -193,10 +199,9 @@ export default function BillingPage({ navigation, route }) {
 
   // Helper: Calculation Logic (Robust Port from User Snippet)
   const calculateTotals = (cart, billDiscount = 0, additionalCharges = 0, loyaltyPointsDiscount = 0, taxType = 'intra') => {
-    let aggGross = 0;
-    let aggItemDisc = 0;
-    let aggTax = 0;
-    let aggSubtotal = 0; // Taxable Value
+    let aggGross = 0; // Pre-discount total
+    let aggItemDisc = 0; // Total of per-item discounts
+    let aggSubtotal = 0; // Taxable Value before bill-level discounts
 
     const isInclusive = settings?.tax?.defaultType === 'Inclusive' || settings?.tax?.priceMode === 'Inclusive';
 
@@ -204,26 +209,47 @@ export default function BillingPage({ navigation, route }) {
       const price = parseFloat(item.price || item.sellingPrice || 0);
       const qty = parseFloat(item.quantity || 0);
       const discount = parseFloat(item.discount || 0);
-      const taxRate = parseFloat(item.taxRate || 0);
 
       aggGross += (price * qty);
       aggItemDisc += discount;
 
       const effectiveAmount = Math.max(0, (price * qty) - discount);
+      aggSubtotal += effectiveAmount;
+    });
+
+    // 1. Calculate Loyalty Discount (Already passed as loyaltyPointsDiscount)
+    // 2. Apply Loyalty Discount to Subtotal BEFORE Tax
+    const taxableAfterLoyalty = Math.max(0, aggSubtotal - loyaltyPointsDiscount);
+
+    // 3. Calculate Tax on (Subtotal - Loyalty Discount)
+    let aggTax = 0;
+    cart.forEach(item => {
+      const price = parseFloat(item.price || item.sellingPrice || 0);
+      const qty = parseFloat(item.quantity || 0);
+      const discount = parseFloat(item.discount || 0);
+      const taxRate = parseFloat(item.taxRate || 0);
+
+      // We need to proportionally distribute the loyalty discount across items for accurate tax if rates differ, 
+      // but if we assume a flat tax calculation on the remaining taxable value:
+      const itemTaxable = Math.max(0, (price * qty) - discount);
+      const itemProportion = aggSubtotal > 0 ? (itemTaxable / aggSubtotal) : 0;
+      const itemTaxableAfterLoyalty = Math.max(0, itemTaxable - (loyaltyPointsDiscount * itemProportion));
 
       if (isInclusive) {
-        const taxable = effectiveAmount / (1 + (taxRate / 100));
-        const tax = effectiveAmount - taxable;
-        aggSubtotal += taxable;
-        aggTax += tax;
+        // Tax is already inside the price
+        const taxable = itemTaxableAfterLoyalty / (1 + (taxRate / 100));
+        aggTax += (itemTaxableAfterLoyalty - taxable);
       } else {
-        aggSubtotal += effectiveAmount;
-        aggTax += (effectiveAmount * (taxRate / 100));
+        aggTax += (itemTaxableAfterLoyalty * (taxRate / 100));
       }
     });
 
-    const totalBeforeDiscounts = aggSubtotal + aggTax + additionalCharges;
-    const total = Math.max(0, totalBeforeDiscounts - billDiscount - loyaltyPointsDiscount);
+    // 4. Calculate Bill Discount (post-tax typically, or pre-tax depending on user, but we'll follow previous pattern of post-tax for billDiscount)
+    const totalBeforeBillDiscount = taxableAfterLoyalty + aggTax + additionalCharges;
+    const total = Math.max(0, totalBeforeBillDiscount - billDiscount);
+
+    // 5. Calculate New Points Earned on ORIGINAL Subtotal (₹1 per ₹10 spent)
+    const pointsEarned = Math.floor(aggSubtotal / 10);
 
     // Rounding
     const roundedTotal = Math.round(total);
@@ -232,15 +258,18 @@ export default function BillingPage({ navigation, route }) {
     return {
       grossTotal: aggGross,
       itemDiscount: aggItemDisc,
-      subtotal: aggSubtotal,
+      subtotal: taxableAfterLoyalty, // Taxable value after loyalty but before tax
+      originalSubtotal: aggSubtotal,
       tax: aggTax,
       cgst: taxType === 'intra' ? aggTax / 2 : 0,
       sgst: taxType === 'intra' ? aggTax / 2 : 0,
       igst: taxType === 'inter' ? aggTax : 0,
-      discount: billDiscount + loyaltyPointsDiscount,
+      discount: billDiscount,
+      loyaltyPointsDiscount,
       additionalCharges,
       total: roundedTotal,
-      roundOff: roundOff
+      roundOff: roundOff,
+      pointsEarned: pointsEarned
     };
   };
 
@@ -318,13 +347,14 @@ export default function BillingPage({ navigation, route }) {
       id: newId,
       customer: null,
       cart: [],
-      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0 },
+      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0 },
       paymentMode: 'Cash',
       amountReceived: '',
       remarks: '',
       billDiscount: 0,
       additionalCharges: 0,
       loyaltyPointsDiscount: 0,
+      loyaltyPointsRedeemed: 0,
       status: 'Paid',
       taxType: settings?.tax?.defaultTaxType || 'intra'
     };
@@ -339,13 +369,14 @@ export default function BillingPage({ navigation, route }) {
       id: (activeBills.length === 1) ? 1 : Date.now(),
       customer: null,
       cart: [],
-      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0 },
+      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0 },
       paymentMode: 'Cash',
       amountReceived: '',
       remarks: '',
       billDiscount: 0,
       additionalCharges: 0,
       loyaltyPointsDiscount: 0,
+      loyaltyPointsRedeemed: 0,
       status: 'Paid',
       originalInvoiceId: null
     };
@@ -557,7 +588,16 @@ export default function BillingPage({ navigation, route }) {
         else setModals(m => ({ ...m, itemDiscount: true }));
         break;
       case 'F4':
-        if (selectedItemId) removeItem(selectedItemId);
+        if (currentBill.cart.length > 0) {
+          Alert.alert(
+            "Clear Cart",
+            "Are you sure you want to remove all items from the cart?",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Clear All", style: "destructive", onPress: () => updateCurrentBill({ cart: [] }) }
+            ]
+          );
+        }
         break;
       case 'F6': // Change Unit
         if (selectedItemId) {
@@ -646,6 +686,9 @@ export default function BillingPage({ navigation, route }) {
         internalNotes: currentBill.remarks || '',
         amountReceived: parseFloat(currentBill.amountReceived) || 0,
         taxType: currentBill.taxType || 'intra',
+        loyaltyPointsRedeemed: currentBill.loyaltyPointsRedeemed || 0,
+        loyaltyPointsDiscount: currentBill.loyaltyPointsDiscount || 0,
+        loyaltyPointsEarned: currentBill.totals.pointsEarned || 0,
       };
 
       if (currentBill.originalInvoiceId) {
@@ -718,6 +761,9 @@ export default function BillingPage({ navigation, route }) {
         internalNotes: currentBill.remarks || '',
         amountReceived: parseFloat(currentBill.amountReceived) || 0,
         taxType: currentBill.taxType || 'intra',
+        loyaltyPointsRedeemed: currentBill.loyaltyPointsRedeemed || 0,
+        loyaltyPointsDiscount: currentBill.loyaltyPointsDiscount || 0,
+        loyaltyPointsEarned: currentBill.totals.pointsEarned || 0,
       };
 
       // 1. Save Transaction (Drive Sync happens inside TransactionContext)
@@ -834,13 +880,19 @@ export default function BillingPage({ navigation, route }) {
         <View style={styles.modeSwitcher}>
           <TouchableOpacity
             style={[styles.modeBtn, viewMode === 'grid' && styles.activeModeBtn]}
-            onPress={() => setViewMode('grid')}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setViewMode('grid');
+            }}
           >
             <Text style={[styles.modeBtnText, viewMode === 'grid' && styles.activeModeBtnText]}>ITEMS</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.modeBtn, viewMode === 'sidebar' && styles.activeModeBtn]}
-            onPress={() => setViewMode('sidebar')}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setViewMode('sidebar');
+            }}
           >
             <Text style={[styles.modeBtnText, viewMode === 'sidebar' && styles.activeModeBtnText]}>PAYMENT</Text>
           </TouchableOpacity>
@@ -944,6 +996,8 @@ export default function BillingPage({ navigation, route }) {
               isPrinterConnected={isPrinterConnected}
               onConnectPrinter={handleConnectPrinter}
               remarks={currentBill.remarks || ''}
+              onLoyaltyClick={() => setModals(m => ({ ...m, loyaltyPoints: true }))}
+              loyaltyPointsRedeemed={currentBill.loyaltyPointsRedeemed || 0}
             />
           )}
         </View>
@@ -969,8 +1023,9 @@ export default function BillingPage({ navigation, route }) {
         <LoyaltyPointsModal
           isOpen={modals.loyaltyPoints}
           onClose={() => setModals(m => ({ ...m, loyaltyPoints: false }))}
-          onApply={(val) => updateCurrentBill({ loyaltyPointsDiscount: val })}
+          onApply={(discount, redeemedPoints) => updateCurrentBill({ loyaltyPointsDiscount: discount, loyaltyPointsRedeemed: redeemedPoints })}
           availablePoints={currentBill.customer?.loyaltyPoints || 0}
+          subtotal={currentBill.totals.originalSubtotal || currentBill.totals.subtotal}
         />
         <RemarksModal
           isOpen={modals.remarks}

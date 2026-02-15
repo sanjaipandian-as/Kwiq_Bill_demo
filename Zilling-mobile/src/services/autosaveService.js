@@ -26,7 +26,7 @@ export const triggerAutoSave = async () => {
     // 3. Sync to device folders using BackupServices (which handles SAF and file matching)
     // We run this without 'await' in contexts if we want it to be non-blocking,
     // but here we export it as a standard async function.
-    await exportToDeviceFolders(allData);
+    await exportToDeviceFolders(allData, null, { isAutoSave: true });
 
     console.log("[AutoSave] Sync complete.");
   } catch (error) {

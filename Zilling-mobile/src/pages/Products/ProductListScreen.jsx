@@ -9,11 +9,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CategoryFilter } from '../../components/Expenses/CategoryFilter';
 import { printBarcode } from '../../utils/printUtils';
+import { useToast } from '../../context/ToastContext';
 
 const ProductsListScreen = ({ navigation }) => {
   const { products, loading, deleteProduct, bulkDeleteProducts, addProduct, updateProduct, fetchProducts, importProducts } = useProducts();
   const { settings } = useSettings();
+  const { showToast } = useToast();
 
+  const [savingProductId, setSavingProductId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -102,14 +105,30 @@ const ProductsListScreen = ({ navigation }) => {
 
   const handleSaveProduct = async (productData) => {
     try {
+      setSavingProductId(editingProduct?.id || 'new');
+      showToast(editingProduct ? 'Updating product...' : 'Creating product...', 'info', 1500);
+
       if (editingProduct) {
-        await updateProduct(editingProduct.id, productData);
+        const synced = await updateProduct(editingProduct.id, productData);
+        if (synced === false) {
+          showToast('Product updated (Sync pending...)', 'info');
+        } else {
+          showToast('Product updated successfully!', 'success');
+        }
       } else {
-        await addProduct(productData);
+        const result = await addProduct(productData);
+        if (result && result.synced === false) {
+          showToast('Product added (Sync pending...)', 'info');
+        } else {
+          showToast('Product created successfully!', 'success');
+        }
       }
       setIsDrawerOpen(false);
     } catch (err) {
+      showToast('Failed to save product', 'error');
       Alert.alert('Error', 'Failed to save product');
+    } finally {
+      setSavingProductId(null);
     }
   };
 
@@ -191,6 +210,18 @@ const ProductsListScreen = ({ navigation }) => {
             <View style={styles.metricItem}>
               <Text style={styles.metricLabel}>SELLING PRICE</Text>
               <Text style={styles.metricValue}>₹{parseFloat(item.price || 0).toLocaleString()}</Text>
+            </View>
+            <View style={[styles.metricItem, styles.metricDivider]}>
+              <Text style={styles.metricLabel}>MARGIN</Text>
+              {(savingProductId && savingProductId === item.id) ? (
+                <View style={{ height: 20, justifyContent: 'center' }}>
+                  <ActivityIndicator size="small" color="#64748b" />
+                </View>
+              ) : (
+                <Text style={[styles.metricValue, { color: (parseFloat(item.price || 0) - parseFloat(item.cost_price || 0)) > 0 ? '#10b981' : '#ef4444' }]}>
+                  {item.price > 0 ? `${(((item.price - (item.cost_price || 0)) / item.price) * 100).toFixed(1)}%` : '0%'}
+                </Text>
+              )}
             </View>
             <View style={[styles.metricItem, styles.metricDivider]}>
               <Text style={styles.metricLabel}>INVENTORY</Text>

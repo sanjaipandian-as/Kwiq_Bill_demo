@@ -76,21 +76,28 @@ export const SyncService = {
         // 1. Save to local queue first (Optimistic approach / Offline support)
         await this.addToQueue({ fileName, content: envelope });
 
-        // 2. Try to upload immediately
+        // 2. Try to upload immediately - with a racing timeout to prevent UI hanging
         try {
-            const accessToken = await getAccessToken(); // This might fail if offline
-            if (!accessToken) throw new Error("No access token");
+            const uploadPromise = (async () => {
+                const accessToken = await getAccessToken();
+                if (!accessToken) throw new Error("No access token");
 
-            const folderId = await this.getEventsFolderId(accessToken);
+                const folderId = await this.getEventsFolderId(accessToken);
+                await uploadFileToFolder(accessToken, folderId, fileName, JSON.stringify(envelope));
 
-            await uploadFileToFolder(accessToken, folderId, fileName, JSON.stringify(envelope));
+                // If successful, remove from queue
+                await this.removeFromQueue(eventId);
+                console.log(`[Sync] Event uploaded successfully: ${fileName}`);
+                return true;
+            })();
 
-            // If successful, remove from queue
-            await this.removeFromQueue(eventId);
-            console.log(`[Sync] Event uploaded successfully: ${fileName}`);
-            return true;
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Upload Timeout")), 8000)
+            );
+
+            return await Promise.race([uploadPromise, timeoutPromise]);
         } catch (error) {
-            console.log(`[Sync] Upload failed (offline?), kept in queue: ${error.message}`);
+            console.log(`[Sync] Upload delayed/failed (Offline or Timeout): ${error.message}`);
             return false;
         }
     },
@@ -98,78 +105,120 @@ export const SyncService = {
     /**
      * "Turn Sync On" - Fetch, Filter, Apply
      */
-    async syncDown(onProgress = null) {
-        const updateStatus = (msg) => {
-            console.log(`[Sync] ${msg}`);
-            if (onProgress) onProgress(msg);
-        };
-
-        updateStatus('Starting Sync Down...');
+    async syncDown(onProgress = () => { }) {
         try {
+            const updateStatus = (msg) => {
+                console.log(`[Sync] ${msg}`);
+                onProgress(msg);
+            };
+
+            updateStatus('Starting Sync Down...');
             const accessToken = await getAccessToken();
-            if (!accessToken) {
-                updateStatus('No access token, aborting sync.');
-                return;
-            }
+            if (!accessToken) return { success: false, processedCount: 0, failures: 1, error: "No Access Token" };
+
+
             const folderId = await this.getEventsFolderId(accessToken);
+            if (!folderId) return { success: false, processedCount: 0, failures: 1, error: "No Folder ID" };
 
             // 1. List all files in events folder
             updateStatus('Fetching file list from Drive...');
-            const query = `'${folderId}' in parents and trashed=false`;
-            const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name`, {
-                headers: { Authorization: `Bearer ${accessToken}` }
-            });
-            const data = await res.json();
-            let files = data.files || [];
+
+            let allFiles = [];
+            let nextPageToken = null;
+            // Fetch all pages of files
+            do {
+                const query = `'${folderId}' in parents and trashed=false`;
+                const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name&pageSize=1000${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+
+                try {
+                    const res = await fetchWithTimeout(url, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+
+                    if (!res.ok) {
+                        const errorText = await res.text();
+                        console.error(`[Sync] Google Drive API Error (${res.status}):`, errorText);
+                        return { success: false, processedCount: 0, failures: 1, error: `Drive API ${res.status}` };
+                    }
+
+                    const data = await res.json();
+                    if (data.files) allFiles = [...allFiles, ...data.files];
+                    nextPageToken = data.nextPageToken;
+                } catch (e) {
+                    console.error('[Sync] Failed to list files:', e);
+                    return { success: false, processedCount: 0, failures: 1, error: "List Files Failed" };
+                }
+            } while (nextPageToken);
 
             // 2. Filter: Ignore already processed events
             const processedIdsStr = await AsyncStorage.getItem(PROCESSED_EVENTS_KEY);
             const processedIds = processedIdsStr ? JSON.parse(processedIdsStr) : [];
             const processedSet = new Set(processedIds);
 
-            updateStatus(`Found ${files.length} files. Checking for new events...`);
+            updateStatus(`Found ${allFiles.length} files total. Filtering...`);
 
             // Sort by filename 
-            files.sort((a, b) => a.name.localeCompare(b.name));
+            allFiles.sort((a, b) => a.name.localeCompare(b.name));
 
             // 3. Download and Apply Events
-            const filesToProcess = files.filter(f => {
-                if (!f.name.startsWith('event_')) return false;
+            const filesToProcess = allFiles.filter(f => {
                 const parts = f.name.replace('.json', '').split('_');
+                // Pattern: event_TIMESTAMP_TYPE_EVENTID
+                // If it doesn't match roughly, might not handle well, but let's try extracting last part
                 const probableEventId = parts[parts.length - 1];
                 return !processedSet.has(probableEventId);
             });
 
             if (filesToProcess.length === 0) {
                 updateStatus('Cloud is already up to date.');
-                return;
+                return { success: true, processedCount: 0, failures: 0 };
             }
 
             updateStatus(`${filesToProcess.length} new events found.`);
 
             // Optimization: Fetch event contents in parallel batches
-            const BATCH_SIZE = 10;
+            const BATCH_SIZE = 5; // Reduced from 10 to help reliability
             let processedCount = 0;
+            let failures = 0;
 
             for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
                 const batch = filesToProcess.slice(i, i + BATCH_SIZE);
                 updateStatus(`Processing Batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(filesToProcess.length / BATCH_SIZE)}...`);
 
                 const envelopes = await Promise.all(batch.map(async (file) => {
-                    try {
-                        const contentRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-                            headers: { Authorization: `Bearer ${accessToken}` }
-                        });
-                        return await contentRes.json();
-                    } catch (e) {
-                        console.error(`[Sync] Failed to download event ${file.name}:`, e.message);
-                        return null;
+                    let attempts = 0;
+                    while (attempts < 3) {
+                        try {
+                            const contentRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+                                headers: { Authorization: `Bearer ${accessToken}` }
+                            });
+                            if (!contentRes.ok) throw new Error(`HTTP ${contentRes.status}`);
+                            return await contentRes.json();
+                        } catch (e) {
+                            attempts++;
+                            console.warn(`[Sync] Download attempt ${attempts} failed for ${file.name}: ${e.message}`);
+                            if (attempts >= 3) {
+                                console.error(`[Sync] Failed to download event ${file.name} after 3 attempts.`);
+                                return null;
+                            }
+                            // Exponential backoff
+                            await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempts - 1)));
+                        }
                     }
+                    return null;
                 }));
 
                 // Apply batch sequentially to ensure order
-                for (const envelope of envelopes) {
-                    if (!envelope || processedSet.has(envelope.eventId)) continue;
+                for (let j = 0; j < envelopes.length; j++) {
+                    const envelope = envelopes[j];
+                    const file = batch[j];
+
+                    if (!envelope) {
+                        failures++; // Download failed
+                        continue;
+                    }
+
+                    if (processedSet.has(envelope.eventId)) continue;
 
                     try {
                         await this.applyEvent(envelope);
@@ -178,17 +227,27 @@ export const SyncService = {
                         processedCount++;
                     } catch (applyError) {
                         console.error(`[Sync] Failed to apply event ${envelope.eventId}:`, applyError.message);
+                        failures++; // Apply failed
                     }
                 }
+
+                // Save progress aggressively
+                await AsyncStorage.setItem(PROCESSED_EVENTS_KEY, JSON.stringify(processedIds));
             }
 
-            // Save updated processed list
-            await AsyncStorage.setItem(PROCESSED_EVENTS_KEY, JSON.stringify(processedIds));
             await AsyncStorage.setItem(LAST_SYNCED_KEY, new Date().toISOString());
-            updateStatus(`Sync Complete! Applied ${processedCount} new events.`);
+            const finalMsg = `Sync Complete! Applied ${processedCount} new events. ${failures > 0 ? `(${failures} failed)` : ''}`;
+            updateStatus(finalMsg);
+
+            return {
+                success: failures === 0,
+                processedCount,
+                failures
+            };
 
         } catch (error) {
             console.error('[Sync] Sync Down Error:', error);
+            return { success: false, processedCount: 0, failures: 1, error: error.message };
         }
     },
 
@@ -214,7 +273,6 @@ export const SyncService = {
      */
     async applyEvent(event) {
         const { type, payload } = event;
-        // console.log(`[Sync] Applying event: ${type}`);
 
         try {
             if (type === EventTypes.INVOICE_CREATED) {
@@ -284,36 +342,36 @@ export const SyncService = {
                 }
 
             } else if (type === EventTypes.PRODUCT_CREATED) {
-                // Insert Product
-                const exists = db.getAllSync(`SELECT id FROM products WHERE id = ?`, [payload.id]);
-                if (exists.length === 0) {
-                    db.runSync(
-                        `INSERT INTO products (id, name, sku, category, price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [
-                            String(payload.id),
-                            String(payload.name || ''),
-                            String(payload.sku || ''),
-                            String(payload.category || ''),
-                            Number(payload.price || 0),
-                            Number(payload.stock || 0),
-                            Number(payload.minStock || payload.min_stock || 0),
-                            String(payload.unit || 'pc'),
-                            Number(payload.tax_rate || 0),
-                            JSON.stringify(payload.variants || []),
-                            String(payload.variant || ''),
-                            String(payload.created_at || new Date().toISOString()),
-                            String(payload.updated_at || new Date().toISOString())
-                        ]
-                    );
-                }
+                // Insert Product - Use OR REPLACE to handle duplicates or SKU conflicts
+                db.runSync(
+                    `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        String(payload.id),
+                        String(payload.name || ''),
+                        String(payload.sku || ''),
+                        String(payload.category || ''),
+                        Number(payload.price || 0),
+                        Number(payload.costPrice || payload.cost_price || 0),
+                        Number(payload.stock || 0),
+                        Number(payload.minStock || payload.min_stock || 0),
+                        String(payload.unit || 'pc'),
+                        Number(payload.tax_rate || 0),
+                        JSON.stringify(payload.variants || []),
+                        String(payload.variant || ''),
+                        String(payload.created_at || new Date().toISOString()),
+                        String(payload.updated_at || new Date().toISOString())
+                    ]
+                );
 
             } else if (type === EventTypes.PRODUCT_UPDATED) {
                 // Update Product Details, ignore Stock (Stock is managed by adjustments/invoices)
                 db.runSync(
-                    `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
+                    `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, cost_price = ?, stock = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
                     [
                         payload.name, payload.sku, payload.category, payload.price,
+                        Number(payload.costPrice || payload.cost_price || 0),
+                        (payload.stock !== undefined ? parseInt(payload.stock) : (payload.stock || 0)),
                         (payload.minStock || payload.min_stock || 0),
                         payload.unit, payload.tax_rate,
                         JSON.stringify(payload.variants || []), payload.variant, payload.updated_at,
@@ -366,7 +424,7 @@ export const SyncService = {
                 if (exists.length === 0) {
                     db.runSync(
                         `INSERT INTO expenses (id, title, amount, category, date, payment_method, tags, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             payload.id, payload.title, payload.amount, payload.category, payload.date,
                             payload.payment_method, JSON.stringify(payload.tags),
@@ -377,31 +435,23 @@ export const SyncService = {
 
             } else if (type === EventTypes.EXPENSE_ADJUSTED) {
                 const { expenseId, delta, reason } = payload;
-                // 1. Insert into expense_adjustments
                 db.runSync(
                     `INSERT INTO expense_adjustments (expense_id, delta, reason, created_at) VALUES (?, ?, ?, ?)`,
                     [expenseId, delta, reason, new Date().toISOString()]
                 );
-
-                // 2. Update current expense amount (State Derivation)
                 db.runSync(
                     `UPDATE expenses SET amount = amount + ? WHERE id = ?`,
                     [delta, expenseId]
                 );
 
             } else if (type === EventTypes.INVOICE_DELETED) {
-                // Payload should contain invoice info needed to restore stock: items
-                // 1. Restore Stock
                 if (payload.items && Array.isArray(payload.items)) {
                     for (const item of payload.items) {
-                        // item.productId, item.quantity
                         if (item.productId || item.id) {
                             db.runSync(`UPDATE products SET stock = stock + ? WHERE id = ?`, [item.quantity, item.productId || item.id]);
                         }
                     }
                 }
-
-                // 2. Reverse Customer Stats
                 if (payload.customer_id || payload.customerId) {
                     try {
                         const cid = payload.customer_id || payload.customerId;
@@ -421,8 +471,6 @@ export const SyncService = {
                         console.log('[Sync] Customer restore skipped:', custErr.message);
                     }
                 }
-
-                // 3. Delete Invoice
                 db.runSync(`DELETE FROM invoices WHERE id = ?`, [payload.id]);
 
             } else if (type === EventTypes.CUSTOMER_DELETED) {
@@ -440,6 +488,7 @@ export const SyncService = {
                         payload.id
                     ]
                 );
+
             } else if (type === EventTypes.EXPENSE_DELETED) {
                 db.runSync(`DELETE FROM expenses WHERE id = ?`, [payload.id]);
 
@@ -465,15 +514,15 @@ export const SyncService = {
                 db.runSync(`UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?`, [payload.status, payload.updated_at, payload.id]);
 
             } else if (type === EventTypes.PRODUCT_STOCK_ADJUSTED) {
-                db.runSync(`UPDATE products SET stock = ? WHERE id = ?`, [payload.stock, payload.id]);
+                if (payload.minStock !== undefined) {
+                    db.runSync(`UPDATE products SET stock = ?, min_stock = ? WHERE id = ?`, [payload.stock, payload.minStock, payload.id]);
+                } else {
+                    db.runSync(`UPDATE products SET stock = ? WHERE id = ?`, [payload.stock, payload.id]);
+                }
             }
         } catch (e) {
             console.error(`[Sync] Apply Event Error (${type}):`, e);
-            throw e; // Re-throw to ensure we don't mark as processed if failed? 
-            // If we throw, the loop continues to retry next time. 
-            // But if it's a permanent data error, we might get stuck. 
-            // For now, logging error is safer to prevent crash loop, but we risk desync.
-            // Let's swallow error but log critical failure.
+            throw e;
         }
     },
 
@@ -492,6 +541,16 @@ export const SyncService = {
         let queue = queueStr ? JSON.parse(queueStr) : [];
         queue = queue.filter(q => q.content.eventId !== eventId);
         await AsyncStorage.setItem(PENDING_UPLOAD_QUEUE_KEY, JSON.stringify(queue));
+    },
+
+    async getPendingQueueLength() {
+        try {
+            const queueStr = await AsyncStorage.getItem(PENDING_UPLOAD_QUEUE_KEY);
+            const queue = queueStr ? JSON.parse(queueStr) : [];
+            return queue.length;
+        } catch (e) {
+            return 0;
+        }
     },
 
     async retryQueue() {

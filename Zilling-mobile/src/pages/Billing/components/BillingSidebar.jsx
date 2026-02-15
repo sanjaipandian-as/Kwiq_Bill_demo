@@ -3,13 +3,13 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform }
 import { Card } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-import { Calculator, Printer, Scan, Calendar, Save, Plus } from 'lucide-react-native';
+import { Calculator, Printer, Scan, Calendar, Save, Plus, Award } from 'lucide-react-native';
 import CalculatorModal from './CalculatorModal';
 
 // Import for PDF Export
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { generateReceiptHTML } from '../../../utils/printUtils';
 const BillingSidebar = ({
     customer,
@@ -31,6 +31,8 @@ const BillingSidebar = ({
     onTaxTypeChange,
     isPrinterConnected = true,
     onConnectPrinter,
+    onLoyaltyClick,
+    loyaltyPointsRedeemed = 0,
     remarks = ''
 }) => {
     const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
@@ -69,6 +71,46 @@ const BillingSidebar = ({
                     <Plus size={16} color="#000" />
                 </View>
             </TouchableOpacity>
+
+            {/* Loyalty Points Section - Only visible when customer is selected */}
+            {customer && (
+                <View style={styles.loyaltySection}>
+                    <View style={styles.loyaltyHeader}>
+                        <Award size={18} color="#000" />
+                        <Text style={styles.loyaltyTitle}>Loyalty Rewards</Text>
+                    </View>
+                    <View style={styles.loyaltyBody}>
+                        <View>
+                            <Text style={styles.toyaltyLabel}>Available Points</Text>
+                            <Text style={styles.loyaltyPointsValue}>{customer.loyaltyPoints || 0} pts</Text>
+                        </View>
+                        <TouchableOpacity
+                            style={[styles.redeemBtn, totals.loyaltyPointsDiscount > 0 && styles.redeemBtnActive]}
+                            onPress={onLoyaltyClick}
+                        >
+                            <Text style={[styles.redeemBtnText, totals.loyaltyPointsDiscount > 0 && styles.redeemBtnTextActive]}>
+                                {totals.loyaltyPointsDiscount > 0 ? 'Managed Reward' : 'Redeem Points'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                    {totals.loyaltyPointsDiscount > 0 && (
+                        <View style={styles.appliedRewardInfo}>
+                            <View style={styles.rewardDot} />
+                            <Text style={styles.appliedRewardText}>
+                                ₹{totals.loyaltyPointsDiscount.toFixed(0)} saved ({loyaltyPointsRedeemed} pts used)
+                            </Text>
+                        </View>
+                    )}
+                    {customer && (
+                        <View style={styles.projectedBalanceBox}>
+                            <Text style={styles.projectedLabel}>Next Balance</Text>
+                            <Text style={styles.projectedValue}>
+                                {(customer.loyaltyPoints || 0) - loyaltyPointsRedeemed + (totals.pointsEarned || 0)} pts
+                            </Text>
+                        </View>
+                    )}
+                </View>
+            )}
 
             {/* Tax Type Toggle */}
             <View style={styles.taxToggleContainer}>
@@ -119,11 +161,24 @@ const BillingSidebar = ({
                         <Text style={[styles.summaryValue, { color: '#22c55e' }]}>-₹{totals.discount.toFixed(0)}</Text>
                     </View>
                 )}
+                {totals.loyaltyPointsDiscount > 0 && (
+                    <View style={[styles.summaryRow, { marginTop: 4 }]}>
+                        <Text style={[styles.summaryLabel, { color: '#1d4ed8' }]}>Loyalty Reward</Text>
+                        <Text style={[styles.summaryValue, { color: '#1d4ed8' }]}>-₹{totals.loyaltyPointsDiscount.toFixed(0)}</Text>
+                    </View>
+                )}
 
                 <View style={styles.dashDivider} />
 
                 <Text style={styles.payableLabel}>TOTAL PAYABLE</Text>
                 <Text style={styles.payableAmount}>₹{totals.total.toFixed(0)}</Text>
+
+                {totals.pointsEarned > 0 && (
+                    <View style={styles.pointsEarnedBox}>
+                        <Award size={14} color="#64748b" />
+                        <Text style={styles.pointsEarnedText}>Points to Earn: {totals.pointsEarned} pts</Text>
+                    </View>
+                )}
             </View>
 
             {remarks && remarks.trim() !== '' && (
@@ -309,7 +364,122 @@ const styles = StyleSheet.create({
     printerStatusText: { fontSize: 12, fontWeight: '700' },
 
     remarksDisplay: { backgroundColor: '#fdfce6', padding: 16, borderRadius: 18, borderLeftWidth: 4, borderLeftColor: '#facc15', marginBottom: 20 },
-    remarksText: { fontSize: 13, fontWeight: '700', color: '#854d0e', fontStyle: 'italic' }
+    remarksText: { fontSize: 13, fontWeight: '700', color: '#854d0e', fontStyle: 'italic' },
+
+    // Loyalty Section Styles
+    loyaltySection: {
+        backgroundColor: '#fff',
+        padding: 20,
+        borderRadius: 24,
+        borderWidth: 1.5,
+        borderColor: '#f1f5f9',
+        marginBottom: 20,
+    },
+    loyaltyHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 12,
+    },
+    loyaltyTitle: {
+        fontSize: 14,
+        fontWeight: '900',
+        color: '#000',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    loyaltyBody: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    toyaltyLabel: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#64748b',
+    },
+    loyaltyPointsValue: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#0f172a',
+    },
+    redeemBtn: {
+        backgroundColor: '#f1f5f9',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    redeemBtnActive: {
+        backgroundColor: '#000',
+        borderColor: '#000',
+    },
+    redeemBtnText: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#475569',
+    },
+    redeemBtnTextActive: {
+        color: '#fff',
+    },
+    appliedRewardInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 12,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+    },
+    rewardDot: {
+        width: 6, height: 6,
+        borderRadius: 3,
+        backgroundColor: '#000',
+    },
+    appliedRewardText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    projectedBalanceBox: {
+        marginTop: 12,
+        padding: 10,
+        backgroundColor: '#f8fafc',
+        borderRadius: 12,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    projectedLabel: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#64748b',
+    },
+    projectedValue: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#334155',
+    },
+
+    pointsEarnedBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#f8fafc',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 10,
+        marginTop: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignSelf: 'center'
+    },
+    pointsEarnedText: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#64748b',
+    },
 });
 
 const BillLivePreview = ({ items, totals, settings, template, taxType, customer, billId, paymentMode, remarks }) => {

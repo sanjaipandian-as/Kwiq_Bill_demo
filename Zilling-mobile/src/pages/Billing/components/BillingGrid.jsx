@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView, LayoutAnimation, UIManager } from 'react-native';
 import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X } from 'lucide-react-native';
 import { useProducts } from '../../../context/ProductContext';
 import BottomFunctionBar from './BottomFunctionBar';
+
+// Enable LayoutAnimation for Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // Helper Component for Safe Quantity Input
 const QuantityInput = ({ value, onChange, min = 0.01 }) => {
@@ -10,7 +15,6 @@ const QuantityInput = ({ value, onChange, min = 0.01 }) => {
     const [isFocused, setIsFocused] = useState(false);
 
     useEffect(() => {
-        // Only sync if not focused to avoid fighting with user typing
         if (!isFocused) {
             setLocalVal(String(value));
         }
@@ -57,7 +61,6 @@ const QuantityInput = ({ value, onChange, min = 0.01 }) => {
     );
 };
 
-// ImportProductModal removed
 const BillingGrid = ({
     products,
     cart,
@@ -79,29 +82,41 @@ const BillingGrid = ({
     onRemoveAdjustment,
     onRemoveItemDiscount
 }) => {
-
     const suggestedItems = products || [];
-    const [searchQuery, setSearchQuery] = React.useState('');
-    const [sortBy, setSortBy] = React.useState('name');
-    const [sortOrder, setSortOrder] = React.useState('asc');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sortBy, setSortBy] = useState('name');
+    const [sortOrder, setSortOrder] = useState('asc');
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
     const [isSearchFocused, setIsSearchFocused] = useState(false);
+    const searchInputRef = React.useRef(null);
+
+    // Animation Helper
+    const runLayoutAnimation = () => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    };
 
     useEffect(() => {
-        const keyboardDidShowListener = Keyboard.addListener(
-            'keyboardDidShow',
-            () => setKeyboardVisible(true)
-        );
-        const keyboardDidHideListener = Keyboard.addListener(
-            'keyboardDidHide',
-            () => setKeyboardVisible(false)
-        );
-
+        const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+            runLayoutAnimation();
+            setKeyboardVisible(true);
+        });
+        const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+            runLayoutAnimation();
+            setKeyboardVisible(false);
+        });
         return () => {
             keyboardDidHideListener.remove();
             keyboardDidShowListener.remove();
         };
     }, []);
+
+    const closeSearch = () => {
+        runLayoutAnimation();
+        setSearchQuery('');
+        setIsSearchFocused(false);
+        Keyboard.dismiss();
+        if (searchInputRef.current) searchInputRef.current.blur();
+    };
 
     const filteredSuggestions = suggestedItems
         .filter(item => {
@@ -191,34 +206,33 @@ const BillingGrid = ({
 
     return (
         <View style={styles.container}>
-            {/* Cart List Section - Collapsed ONLY when actively searching */}
             {!isSearchFocused && (
                 <View style={styles.cartSection}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>ITEMS ({cart.length})</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center', paddingRight: 10 }} style={{ flex: 1, marginLeft: 10 }}>
                             {Number(billDiscount) > 0 && (
-                                <View style={[styles.adjPill, { paddingVertical: 4, paddingHorizontal: 8 }]}>
-                                    <Tag size={10} color="#f59e0b" />
-                                    <Text style={[styles.adjPillText, { fontSize: 10 }]}>Disc: ₹{Number(billDiscount)}</Text>
+                                <View style={[styles.adjPill, { paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }]}>
+                                    <Tag size={10} color="#000" />
+                                    <Text style={[styles.adjPillText, { fontSize: 10, color: '#000' }]}>Disc: ₹{Number(billDiscount)}</Text>
                                     <TouchableOpacity onPress={() => onRemoveAdjustment('discount')}>
                                         <X size={10} color="#94a3b8" />
                                     </TouchableOpacity>
                                 </View>
                             )}
                             {Number(loyaltyDiscount) > 0 && (
-                                <View style={[styles.adjPill, { paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f0fdf4', borderColor: '#dcfce7' }]}>
-                                    <Award size={10} color="#10b981" />
-                                    <Text style={[styles.adjPillText, { fontSize: 10, color: '#10b981' }]}>Loyalty: ₹{Number(loyaltyDiscount)}</Text>
+                                <View style={[styles.adjPill, { paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#000', borderColor: '#000' }]}>
+                                    <Award size={10} color="#fff" />
+                                    <Text style={[styles.adjPillText, { fontSize: 10, color: '#fff' }]}>Loyalty: ₹{Number(loyaltyDiscount)}</Text>
                                     <TouchableOpacity onPress={() => onRemoveAdjustment('loyalty')}>
                                         <X size={10} color="#94a3b8" />
                                     </TouchableOpacity>
                                 </View>
                             )}
                             {Number(additionalCharges) > 0 && (
-                                <View style={[styles.adjPill, { paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f1f5f9', borderColor: '#e2e8f0' }]}>
-                                    <Plus size={10} color="#8b5cf6" />
-                                    <Text style={[styles.adjPillText, { fontSize: 10, color: '#8b5cf6' }]}>Extra: ₹{Number(additionalCharges)}</Text>
+                                <View style={[styles.adjPill, { paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f1f5f9', borderColor: '#cbd5e1' }]}>
+                                    <Plus size={10} color="#000" />
+                                    <Text style={[styles.adjPillText, { fontSize: 10, color: '#000' }]}>Extra: ₹{Number(additionalCharges)}</Text>
                                     <TouchableOpacity onPress={() => onRemoveAdjustment('charges')}>
                                         <X size={10} color="#94a3b8" />
                                     </TouchableOpacity>
@@ -235,8 +249,6 @@ const BillingGrid = ({
                             )}
                         </ScrollView>
                     </View>
-
-
 
                     <FlatList
                         data={cart}
@@ -256,45 +268,52 @@ const BillingGrid = ({
                 </View>
             )}
 
-            {/* Suggestions/Search Section */}
             <KeyboardAvoidingView
                 style={[styles.suggestionSection, (isKeyboardVisible || isSearchFocused) && { flex: 1, paddingTop: 10 }]}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
                 {cart.length > 0 && !isSearchFocused && !isKeyboardVisible && (
-                    <BottomFunctionBar
-                        onFunctionClick={onFunctionClick}
-                        variant="inline"
-                    />
+                    <BottomFunctionBar onFunctionClick={onFunctionClick} variant="inline" />
                 )}
                 <View style={styles.searchBarContainer}>
                     <View style={styles.searchBox}>
                         <Search size={20} color="#94a3b8" />
                         <TextInput
+                            ref={searchInputRef}
                             style={styles.searchInput}
                             placeholder="Find products..."
                             value={searchQuery}
                             onChangeText={setSearchQuery}
                             placeholderTextColor="#94a3b8"
-                            onFocus={() => setIsSearchFocused(true)}
-                            onBlur={() => setIsSearchFocused(false)}
+                            onFocus={() => {
+                                runLayoutAnimation();
+                                setIsSearchFocused(true);
+                            }}
+                            onBlur={() => {
+                                setTimeout(() => {
+                                    if (searchQuery === '') {
+                                        runLayoutAnimation();
+                                        setIsSearchFocused(false);
+                                    }
+                                }, 100);
+                            }}
                         />
+                        {isSearchFocused && (
+                            <TouchableOpacity onPress={closeSearch} style={styles.closeSearchBtn}>
+                                <X size={20} color="#94a3b8" />
+                            </TouchableOpacity>
+                        )}
                     </View>
-                    <TouchableOpacity
-                        style={styles.scanIconBox}
-                        onPress={onScanClick}
-                    >
+                    <TouchableOpacity style={styles.scanIconBox} onPress={onScanClick}>
                         <Scan size={20} color="#000" />
                     </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.filterTrigger}
-                        onPress={() => setSortBy(sortBy === 'name' ? 'price' : 'name')}
-                    >
+                    <TouchableOpacity style={styles.filterTrigger} onPress={() => {
+                        runLayoutAnimation();
+                        setSortBy(sortBy === 'name' ? 'price' : 'name');
+                    }}>
                         <Text style={styles.filterText}>{sortBy === 'name' ? 'A-Z' : '₹'}</Text>
                     </TouchableOpacity>
                 </View>
-
-
 
                 <FlatList
                     data={filteredSuggestions}
@@ -308,7 +327,13 @@ const BillingGrid = ({
                     renderItem={({ item }) => (
                         <TouchableOpacity
                             style={styles.suggestionItem}
-                            onPress={() => onAddQuickItem && onAddQuickItem(item)}
+                            onPress={() => {
+                                onAddQuickItem && onAddQuickItem(item);
+                                if (!isKeyboardVisible) {
+                                    runLayoutAnimation();
+                                    setIsSearchFocused(false);
+                                }
+                            }}
                         >
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                                 <Text style={[styles.suggestedName, { flex: 1, marginRight: 4 }]} numberOfLines={2}>{item.name}</Text>
@@ -338,8 +363,6 @@ const styles = StyleSheet.create({
     cartSection: { flex: 0.8, marginBottom: 15 },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
     sectionTitle: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5 },
-    scanBtnMini: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f1f5f9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
-    scanBtnText: { fontSize: 10, fontWeight: '900', color: '#000' },
 
     // Cart Card
     cartCard: {
@@ -367,7 +390,6 @@ const styles = StyleSheet.create({
     cardRight: { alignItems: 'flex-end', gap: 6 },
     qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f1f5f9', padding: 4, borderRadius: 12 },
     qtyAction: { width: 28, height: 28, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 1 },
-    qtyText: { fontSize: 15, fontWeight: '900', color: '#000', minWidth: 22, textAlign: 'center' },
     itemTotal: { fontSize: 19, fontWeight: '900', color: '#000' },
 
     cardActions: { flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
@@ -397,7 +419,7 @@ const styles = StyleSheet.create({
     searchBarContainer: { flexDirection: 'row', gap: 10, marginBottom: 8 },
     searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 12, height: 44, borderWidth: 1, borderColor: '#f1f5f9' },
     searchInput: { flex: 1, fontSize: 13, color: '#000', fontWeight: '600', marginLeft: 8 },
-    // Removed filterTrigger style
+    closeSearchBtn: { padding: 4 },
     filterTrigger: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 4 },
     filterText: { color: '#fff', fontWeight: '900', fontSize: 11 },
     scanIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
@@ -408,26 +430,22 @@ const styles = StyleSheet.create({
     suggestedPrice: { fontSize: 14, fontWeight: '900', color: '#000' },
     addBtnSmall: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },
     discountBadgeText: { fontSize: 9, fontWeight: '900', color: '#ef4444' },
+    discountBadge: { position: 'absolute', top: -10, right: 10, backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' },
 
-    billAdjsBar: {
-        marginBottom: 10,
-        flexDirection: 'row',
-    },
     adjPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fffbeb',
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#fef3c7',
+        borderColor: '#e2e8f0',
         gap: 6,
     },
     adjPillText: {
         fontSize: 11,
         fontWeight: '800',
-        color: '#d97706',
+        color: '#475569',
     },
 });
 

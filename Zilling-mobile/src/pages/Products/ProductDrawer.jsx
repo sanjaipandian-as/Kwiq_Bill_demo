@@ -60,10 +60,12 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
   const [newVariant, setNewVariant] = useState('');
   const [newVariantPrice, setNewVariantPrice] = useState('');
   const [newVariantStock, setNewVariantStock] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const [newVariantSku, setNewVariantSku] = useState('');
   const [showTaxPicker, setShowTaxPicker] = useState(false);
 
   useEffect(() => {
+    setIsSaving(false);
     if (product) {
       let loadedVariants = [];
       try {
@@ -87,6 +89,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
       setForm({
         ...initialState,
         ...product,
+        costPrice: product.cost_price !== undefined ? String(product.cost_price) : (product.costPrice || ''),
         barcode: product.sku || product.barcode || initialState.barcode,
         variants: loadedVariants,
         variant: product.variant || '',
@@ -153,18 +156,23 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
       return;
     }
 
-    const performSave = () => {
-      onSave({
-        ...form,
-        id: product?.id || Date.now().toString(),
-        name: nameValue,
-        sku: skuValue,
-        barcode: skuValue,
-        variants: form.variants,
-        variant: form.variant,
-        tax_rate: parseFloat(form.tax_rate) || 0
-      });
-      onClose();
+    const performSave = async () => {
+      try {
+        setIsSaving(true);
+        await onSave({
+          ...form,
+          id: product?.id || Date.now().toString(),
+          name: nameValue,
+          sku: skuValue,
+          barcode: skuValue,
+          variants: form.variants,
+          variant: form.variant,
+          tax_rate: parseFloat(form.tax_rate) || 0
+        });
+        onClose();
+      } catch (err) {
+        setIsSaving(false);
+      }
     };
 
     const missingPrices = form.variants.some(v => !v.price);
@@ -441,11 +449,21 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
             </ScrollView>
 
             <View style={styles.footer}>
-              <TouchableOpacity style={styles.ghostBtn} onPress={onClose}>
+              <TouchableOpacity
+                style={[styles.ghostBtn, isSaving && { opacity: 0.5 }]}
+                onPress={onClose}
+                disabled={isSaving}
+              >
                 <Text style={styles.ghostBtnText}>DISCARD</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.primaryBtn} onPress={handleLocalSave}>
-                <Text style={styles.primaryBtnText}>{product ? 'UPDATE ITEM' : 'SAVE PRODUCT'}</Text>
+              <TouchableOpacity
+                style={[styles.primaryBtn, isSaving && { opacity: 0.7, backgroundColor: '#94a3b8' }]}
+                onPress={handleLocalSave}
+                disabled={isSaving}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {isSaving ? 'UPLOADING...' : (product ? 'UPDATE ITEM' : 'SAVE PRODUCT')}
+                </Text>
               </TouchableOpacity>
             </View>
 

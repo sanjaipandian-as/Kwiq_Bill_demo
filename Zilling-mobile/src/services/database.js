@@ -60,6 +60,7 @@ export const initializeDB = () => {
         sku TEXT NOT NULL,
         category TEXT,
         price REAL DEFAULT 0,
+        cost_price REAL DEFAULT 0,
         stock INTEGER DEFAULT 0,
         min_stock INTEGER DEFAULT 0,
         unit TEXT DEFAULT 'pc',
@@ -76,6 +77,9 @@ export const initializeDB = () => {
     const prodCols = prodInfo.map(c => c.name);
     if (!prodCols.includes('min_stock')) {
       db.execSync(`ALTER TABLE products ADD COLUMN min_stock INTEGER DEFAULT 0;`);
+    }
+    if (!prodCols.includes('cost_price')) {
+      db.execSync(`ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0;`);
     }
 
     // 4. Invoices Table & Migrations
@@ -116,7 +120,11 @@ export const initializeDB = () => {
       { name: 'roundOff', type: 'REAL DEFAULT 0' },
       { name: 'amountReceived', type: 'REAL DEFAULT 0' },
       { name: 'internalNotes', type: 'TEXT' },
-      { name: 'weekly_sequence', type: 'INTEGER DEFAULT 1' }
+      { name: 'weekly_sequence', type: 'INTEGER DEFAULT 1' },
+      { name: 'loyalty_points_redeemed', type: 'INTEGER DEFAULT 0' },
+      { name: 'loyalty_points_earned', type: 'INTEGER DEFAULT 0' },
+      { name: 'loyalty_points_discount', type: 'REAL DEFAULT 0' },
+      { name: 'is_deleted', type: 'INTEGER DEFAULT 0' }
     ];
 
     missingInvCols.forEach(col => {

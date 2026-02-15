@@ -1,13 +1,17 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { syncUserDataToDrive } from './googleDriveservices';
 
 const STORAGE_KEY_BACKUP_URI = '@kwiqbilling_backup_uri';
 const STORAGE_KEY_FILE_URIS = '@kwiqbilling_file_uris';
 
-export const exportToDeviceFolders = async (allData, user = null) => {
+// Global lock to prevent multiple simultaneous SAF permission requests
+let isRequestingPermission = false;
+
+export const exportToDeviceFolders = async (allData, user = null, options = {}) => {
+    const { isAutoSave = false } = options;
     try {
         // --- 1. Cloud Sync (Auto) ---
         if (user && user.id) {
@@ -36,13 +40,30 @@ export const exportToDeviceFolders = async (allData, user = null) => {
                 }
             }
 
-            // Request access
-            if (!rootUri) {
-                const permissions = await SAF.requestDirectoryPermissionsAsync();
-                if (permissions.granted) {
-                    rootUri = permissions.directoryUri;
-                    await AsyncStorage.setItem(STORAGE_KEY_BACKUP_URI, rootUri);
-                    permissionsGranted = true;
+            // Request access - SKIP if it's an background auto-save to avoid annoying popups
+            if (!rootUri && !isAutoSave) {
+                if (isRequestingPermission) {
+                    console.log("[Backup] Permission request already in progress, skipping duplicate call.");
+                    return { success: false, error: 'Permission request already active' };
+                }
+
+                try {
+                    isRequestingPermission = true;
+                    const permissions = await SAF.requestDirectoryPermissionsAsync();
+                    if (permissions.granted) {
+                        rootUri = permissions.directoryUri;
+                        await AsyncStorage.setItem(STORAGE_KEY_BACKUP_URI, rootUri);
+                        permissionsGranted = true;
+                    }
+                } catch (safErr) {
+                    if (safErr.message.includes("unfinished permission request")) {
+                        console.warn("[Backup] Previous permission request is still open.");
+                        Alert.alert("Permission Error", "A folder selection window is already open. Please complete or cancel it before trying again.");
+                    } else {
+                        throw safErr;
+                    }
+                } finally {
+                    isRequestingPermission = false;
                 }
             }
 
@@ -52,21 +73,9 @@ export const exportToDeviceFolders = async (allData, user = null) => {
                 // --- User Specific Folder Logic ---
                 if (user && user.id) {
                     const folderName = `KwiqBilling-${user.id}`;
-                    // Try to create subfolder or find it
                     try {
                         const files = await SAF.readDirectoryAsync(rootUri);
-                        // Check if folder exists by looking for encoded name
-                        // Note: SAF URIs are complex. Best bet is to try create and catch "exists" or just blindly create
-                        // makeDirectoryAsync usually throws if exists or returns new URI?
-                        // Actually, SAF.makeDirectoryAsync returns the URI of the new directory.
-                        // If it exists, it might throw.
-
                         targetUri = await SAF.makeDirectoryAsync(rootUri, folderName).catch(async (e) => {
-                            // If fails, maybe it exists? Try to construct URI or find it?
-                            // Finding is hard.
-                            // Alternative: Just use root if subfolder fails, OR assume simple write.
-                            // Let's rely on standard flat file backup if folder creation fails, 
-                            // OR try to find the folder in the list.
                             const found = files.find(u => decodeURIComponent(u).endsWith(folderName));
                             if (found) return found;
                             console.warn("Could not create user folder, using root.", e);
@@ -102,20 +111,21 @@ export const exportToDeviceFolders = async (allData, user = null) => {
             }
         }
 
-        // 3. Fallback: Sharing (Zips or Single File)
-        // For simplicity, we stick to single file for sharing fallback as handling multiple files in sharing is complex without zip.
-        // Or we can try to zip? 'expo-file-system' doesn't support zip natively.
-        // Stick to Master Backup JSON for fallback.
-        console.log("Using Sharing Fallback...");
-        const masterBackupUri = FileSystem.cacheDirectory + (user ? `KwiqBilling_Backup_${user.id}.json` : 'KwiqBilling_Master_Backup.json');
-        await FileSystem.writeAsStringAsync(masterBackupUri, JSON.stringify(allData, null, 2));
+        // 3. Fallback: Sharing (Master Backup JSON) - ONLY show if it's a manual export, not background auto-save
+        if (!isAutoSave) {
+            console.log("Using Sharing Fallback...");
+            const masterBackupUri = FileSystem.cacheDirectory + (user ? `KwiqBilling_Backup_${user.id}.json` : 'KwiqBilling_Master_Backup.json');
+            await FileSystem.writeAsStringAsync(masterBackupUri, JSON.stringify(allData, null, 2));
 
-        if (await Sharing.isAvailableAsync()) {
-            await Sharing.shareAsync(masterBackupUri);
-            return { success: true, method: 'SHARE' };
+            if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(masterBackupUri);
+                return { success: true, method: 'SHARE' };
+            }
+        } else {
+            console.log("[AutoSave] Skipping sharing fallback as background task.");
         }
 
-        return { success: false, error: 'No storage method available' };
+        return { success: false, error: 'No storage method available or folder not selected' };
     } catch (error) {
         console.error("Critical Backup Error:", error);
         return { success: false, error: error.message };

@@ -15,7 +15,7 @@ export const TransactionProvider = ({ children }) => {
     useEffect(() => {
         const loadTransactions = async () => {
             try {
-                const data = db.getAllSync('SELECT * FROM invoices ORDER BY date DESC');
+                const data = db.getAllSync('SELECT * FROM invoices WHERE is_deleted = 0 ORDER BY date DESC');
                 // Parse items and payments JSON strings and normalize keys
                 const parsedData = data.map(tx => ({
                     ...tx,
@@ -38,7 +38,7 @@ export const TransactionProvider = ({ children }) => {
     const fetchTransactions = async () => {
         setLoading(true);
         try {
-            const data = db.getAllSync('SELECT * FROM invoices ORDER BY date DESC');
+            const data = db.getAllSync('SELECT * FROM invoices WHERE is_deleted = 0 ORDER BY date DESC');
             // Parse items and payments JSON strings and normalize keys
             const parsedData = data.map(tx => ({
                 ...tx,
@@ -50,6 +50,20 @@ export const TransactionProvider = ({ children }) => {
             setTransactions(parsedData || []);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchDeletedTransactions = async () => {
+        try {
+            const data = db.getAllSync('SELECT * FROM invoices WHERE is_deleted = 1 ORDER BY date DESC');
+            return data.map(tx => ({
+                ...tx,
+                items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
+                payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
+            }));
+        } catch (err) {
+            console.error('Fetch deleted error:', err);
+            return [];
         }
     };
 
@@ -92,8 +106,9 @@ export const TransactionProvider = ({ children }) => {
             db.runSync(
                 `INSERT INTO invoices (
                     id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, 
-                    created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, weekly_sequence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, weekly_sequence,
+                    loyalty_points_redeemed, loyalty_points_earned, loyalty_points_discount, is_deleted
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     id,
                     data.customerId || '',
@@ -116,7 +131,11 @@ export const TransactionProvider = ({ children }) => {
                     data.roundOff || 0,
                     data.amountReceived || 0,
                     data.internalNotes || '',
-                    weeklySequence
+                    weeklySequence,
+                    data.loyaltyPointsRedeemed || 0,
+                    data.loyaltyPointsEarned || 0,
+                    data.loyaltyPointsDiscount || 0,
+                    0 // is_deleted
                 ]
             );
 
@@ -133,16 +152,19 @@ export const TransactionProvider = ({ children }) => {
                     const total = parseFloat(data.total) || 0;
                     const outstandingDelta = Math.max(0, total - received);
 
-                    // Update loyalty points (+1 per order), lifetime amountPaid, and current outstanding
+                    const redeemed = parseInt(data.loyaltyPointsRedeemed) || 0;
+                    const earned = parseInt(data.loyaltyPointsEarned) || 0;
+
+                    // Update loyalty points (Net Change = Earned - Redeemed), lifetime amountPaid, and current outstanding
                     db.runSync(
                         `UPDATE customers SET 
-                            loyaltyPoints = loyaltyPoints + 1,
+                            loyaltyPoints = loyaltyPoints - ? + ?,
                             amountPaid = amountPaid + ?,
                             outstanding = outstanding + ?
                          WHERE id = ?`,
-                        [received, outstandingDelta, String(data.customerId)]
+                        [redeemed, earned, received, outstandingDelta, String(data.customerId)]
                     );
-                    console.log(`[TransactionContext] Updated customer ${data.customerId}: +1 Loyalty, +${received} Paid, +${outstandingDelta} Due`);
+                    console.log(`[TransactionContext] Updated customer ${data.customerId}: -${redeemed} +${earned} Loyalty, +${received} Paid, +${outstandingDelta} Due`);
 
                     // [Sync Customer Stats]
                     try {
@@ -278,7 +300,8 @@ export const TransactionProvider = ({ children }) => {
                 `UPDATE invoices SET 
                     customer_id = ?, customer_name = ?, date = ?, type = ?, items = ?, 
                     subtotal = ?, tax = ?, discount = ?, total = ?, status = ?, payments = ?, updated_at = ?, 
-                    taxType = ?, grossTotal = ?, itemDiscount = ?, additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?, weekly_sequence = ?
+                    taxType = ?, grossTotal = ?, itemDiscount = ?, additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?, weekly_sequence = ?,
+                    loyalty_points_redeemed = ?, loyalty_points_earned = ?, loyalty_points_discount = ?
                  WHERE id = ?`,
                 [
                     String(data.customerId || ''),
@@ -301,6 +324,9 @@ export const TransactionProvider = ({ children }) => {
                     data.amountReceived || 0,
                     data.internalNotes || '',
                     data.weekly_sequence || 1,
+                    data.loyaltyPointsRedeemed || 0,
+                    data.loyaltyPointsEarned || 0,
+                    data.loyaltyPointsDiscount || 0,
                     id
                 ]
             );
@@ -331,24 +357,17 @@ export const TransactionProvider = ({ children }) => {
             const invoice = transactions.find(t => t.id === id);
             if (!invoice) throw new Error("Invoice not found");
 
-            // 1. Restore Stock locally (Optimistic UI update for products not strict requirement here but good practice if ProductContext existed. 
-            // However, our sync "applyEvent" does the heavy lifting for stock on other devices. 
-            // Locally we should also update stock if we want immediate consistency without waiting for a loop.
-            // But since stock is in `products` table and we are in `TransactionContext`, let's do direct DB operations here for consistency.
-
-            // Restore Stock logic
+            // 1. Restore Stock locally
             if (invoice.items && Array.isArray(invoice.items)) {
                 for (const item of invoice.items) {
                     if (item.productId || item.id) {
                         db.runSync(`UPDATE products SET stock = stock + ? WHERE id = ?`, [item.quantity, item.productId || item.id]);
-                        // Note: If we had a ProductContext, we should update its state too. 
-                        // For now we assume listeners or refetches will handle it.
                     }
                 }
             }
 
-            // 2. Delete Invoice from DB
-            db.runSync('DELETE FROM invoices WHERE id = ?', [id]);
+            // 2. Soft Delete Invoice (Move to Recycle Bin)
+            db.runSync('UPDATE invoices SET is_deleted = 1, updated_at = ? WHERE id = ?', [new Date().toISOString(), id]);
 
             // 3. Update State
             setTransactions(prev => prev.filter(t => t.id !== id));
@@ -356,9 +375,9 @@ export const TransactionProvider = ({ children }) => {
             // 4. Trigger Sync Event
             try {
                 const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-                SyncService.createAndUploadEvent(EventTypes.INVOICE_DELETED, invoice);
+                SyncService.createAndUploadEvent(EventTypes.INVOICE_STATUS_UPDATED, { id, is_deleted: 1, updated_at: new Date().toISOString() });
             } catch (syncErr) {
-                console.log('Sync Trigger Error (Delete):', syncErr);
+                console.log('Sync Trigger Error (Soft Delete):', syncErr);
             }
 
             // 5. Trigger AutoSave
@@ -366,6 +385,61 @@ export const TransactionProvider = ({ children }) => {
 
         } catch (err) {
             console.error('Delete Transaction Error:', err);
+            throw err;
+        }
+    };
+
+    const restoreTransaction = async (id) => {
+        try {
+            // Fetch the invoice from DB
+            const row = db.getFirstSync('SELECT * FROM invoices WHERE id = ?', [id]);
+            if (!row) throw new Error("Invoice not found in DB");
+
+            const invoice = {
+                ...row,
+                items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
+                payments: typeof row.payments === 'string' ? JSON.parse(row.payments) : (row.payments || [])
+            };
+
+            // 1. Re-deduct Stock
+            if (invoice.items && Array.isArray(invoice.items)) {
+                for (const item of invoice.items) {
+                    if (item.productId || item.id) {
+                        db.runSync(`UPDATE products SET stock = stock - ? WHERE id = ?`, [item.quantity, item.productId || item.id]);
+                    }
+                }
+            }
+
+            // 2. Clear deleted flag
+            db.runSync('UPDATE invoices SET is_deleted = 0, updated_at = ? WHERE id = ?', [new Date().toISOString(), id]);
+
+            // 3. Refresh State
+            await fetchTransactions();
+
+            // 4. Sync
+            try {
+                const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                SyncService.createAndUploadEvent(EventTypes.INVOICE_UPDATED, { ...invoice, is_deleted: 0, updated_at: new Date().toISOString() });
+            } catch (e) { }
+
+            triggerAutoSave();
+        } catch (err) {
+            console.error('Restore Transaction Error:', err);
+            throw err;
+        }
+    };
+
+    const permanentlyDeleteTransaction = async (id) => {
+        try {
+            db.runSync('DELETE FROM invoices WHERE id = ?', [id]);
+            // Sync permanent delete
+            try {
+                const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                SyncService.createAndUploadEvent(EventTypes.INVOICE_DELETED, { id });
+            } catch (e) { }
+            triggerAutoSave();
+        } catch (err) {
+            console.error('Permanent delete error:', err);
             throw err;
         }
     };
@@ -380,9 +454,12 @@ export const TransactionProvider = ({ children }) => {
             loading,
             error,
             fetchTransactions,
+            fetchDeletedTransactions,
             addTransaction,
             editTransaction,
             deleteTransaction,
+            restoreTransaction,
+            permanentlyDeleteTransaction,
             updateTransaction: editTransaction,
             updateTransactionStatus,
             clearAllTransactions,

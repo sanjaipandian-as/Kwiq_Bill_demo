@@ -14,6 +14,7 @@ import CustomersPage from '../pages/customers/CustomerPage';
 import MainTabs from './MainTabs';
 import LowStockPage from '../pages/LowStockPage';
 import GSTPage from '../pages/GST/GSTPage';
+import RecycleBinPage from '../pages/Invoices/RecycleBinPage';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import ShopDetails from '../pages/Settings/ShopDetails';
@@ -71,6 +72,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Customers" component={CustomersPage} />
             <Stack.Screen name="Billing" component={BillingPage} />
             <Stack.Screen name="LowStock" component={LowStockPage} />
+            <Stack.Screen name="RecycleBin" component={RecycleBinPage} />
           </>
         )}
       </Stack.Navigator>

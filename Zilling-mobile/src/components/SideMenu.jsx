@@ -4,7 +4,7 @@ import {
     TouchableWithoutFeedback, Platform, StatusBar, ScrollView, TouchableOpacity
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { ScanBarcode, Receipt, FileText, PieChart, X, Users, LogOut, ChevronRight, Package, Settings } from 'lucide-react-native';
+import { ScanBarcode, Receipt, FileText, PieChart, X, Users, LogOut, ChevronRight, Package, Settings, Trash2 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
@@ -15,6 +15,7 @@ const MENU_ITEMS = [
     { id: 'Expenses', label: 'Expense Tracker', icon: Receipt, color: '#ef4444' },
     { id: 'Reports', label: 'Business Reports', icon: PieChart, color: '#2563eb' },
     { id: 'GST', label: 'GST Filing & Stats', icon: PieChart, color: '#d97706' },
+    { id: 'RecycleBin', label: 'Recycle Bin', icon: Trash2, color: '#64748b' },
 ];
 
 const SideMenu = ({ isOpen, onClose }) => {
