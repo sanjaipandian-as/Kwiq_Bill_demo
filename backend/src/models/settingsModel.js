@@ -27,14 +27,23 @@ const settingsSchema = mongoose.Schema(
             },
             footer: { type: String, default: 'Thank you for shopping with us!' },
             terms: { type: Boolean, default: true },
-            logo: { type: Boolean, default: true },
 
             // Statutory
             gstin: { type: String, default: '' },
             fssai: { type: String, default: '' },
             pan: { type: String, default: '' },
+            logo: { type: String, default: '' }, // Changed from Boolean to String to hold base64/URL
             logoUrl: { type: String, default: '' },
             signatureUrl: { type: String, default: '' }
+        },
+
+        // --- Bank Details ---
+        bankDetails: {
+            accountName: { type: String, default: '' },
+            accountNumber: { type: String, default: '' },
+            ifsc: { type: String, default: '' },
+            bankName: { type: String, default: '' },
+            branch: { type: String, default: '' }
         },
 
         // --- Owner Profile (Onboarding) ---

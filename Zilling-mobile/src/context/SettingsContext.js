@@ -27,7 +27,15 @@ export const SettingsProvider = ({ children, user }) => {
                 pincode: ''
             },
             gstin: '',
-            fssai: ''
+            fssai: '',
+            logo: null
+        },
+        bankDetails: {
+            accountName: '',
+            accountNumber: '',
+            ifsc: '',
+            bankName: '',
+            branch: ''
         },
         tax: {
             gstEnabled: true,
@@ -43,7 +51,8 @@ export const SettingsProvider = ({ children, user }) => {
             headerTitle: 'Tax Invoice',
             footerNote: 'Thank you for shopping!',
             termsAndConditions: '1. Goods once sold will not be taken back.',
-            paperSize: '80mm',
+            invoicePaperSize: 'A4',
+            billPaperSize: '80mm',
             showLogo: true,
             showWatermark: false,
             showStoreAddress: true,

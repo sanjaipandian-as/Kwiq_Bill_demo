@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView, StatusBar, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Pressable, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView, StatusBar, Linking, Dimensions, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import DetailedInvoiceTemplate from './DetailedInvoiceTemplate';
+import MinimalInvoiceTemplate from './MinimalInvoiceTemplate';
+import ClassicInvoiceTemplate from './ClassicInvoiceTemplate';
+import CompactInvoiceTemplate from './CompactInvoiceTemplate';
+import ThermalInvoiceTemplate from './ThermalInvoiceTemplate';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -32,7 +38,10 @@ import {
   ExternalLink,
   Globe,
   MessageSquare,
-  FileText
+  FileText,
+  CreditCard,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
@@ -158,6 +167,8 @@ const SettingsPage = ({ navigation }) => {
     setLocalSettings(prev => {
       if (!prev) return prev;
       const next = { ...prev };
+
+      // Handle array updates or deep objects if necessary
       if (subField) {
         next[section] = {
           ...next[section],
@@ -167,13 +178,45 @@ const SettingsPage = ({ navigation }) => {
           }
         };
       } else {
+        // Ensure the section exists (for new sections like bankDetails)
         next[section] = {
-          ...next[section],
+          ...(next[section] || {}),
           [field]: value
         };
       }
       return next;
     });
+  };
+
+  const pickImage = async () => {
+    if (!isEditing) setIsEditing(true);
+
+    // Request permission
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
+      return;
+    }
+
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const asset = result.assets[0];
+      // Create data URI
+      const base64Img = `data:${asset.mimeType};base64,${asset.base64}`;
+      handleChange('store', 'logo', base64Img);
+    }
+  };
+
+  const removeLogo = () => {
+    if (!isEditing) setIsEditing(true);
+    handleChange('store', 'logo', null);
   };
 
   const addTaxGroup = () => {
@@ -218,6 +261,7 @@ const SettingsPage = ({ navigation }) => {
 
   const tabs = [
     { id: 'store', label: 'Store', icon: Store },
+    { id: 'bank', label: 'Bank', icon: CreditCard },
     { id: 'tax', label: 'Tax', icon: Calculator },
     { id: 'invoice', label: 'Invoice', icon: Layout },
     { id: 'print', label: 'Print', icon: Printer },
@@ -348,6 +392,169 @@ const SettingsPage = ({ navigation }) => {
                     <DetailRow label="Pincode" value={settings.store.address?.pincode} />
                   </TouchableOpacity>
                 )}
+              </View>
+            </Card>
+
+            <Card style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#8b5cf6' }]}>
+                  <ImageIcon size={20} color="#fff" />
+                </View>
+                <Text style={styles.cardTitle}>Store Logo</Text>
+              </View>
+              <View style={styles.cardPadding}>
+                {localSettings.store.logo ? (
+                  <View style={{ alignItems: 'center' }}>
+                    <View style={{ position: 'relative' }}>
+                      <Image
+                        source={{ uri: localSettings.store.logo }}
+                        style={{ width: 120, height: 120, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' }}
+                      />
+                      {isEditing && (
+                        <TouchableOpacity
+                          onPress={removeLogo}
+                          style={{
+                            position: 'absolute',
+                            top: -10,
+                            right: -10,
+                            backgroundColor: '#ef4444',
+                            borderRadius: 15,
+                            width: 30,
+                            height: 30,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            elevation: 4,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.2,
+                            shadowRadius: 2
+                          }}
+                        >
+                          <Trash2 size={16} color="#fff" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {isEditing && (
+                      <TouchableOpacity
+                        onPress={pickImage}
+                        style={{ marginTop: 12, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#f1f5f9' }}
+                      >
+                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Change Logo</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={isEditing ? pickImage : () => setIsEditing(true)}
+                    activeOpacity={0.7}
+                    style={{
+                      width: '100%',
+                      height: 120,
+                      borderRadius: 12,
+                      backgroundColor: '#f8fafc',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderWidth: 2,
+                      borderColor: '#e2e8f0',
+                      borderStyle: 'dashed'
+                    }}
+                  >
+                    <View style={{ backgroundColor: '#ede9fe', padding: 12, borderRadius: 30, marginBottom: 8 }}>
+                      <Upload size={24} color="#8b5cf6" />
+                    </View>
+                    <Text style={{ fontSize: 14, color: '#475569', fontWeight: '600' }}>Upload Store Logo</Text>
+                    <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Square (1:1) recommended</Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={{ marginTop: 20, backgroundColor: '#f0fdf4', padding: 12, borderRadius: 10, flexDirection: 'row', alignItems: 'flex-start' }}>
+                  <RotateCcw size={16} color="#16a34a" style={{ marginTop: 2, marginRight: 10 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 12, color: '#166534', fontWeight: '700' }}>Cloud Sync Active</Text>
+                    <Text style={{ fontSize: 11, color: '#16a34a', marginTop: 2, lineHeight: 16 }}>
+                      Your logo is securely stored and synced to your Google Drive. It will appear on all your digital and printed invoices.
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </Card>
+          </View>
+        );
+
+      case 'bank':
+        return (
+          <View style={styles.tabContent}>
+            <Card style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#3b82f6' }]}>
+                  <Building size={20} color="#fff" />
+                </View>
+                <Text style={styles.cardTitle}>Bank Account Details</Text>
+              </View>
+              <View style={styles.cardPadding}>
+                {isEditing ? (
+                  <>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Account Name</Text>
+                      <Input
+                        value={localSettings.bankDetails?.accountName || ''}
+                        onChangeText={(v) => handleChange('bankDetails', 'accountName', v)}
+                        placeholder="e.g. Kwiq Bill Store"
+                      />
+                    </View>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Bank Name</Text>
+                      <Input
+                        value={localSettings.bankDetails?.bankName || ''}
+                        onChangeText={(v) => handleChange('bankDetails', 'bankName', v)}
+                        placeholder="e.g. HDFC Bank"
+                      />
+                    </View>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Account Number</Text>
+                      <Input
+                        value={localSettings.bankDetails?.accountNumber || ''}
+                        onChangeText={(v) => handleChange('bankDetails', 'accountNumber', v)}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={styles.inputRow}>
+                      <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+                        <Text style={styles.label}>IFSC Code</Text>
+                        <Input
+                          value={localSettings.bankDetails?.ifsc || ''}
+                          onChangeText={(v) => handleChange('bankDetails', 'ifsc', v.toUpperCase())}
+                          autoCapitalize="characters"
+                        />
+                      </View>
+                      <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                        <Text style={styles.label}>Branch</Text>
+                        <Input
+                          value={localSettings.bankDetails?.branch || ''}
+                          onChangeText={(v) => handleChange('bankDetails', 'branch', v)}
+                        />
+                      </View>
+                    </View>
+                  </>
+                ) : (
+                  <TouchableOpacity onPress={() => setIsEditing(true)}>
+                    <DetailRow label="Account Name" value={settings.bankDetails?.accountName} icon={CreditCard} />
+                    <DetailRow label="Bank Name" value={settings.bankDetails?.bankName} icon={Building} />
+                    <DetailRow label="Account Number" value={settings.bankDetails?.accountNumber} />
+                    <DetailRow label="IFSC Code" value={settings.bankDetails?.ifsc} />
+                    <DetailRow label="Branch" value={settings.bankDetails?.branch} />
+                  </TouchableOpacity>
+                )}
+
+                <View style={{ marginTop: 16, backgroundColor: '#eff6ff', padding: 12, borderRadius: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <CheckCircle2 size={16} color="#3b82f6" style={{ marginRight: 8 }} />
+                    <Text style={{ fontSize: 12, color: '#1e40af', fontWeight: '600' }}>Cloud Sync Active</Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#3b82f6', marginTop: 4 }}>
+                    These details are securely saved to your local device and synced to your cloud account (MongoDB & Drive) when you save.
+                  </Text>
+                </View>
               </View>
             </Card>
           </View>
@@ -518,6 +725,8 @@ const SettingsPage = ({ navigation }) => {
                   </View>
                 </View>
               </Card>
+
+
             ))}
             <View style={{ height: 40 }} />
           </View>
@@ -533,20 +742,148 @@ const SettingsPage = ({ navigation }) => {
                 </View>
                 <Text style={styles.cardTitle}>Template Design</Text>
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll}>
-                {['Classic', 'Compact', 'Detailed', 'Minimal'].map(tmpl => (
-                  <TouchableOpacity
-                    key={tmpl}
-                    onPress={() => handleChange('invoice', 'template', tmpl)}
-                    activeOpacity={0.7}
-                  >
-                    <InvoiceTemplatePreview
-                      variant={tmpl}
-                      isActive={localSettings.invoice.template === tmpl}
-                    />
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              <View style={styles.cardPadding}>
+                {/* Template Selector */}
+                <View style={styles.segmentedControl}>
+                  {['Classic', 'Compact', 'Detailed', 'Minimal'].map(tmpl => (
+                    <TouchableOpacity
+                      key={tmpl}
+                      onPress={() => handleChange('invoice', 'template', tmpl)}
+                      style={[
+                        styles.segmentBtn,
+                        (localSettings.invoice.template || 'Classic') === tmpl && styles.segmentBtnActive
+                      ]}
+                    >
+                      <Text style={[
+                        styles.segmentText,
+                        (localSettings.invoice.template || 'Classic') === tmpl && styles.segmentTextActive
+                      ]}>{tmpl}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Detailed Previews */}
+                {(localSettings.invoice.template || 'Classic') === 'Classic' && (
+                  <View style={{ marginTop: 16, marginHorizontal: -20 }}>
+                    <Text style={[styles.sectionSubtitle, { marginBottom: 10, paddingHorizontal: 20 }]}>Classic Template Preview</Text>
+                    <View style={{ width: '100%' }}>
+                      <View style={{ paddingHorizontal: 0, alignItems: 'center', gap: 20 }}>
+                        <View style={{ width: '100%', marginBottom: 10 }}>
+                          <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Intra-State Invoice (CGST + SGST)</Text>
+                          <ClassicInvoiceTemplate settings={localSettings} data={null} />
+                        </View>
+                        <View style={{ width: '100%' }}>
+                          <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Inter-State Invoice (IGST)</Text>
+                          <ClassicInvoiceTemplate
+                            settings={localSettings}
+                            data={{
+                              invoiceNo: '#INV-1002',
+                              date: '15/10/2026',
+                              customer: { name: 'Jane Smith', address: 'XYZ Corp, Bangalore' },
+                              items: [
+                                { name: 'Electronics Kit', quantity: 1, price: 1000, total: 1000 }
+                              ],
+                              totals: {
+                                subtotal: 1000,
+                                tax: 180,
+                                igst: 180,
+                                total: 1180
+                              },
+                              taxType: 'inter'
+                            }}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                    <Text style={[styles.detailedText, { marginTop: 8, color: '#64748b', textAlign: 'center', paddingHorizontal: 20 }]}>System Generated Invoice</Text>
+                  </View>
+                )}
+
+                {/* Fallback for other templates if needed */}
+                {/* Detailed Previews for Compact */}
+                {(localSettings.invoice.template === 'Compact') && (
+                  <View style={{ marginTop: 16, marginHorizontal: -20 }}>
+                    <Text style={[styles.sectionSubtitle, { marginBottom: 10, paddingHorizontal: 20 }]}>Compact Template Preview</Text>
+                    <View style={{ width: '100%' }}>
+                      <View style={{ paddingHorizontal: 0, alignItems: 'center', gap: 20 }}>
+                        <View style={{ width: '100%', marginBottom: 10 }}>
+                          <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Intra-State Invoice (CGST + SGST)</Text>
+                          <CompactInvoiceTemplate settings={localSettings} data={null} />
+                        </View>
+                        <View style={{ width: '100%' }}>
+                          <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Inter-State Invoice (IGST)</Text>
+                          <CompactInvoiceTemplate
+                            settings={localSettings}
+                            data={{
+                              invoiceNo: '#INV-1002',
+                              date: '15/10/2026',
+                              dueDate: '15/10/2026',
+                              customer: { name: 'Jane Smith', address: 'XYZ Corp, Bangalore' },
+                              items: [
+                                { name: 'Electronics Kit', quantity: 1, price: 1000, total: 1000 }
+                              ],
+                              totals: {
+                                subtotal: 1000,
+                                tax: 180,
+                                igst: 180,
+                                total: 1180
+                              },
+                              taxType: 'inter'
+                            }}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                    <Text style={[styles.detailedText, { marginTop: 8, color: '#64748b', textAlign: 'center', paddingHorizontal: 20 }]}>System Generated Invoice</Text>
+                  </View>
+                )}
+
+
+                {/* Detailed Previews */}
+                {(localSettings.invoice.template === 'Detailed') && (
+                  <View style={{ marginTop: 16, marginHorizontal: -20 }}>
+                    <Text style={[styles.sectionSubtitle, { marginBottom: 10, paddingHorizontal: 20 }]}>Detailed Template Preview</Text>
+                    <View style={{ width: '100%' }}>
+                      <DetailedInvoiceTemplate settings={localSettings} />
+                    </View>
+                    <Text style={[styles.detailedText, { marginTop: 8, color: '#64748b', textAlign: 'center', paddingHorizontal: 20 }]}>System Generated Invoice</Text>
+                  </View>
+                )}
+
+                {/* Minimal Previews */}
+                {(localSettings.invoice.template === 'Minimal') && (
+                  <View style={{ marginTop: 16, marginHorizontal: -20 }}>
+                    <Text style={[styles.sectionSubtitle, { marginBottom: 10, paddingHorizontal: 20 }]}>Minimal Template Preview</Text>
+                    <View style={{ width: '100%' }}>
+                      {/* Intra-State */}
+                      <View style={{ marginBottom: 20 }}>
+                        <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Intra-State Invoice (CGST + SGST)</Text>
+                        <MinimalInvoiceTemplate taxType="intra" />
+                      </View>
+                      {/* Inter-State */}
+                      <View>
+                        <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Inter-State Invoice (IGST)</Text>
+                        <MinimalInvoiceTemplate
+                          taxType="inter"
+                          data={{
+                            invoiceNo: '#INV-INT-001',
+                            date: '15/10/2026',
+                            dueDate: '15/10/2026',
+                            billTo: 'Jane Smith (Bangalore)',
+                            items: [
+                              { desc: 'Electronics Kit', hsn: '8542', qty: 1, price: '1000.00', tax: '18%', amount: '1000.00' }
+                            ],
+                            subtotal: '1000.00',
+                            total: '1180.00',
+                            taxAmount: '180.00'
+                          }}
+                        />
+                      </View>
+                    </View>
+                    <Text style={[styles.detailedText, { marginTop: 8, color: '#64748b', textAlign: 'center', paddingHorizontal: 20 }]}>System Generated Invoice</Text>
+                  </View>
+                )}
+              </View>
             </Card>
 
             <Card style={styles.card}>
@@ -557,26 +894,41 @@ const SettingsPage = ({ navigation }) => {
                 <Text style={styles.cardTitle}>Bill Template</Text>
               </View>
               <View style={styles.cardPadding}>
-                <Text style={styles.sectionSubtitle}>Choose Thermal Receipt Style</Text>
+                <Text style={styles.sectionSubtitle}>Standard Receipt Preview</Text>
 
-                <View style={styles.segmentedControl}>
-                  {['Standard', 'Compact', 'Minimal'].map(bt => (
-                    <TouchableOpacity
-                      key={bt}
-                      onPress={() => handleChange('invoice', 'billTemplate', bt)}
-                      style={[
-                        styles.segmentBtn,
-                        (localSettings.invoice.billTemplate || 'Standard') === bt && styles.segmentBtnActive
-                      ]}
-                    >
-                      <Text style={[
-                        styles.segmentText,
-                        (localSettings.invoice.billTemplate || 'Standard') === bt && styles.segmentTextActive
-                      ]}>{bt}</Text>
-                    </TouchableOpacity>
-                  ))}
+                <View style={{ marginTop: 16, marginHorizontal: -20 }}>
+                  <View style={{ width: '100%' }}>
+                    {/* PREVIEW 1: INTRA-STATE (CGST + SGST) */}
+                    <View style={{ marginBottom: 20 }}>
+                      <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Intra-State Receipt (CGST + SGST)</Text>
+                      <ThermalInvoiceTemplate settings={localSettings} taxType="intra" />
+                    </View>
+
+                    {/* PREVIEW 2: INTER-STATE (IGST) */}
+                    <View style={{ marginBottom: 20 }}>
+                      <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Inter-State Receipt (IGST)</Text>
+                      <ThermalInvoiceTemplate
+                        settings={localSettings}
+                        taxType="inter"
+                        data={{
+                          invoiceNo: '2',
+                          date: '14/2/2026',
+                          customer: { name: 'Online' },
+                          paymentMode: 'UPI',
+                          items: [
+                            { name: 'Elec. Kit', quantity: 1, price: 1000, total: 1000 }
+                          ],
+                          totals: {
+                            subtotal: 1000,
+                            tax: 180,
+                            total: 1180
+                          }
+                        }}
+                      />
+                    </View>
+                  </View>
+                  <Text style={[styles.helperTextSmall, { paddingHorizontal: 20 }]}>Standard thermal layout used for all bill prints.</Text>
                 </View>
-                <Text style={styles.helperTextSmall}>Applies to thermal printer formatting.</Text>
               </View>
             </Card>
 
@@ -591,7 +943,6 @@ const SettingsPage = ({ navigation }) => {
                 {[
                   { key: 'showLogo', label: 'Show Store Logo' },
                   { key: 'showTaxBreakup', label: 'Tax Breakup Table' },
-                  { key: 'showHsn', label: 'HSN/SAC Codes' },
                   { key: 'showQrcode', label: 'UPI QR Code' },
                   { key: 'showTerms', label: 'Terms & Conditions' },
                 ].map(opt => (
@@ -621,18 +972,37 @@ const SettingsPage = ({ navigation }) => {
               </View>
               <View style={styles.cardPadding}>
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Paper Size</Text>
+                  <Text style={styles.label}>Invoice Paper Size (PDF)</Text>
                   <View style={styles.pickerContainer}>
-                    {['80mm', '58mm', 'A4', 'A5'].map(size => (
+                    {['A4', 'A5'].map(size => (
                       <TouchableOpacity
                         key={size}
-                        onPress={() => handleChange('invoice', 'paperSize', size)}
+                        onPress={() => handleChange('invoice', 'invoicePaperSize', size)}
                         style={[
                           styles.pickerItem,
-                          localSettings.invoice.paperSize === size && styles.pickerActive
+                          (localSettings.invoice.invoicePaperSize || 'A4') === size && styles.pickerActive
                         ]}
                       >
-                        <Text style={[styles.pickerText, localSettings.invoice.paperSize === size && styles.pickerTextActive]}>
+                        <Text style={[styles.pickerText, (localSettings.invoice.invoicePaperSize || 'A4') === size && styles.pickerTextActive]}>
+                          {size}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Bill Receipt Size (Thermal)</Text>
+                  <View style={styles.pickerContainer}>
+                    {['80mm', '58mm'].map(size => (
+                      <TouchableOpacity
+                        key={size}
+                        onPress={() => handleChange('invoice', 'billPaperSize', size)}
+                        style={[
+                          styles.pickerItem,
+                          (localSettings.invoice.billPaperSize || '80mm') === size && styles.pickerActive
+                        ]}
+                      >
+                        <Text style={[styles.pickerText, (localSettings.invoice.billPaperSize || '80mm') === size && styles.pickerTextActive]}>
                           {size}
                         </Text>
                       </TouchableOpacity>
@@ -1094,7 +1464,7 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerTitle: { fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
-  unsavedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginTop: 4, borderWeight: 1, borderColor: '#ef4444', borderWidth: 1 },
+  unsavedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginTop: 4, borderColor: '#ef4444', borderWidth: 1 },
   unsavedText: { color: '#ef4444', fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
   headerActions: { flexDirection: 'row', gap: 12 },
   backBtn: { padding: 4 },
@@ -1521,6 +1891,281 @@ const styles = StyleSheet.create({
     color: '#9a3412',
     flex: 1,
     lineHeight: 18,
+  },
+
+  // --- Thermal Preview Styles ---
+  thermalPaper: {
+    width: '100%',
+    backgroundColor: '#fff',
+    padding: 16,
+    marginRight: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0'
+  },
+  tpStoreName: { fontSize: 16, fontWeight: '900', color: '#000', textAlign: 'center', textTransform: 'uppercase', marginBottom: 4 },
+  tpText: { fontSize: 10, color: '#000', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', lineHeight: 14 },
+  tpTextCenter: { textAlign: 'center' },
+  tpTextRight: { textAlign: 'right' },
+  tpTextBold: { fontSize: 10, fontWeight: '700', color: '#000', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
+  tpHeader: { fontSize: 12, fontWeight: '800', color: '#000', textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center', marginVertical: 6 },
+  tpDashedLine: { height: 1, borderWidth: 1, borderColor: '#000', borderStyle: 'dashed', borderRadius: 1, width: '100%', marginVertical: 8 },
+  tpRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
+  tpTotal: { fontSize: 14, fontWeight: '900', color: '#000' },
+  tpGxBox: { borderWidth: 1, borderColor: '#000', borderStyle: 'dashed', padding: 4, marginTop: 8 },
+  tpGxHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#000', borderStyle: 'dashed', paddingBottom: 4, marginBottom: 4 },
+  tpGxRow: { flexDirection: 'row', paddingVertical: 2 },
+
+  // --- A4 Invoice Preview Styles (Classic) ---
+  a4Paper: {
+    width: '100%',
+    backgroundColor: '#fff',
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    overflow: 'hidden'
+  },
+  a4BlueHeader: {
+    backgroundColor: '#0047AB', // Reference Image Blue
+    width: '100%',
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 0
+  },
+  a4LogoCircle: {
+    display: 'none'
+  },
+  a4LogoText: { display: 'none' },
+  a4Title: {
+    fontSize: 36,
+    fontWeight: '900',
+    color: '#fff',
+    letterSpacing: 3,
+    textTransform: 'uppercase'
+  },
+  a4MetaRow: { flexDirection: 'row', paddingHorizontal: 24, marginTop: 16 },
+  a4MetaGrid: { flexDirection: 'row', gap: 32 },
+  a4MetaItem: { alignItems: 'flex-start' },
+  a4MetaLabel: { fontSize: 10, fontWeight: '800', color: '#64748b', marginBottom: 2, letterSpacing: 0.5 },
+  a4MetaValue: { fontSize: 13, fontWeight: '800', color: '#000' },
+  a4PaymentTerms: { fontSize: 10, fontStyle: 'italic', color: '#94a3b8', textAlign: 'center', marginTop: 8, marginBottom: 24 },
+
+  a4AddressRow: { flexDirection: 'row', paddingHorizontal: 24, marginBottom: 30 },
+  a4LabelBlue: { fontSize: 11, fontWeight: '900', color: '#0047AB', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  a4NameBold: { fontSize: 14, fontWeight: '800', color: '#000', marginBottom: 4 },
+  a4AddressText: { fontSize: 11, color: '#334155', lineHeight: 16 },
+
+  a4TableHeader: { flexDirection: 'row', backgroundColor: '#0047AB', paddingVertical: 10, paddingHorizontal: 24 },
+  a4Th: { fontSize: 10, fontWeight: '800', color: '#fff', textTransform: 'uppercase' },
+  a4TableRow: { flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 24, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  a4Td: { fontSize: 11, color: '#0f172a', fontWeight: '500' },
+
+  a4TotalRow: { flexDirection: 'row', width: 200, justifyContent: 'space-between', paddingRight: 24, marginBottom: 8 },
+  a4TotalLabel: { fontSize: 11, color: '#64748b', fontWeight: '600' },
+  a4TotalValue: { fontSize: 11, fontWeight: '700', color: '#000' },
+  a4BalanceBox: { flexDirection: 'row', width: 240, justifyContent: 'space-between', backgroundColor: '#0047AB', paddingVertical: 10, paddingHorizontal: 16, marginTop: 12, marginRight: 24, borderRadius: 0 },
+  a4BalanceLabel: { fontSize: 12, fontWeight: '900', color: '#fff', letterSpacing: 1 },
+  a4BalanceValue: { fontSize: 13, fontWeight: '900', color: '#fff' },
+
+  a4Notes: { fontSize: 11, color: '#334155', paddingHorizontal: 24, marginTop: 4, lineHeight: 16 },
+  a4ThankYou: { fontSize: 18, fontWeight: '800', fontStyle: 'italic', color: '#0047AB', paddingLeft: 24 },
+  a4Sign: { fontSize: 11, color: '#64748b', fontWeight: '600' },
+
+  // --- Compact Template Styles ---
+  compactPaper: {
+    width: '100%',
+    backgroundColor: '#fff',
+    padding: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  compactTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#855E01',
+    textAlign: 'center',
+    marginBottom: 24,
+    textTransform: 'uppercase',
+    letterSpacing: 3
+  },
+  compactStoreName: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#855E01',
+    marginBottom: 6
+  },
+  compactStoreDetails: {
+    fontSize: 10,
+    color: '#475569',
+    lineHeight: 14,
+    maxWidth: '95%',
+    marginTop: 2
+  },
+  compactMetaContainer: {
+    marginTop: 16,
+    marginBottom: 20,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#C29811', // Darker Gold
+    backgroundColor: '#FDF6E3', // Very light beige
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  compactMetaText: {
+    fontSize: 12,
+    color: '#000',
+    fontWeight: '600',
+    marginBottom: 2,
+    lineHeight: 18
+  },
+  compactMetaLabel: {
+    fontWeight: '900',
+    color: '#855E01',
+    textTransform: 'uppercase',
+    fontSize: 12
+  },
+  compactAddressRow: {
+    flexDirection: 'row',
+    marginBottom: 24,
+    paddingHorizontal: 4
+  },
+  compactAddressBlock: {
+    flex: 1
+  },
+  compactLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#855E01',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
+  },
+  compactCustomerName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#000',
+    marginBottom: 2
+  },
+  compactTableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#855E01', // Solid Brown
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#855E01'
+  },
+  compactTh: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRightWidth: 1,
+    borderRightColor: '#A07409' // Slightly lighter line for separation
+  },
+  compactTableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#fff'
+  },
+  compactTd: {
+    fontSize: 10,
+    color: '#334155',
+    fontWeight: '500',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRightWidth: 1,
+    borderRightColor: '#E2E8F0'
+  },
+  compactFooter: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: '#855E01',
+    marginTop: 20
+  },
+  compactTermsBox: {
+    flex: 1,
+    padding: 12,
+    borderRightWidth: 1,
+    borderColor: '#855E01'
+  },
+  compactTotalsBox: {
+    width: 200,
+  },
+  compactTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9'
+  },
+  compactGrandTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    backgroundColor: '#FDF6E3', // Match Meta Bar
+    borderBottomWidth: 0
+  },
+  compactFooterText: { fontSize: 10, color: '#334155', lineHeight: 14 },
+
+  // --- Detailed Template Styles ---
+  detailedPaper: {
+    width: Dimensions.get('window').width - 16,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#000',
+    overflow: 'hidden'
+  },
+  detailedRow: {
+    flexDirection: 'row',
+    borderColor: '#000'
+  },
+  detailedCol: {
+    borderRightWidth: 1,
+    borderColor: '#000',
+    padding: 4
+  },
+  detailedText: {
+    fontSize: 9,
+    color: '#000',
+    fontFamily: 'System', // Use default system font to ensure clean render
+    flexWrap: 'wrap'
+  },
+  detailedBold: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: '#000'
+  },
+  detailedCheckBox: {
+    width: 10,
+    height: 10,
+    borderWidth: 1,
+    borderColor: '#000',
+    marginLeft: 4,
+    justifyContent: 'center',
+    alignItems: 'center'
   }
 });
 
@@ -1575,6 +2220,8 @@ const InvoiceTemplatePreview = ({ variant, isActive }) => {
         <Text style={[styles.previewText, isActive && styles.previewTextActive]}>{variant}</Text>
         {isActive && <CheckCircle2 size={14} color="#10b981" style={{ marginTop: 4 }} />}
       </View>
+
+
     </View>
   );
 };

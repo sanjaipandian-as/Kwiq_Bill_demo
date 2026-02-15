@@ -35,36 +35,32 @@ export const numberToWords = (num) => {
 };
 
 const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
-    const paperSize = settings?.invoice?.paperSize || '80mm';
-    // ... (rest of logic) ...
-    // Title Logic
-    const title = mode === 'customer' ? 'BILL' : 'TAX INVOICE';
-
-    const width = paperSize === '58mm' ? '100%' : '100%';
+    const paperSize = settings?.invoice?.billPaperSize || '80mm';
     const storeName = settings?.store?.name || 'Store Name';
     const storeAddressObj = settings?.store?.address || {};
-    const storeAddress = `${storeAddressObj.street || ''}, ${storeAddressObj.city || ''} ${storeAddressObj.zip || ''}`;
+    const storeAddress = `${storeAddressObj.street || ''}, ${storeAddressObj.city || ''}`;
     const storePhone = settings?.store?.contact || settings?.store?.phone || '';
     const storeGstin = settings?.store?.gstin || '';
 
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
     const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+
+    // Date formatting
     const date = new Date(bill.date || Date.now());
-    const dateStr = date.toLocaleDateString('en-GB'); // DD/MM/YYYY
+    const dateStr = date.toLocaleDateString('en-GB');
     const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Calculate Totals
     const totalQty = items.reduce((acc, item) => acc + (parseFloat(item.quantity) || 0), 0);
     const subtotal = bill.totals?.subtotal || bill.subtotal || 0;
-    const totalForRound = bill.totals?.total || bill.total || 0;
-
-    // Exact rounding logic to match "Round Off: +0.18" style if needed, 
-    // or just display what's in DB if stored.
+    const totalTax = (bill.totals?.tax || bill.tax || 0);
+    const totalAmount = bill.totals?.total || bill.total || 0;
     const roundOff = bill.totals?.roundOff || 0;
+    const paymentMode = (bill.payments && bill.payments.length > 0) ? bill.payments[0].method : (bill.paymentType || 'Cash');
 
     // Tax Summary
     const taxSummary = {};
+    const isInter = bill.taxType === 'inter';
     items.forEach(item => {
         const rate = parseFloat(item.taxRate || 0);
         const price = parseFloat(item.price || item.sellingPrice || 0);
@@ -77,224 +73,737 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
         taxSummary[rate].tax += taxVal;
     });
 
-    const paymentMode = (bill.payments && bill.payments.length > 0) ? bill.payments[0].method : (bill.paymentType || 'Cash');
-
     const styles = `
-        body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 5px; color: #000; }
+        body { 
+            font-family: 'Courier New', Courier, monospace; 
+            font-size: 11px; 
+            margin: 0; 
+            padding: ${paperSize === '58mm' ? '2px' : '5px'}; 
+            color: #000; 
+            width: 100%;
+        }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
-        .text-left { text-align: left; }
-        .bold { font-weight: bold; }
-        .dashed { border-bottom: 1px dashed #000; margin: 5px 0; display: block; }
-        .header { margin-bottom: 5px; }
-        .store-name { font-size: 16px; font-weight: 800; text-transform: uppercase; }
-        .meta-table { width: 100%; font-size: 12px; }
-        .item-table { width: 100%; border-collapse: collapse; }
-        .item-table th { text-align: right; font-weight: normal; border-bottom: 1px dashed #000; padding: 2px 0; }
-        .item-table th:first-child, .item-table th:nth-child(2) { text-align: left; }
-        
-        .item-row td { vertical-align: top; padding-top: 4px; }
-        .item-details-row { font-size: 11px; }
-        .gst-table { width: 100%; border-collapse: collapse; margin-top: 5px; border: 1px dashed #000; }
-        .gst-table th, .gst-table td { border: 1px dashed #000; padding: 3px; text-align: right; font-size: 10px; }
-        .gst-table th:first-child, .gst-table td:first-child { text-align: center; }
-        
-        .footer { margin-top: 10px; text-align: center; font-size: 12px; }
-        .big-total { font-size: 12px; font-weight: 00; } /* Matches visual weight */
-        .saved-msg { margin: 10px 0; font-weight: bold; font-size: 12px; }
+        .bold { font-weight: 900; }
+        .dashed { border-bottom: 1px dashed #000; margin: 4px 0; }
+        .store-name { font-size: 14px; font-weight: 900; text-transform: uppercase; margin-bottom: 2px; }
+        .header-title { font-size: 12px; font-weight: 900; padding: 2px 0; }
+        .row { display: flex; justify-content: space-between; margin: 1px 0; }
+        .table { width: 100%; border-collapse: collapse; }
+        .table th { border-bottom: 1px dashed #000; padding: 4px 0; text-align: left; font-weight: 900; }
+        .table td { padding: 2px 0; vertical-align: top; }
+        .grand-total { font-size: 14px; font-weight: 900; border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 4px 0; margin: 4px 0; }
+        .gst-summary-title { font-weight: 900; margin-top: 8px; margin-bottom: 2px; }
+        .gst-box { border: 1px dashed #000; margin-top: 4px; }
+        .gst-header { display: flex; border-bottom: 1px dashed #000; background: #f0f0f0; }
+        .gst-row { display: flex; }
+        .gst-col { flex: 1; text-align: center; font-size: 9px; padding: 2px 0; border-right: 1px dashed #000; }
+        .gst-col:last-child { border-right: none; }
+        .footer { margin-top: 10px; text-align: center; }
     `;
 
     return `
     <html>
         <head><style>${styles}</style></head>
         <body>
-            <div class="header text-center">
+            <div class="text-center">
                 <div class="store-name">${storeName}</div>
                 <div>${storeAddress}</div>
                 <div>Phone: ${storePhone}</div>
                 ${storeGstin ? `<div>GSTIN: ${storeGstin}</div>` : ''}
             </div>
-            
+
             <div class="dashed"></div>
-            <div class="text-center bold">${title}</div>
+            <div class="text-center header-title">BILL RECEIPT</div>
             <div class="dashed"></div>
-            
-            <table class="meta-table">
-                <tr>
-                    <td class="text-left">Bill No: ${bill.id || '-'}</td>
-                    <td class="text-right">Inv No: ${(bill.invoiceNumber || bill.id || '').slice(-6)}</td>
-                </tr>
-                <tr>
-                    <td class="text-left">Bill Dt: ${dateStr}</td>
-                    <td class="text-right">Time: ${timeStr}</td>
-                </tr>
-                <tr>
-                    <td class="text-left">Customer: ${customerName.split(' ')[0]}</td>
-                    <td class="text-right">Mode: ${paymentMode}</td>
-                </tr>
-                <tr>
-                    <td class="text-left">Status: <span class="bold">${(bill.status || 'Paid').toUpperCase()}</span></td>
-                    <td class="text-right"></td>
-                </tr>
-            </table>
-            
+
+            <div class="row">
+                <span>Bill No: ${bill.id ? bill.id.slice(-6).toUpperCase() : '-'}</span>
+                <span>Date: ${dateStr}</span>
+            </div>
+            <div class="row">
+                <span>Cust: ${customerName.split(' ')[0]}</span>
+                <span>Time: ${timeStr}</span>
+            </div>
+            <div class="row">
+                <span>Mode: ${paymentMode}</span>
+                <span></span>
+            </div>
+
             <div class="dashed"></div>
-            
-            <table class="item-table">
+
+            <table class="table">
                 <thead>
                     <tr>
-                        <th width="30">S.NO</th>
+                        <th style="width: 20px;">Sn</th>
                         <th>Item</th>
-                        <th width="30">Qty</th>
-                        <th width="50">Rate</th>
-                        <th width="60">Amt</th>
+                        <th style="width: 50px; text-align: right;">Rate</th>
+                        <th style="width: 60px; text-align: right;">Amt</th>
                     </tr>
                 </thead>
                 <tbody>
-    ${items.map((item, i) => {
-        const tr = parseFloat(item.taxRate || 0);
-        const isInter = bill.taxType === 'inter';
-        const taxLabel = isInter ? `IGST @ ${tr}%` : `CGST @ ${tr / 2}% SGST @ ${tr / 2}%`;
-        return `
+                    ${items.map((item, i) => `
                         <tr>
-                            <td colspan="5" style="padding-top: 4px; font-size: 11px;">${i + 1}) ${taxLabel}</td>
-                        </tr>
-                        <tr>
-                            <td colspan="5" style="padding-left: 15px;">${item.name} ${item.variantName ? `(${item.variantName})` : ''}</td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td></td>
-                            <td class="text-center">${item.quantity}</td>
+                            <td>${i + 1}</td>
+                            <td>${item.name} ${item.variantName ? `(${item.variantName})` : ''}</td>
                             <td class="text-right">${parseFloat(item.price || item.sellingPrice).toFixed(2)}</td>
                             <td class="text-right">${parseFloat(item.total).toFixed(2)}</td>
                         </tr>
-                        `;
-    }).join('')}
+                        <tr>
+                            <td></td>
+                            <td colspan="3" style="font-size: 9px; color: #444;">Qty: ${item.quantity}</td>
+                        </tr>
+                    `).join('')}
                 </tbody>
             </table>
-            
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Subtotal (Taxable):</span> <span>₹${subtotal.toFixed(2)}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Total Tax:</span> <span>₹${(bill.totals?.tax || bill.tax || 0).toFixed(2)}</span>
-                </div>
-                ${(bill.additionalCharges || bill.totals?.additionalCharges) ? `
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Extra Charges:</span> <span>₹${parseFloat(bill.additionalCharges || bill.totals?.additionalCharges).toFixed(2)}</span>
-                </div>
-                ` : ''}
-                ${(bill.discount || bill.totals?.discount) ? `
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Bill Discount:</span> <span>-₹${parseFloat(bill.discount || bill.totals?.discount).toFixed(2)}</span>
-                </div>
-                ` : ''}
-                ${(bill.loyaltyPointsDiscount || bill.totals?.loyaltyPointsDiscount) ? `
-                <div style="display: flex; justify-content: space-between; color: #10b981;">
-                    <span>Loyalty Disc:</span> <span>-₹${parseFloat(bill.loyaltyPointsDiscount || bill.totals?.loyaltyPointsDiscount).toFixed(2)}</span>
-                </div>
-                ` : ''}
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Round Off:</span> <span>${roundOff > 0 ? '+' : ''}${roundOff.toFixed(2)}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-top: 4px; border-top: 1px dashed #000; padding-top: 4px;">
-                    <span>Amount Received:</span> <span>₹${(bill.amountReceived || 0).toFixed(2)}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-weight: bold; color: ${totalForRound > (bill.amountReceived || 0) ? '#ef4444' : '#000'};">
-                    <span>Balance Due:</span> <span>₹${Math.max(0, totalForRound - (bill.amountReceived || 0)).toFixed(2)}</span>
-                </div>
-            </div>
-            
+
             <div class="dashed"></div>
-            
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0;">
-                <div>Items: ${items.length}</div>
-                <div>Qty: ${totalQty}</div>
-                <div style="text-align: right; font-size: 16px; font-weight: bold;">₹${totalForRound.toFixed(2)}</div>
+
+            <div class="row">
+                <span>Taxable Amount:</span>
+                <span class="bold">₹${subtotal.toFixed(2)}</span>
             </div>
-            
-            <div class="dashed"></div>
-            
-            <div style="font-weight: bold; margin-bottom: 2px;">GST SUMMARY</div>
-            <table class="gst-table">
-                <thead>
-                    <tr>
-                        <th>GST%</th>
-                        <th>Taxable</th>
-                        ${bill.taxType === 'inter' ? '<th>IGST</th>' : '<th>CGST</th><th>SGST</th>'}
-                    </tr>
-                </thead>
-                <tbody>
-                    ${Object.keys(taxSummary).length > 0 ? Object.keys(taxSummary).map(rate => (
-        `<tr>
-                            <td>${rate}%</td>
-                            <td>${taxSummary[rate].taxable.toFixed(2)}</td>
-                            ${bill.taxType === 'inter'
-            ? `<td>${taxSummary[rate].tax.toFixed(2)}</td>`
-            : `<td>${(taxSummary[rate].tax / 2).toFixed(2)}</td><td>${(taxSummary[rate].tax / 2).toFixed(2)}</td>`
-        }
-                        </tr>`
-    )).join('') : '<tr><td colspan="4" class="text-center">No Tax Details</td></tr>'}
-                </tbody>
-            </table>
-            
-           <div class="dashed"></div>
-           
-           <div style="display: flex; justify-content: space-between; font-weight: bold;">
-               <div>${paymentMode}: ₹${totalForRound.toFixed(2)}</div>
-               <!-- <div>Balance: ₹0.00</div> --> 
-           </div>
-           
-           <!-- Calculate Savings -->
-           ${items.some(i => i.mrp && i.mrp > i.price) ? `
-               <div class="dashed"></div>
-               <div class="text-center saved-msg">** Saved ₹${items.reduce((acc, i) => acc + ((i.mrp || i.price) - i.price) * i.quantity, 0).toFixed(2)} on MRP **</div>
-           ` : ''}
-           
-           <div class="dashed"></div>
-           
-           ${bill.loyaltyPointsEarned ? `
-               <div class="text-center" style="font-size: 11px; margin-bottom: 5px;">
-                   <b>LOYALTY POINTS EARNED: ${bill.loyaltyPointsEarned}</b>
-               </div>
-               <div class="dashed"></div>
-           ` : ''}
-           
-           <div class="footer">
-               ${bill.internalNotes ? `<div style="text-align: left; background: #eee; padding: 5px; margin-bottom: 5px; font-size: 10px;">REMARKS: ${bill.internalNotes}</div>` : ''}
-               Thank You! Visit Again.<br/>
-           </div>
+            <div class="row">
+                <span>Total Tax:</span>
+                <span class="bold">₹${totalTax.toFixed(2)}</span>
+            </div>
+            ${roundOff !== 0 ? `
+            <div class="row">
+                <span>Round Off:</span>
+                <span class="bold">${roundOff > 0 ? '+' : ''}${roundOff.toFixed(2)}</span>
+            </div>
+            ` : ''}
+
+            <div class="grand-total row">
+                <span>GRAND TOTAL:</span>
+                <span>₹${totalAmount.toFixed(2)}</span>
+            </div>
+
+            <div class="gst-summary-title">GST SUMMARY</div>
+            <div class="gst-box">
+                <div class="gst-header">
+                    <div class="gst-col" style="flex: 0.8;">%</div>
+                    <div class="gst-col" style="flex: 1.2;">Taxable</div>
+                    ${isInter ? `
+                        <div class="gst-col" style="flex: 2;">IGST</div>
+                    ` : `
+                        <div class="gst-col">CGST</div>
+                        <div class="gst-col">SGST</div>
+                    `}
+                </div>
+                ${Object.keys(taxSummary).length > 0 ? Object.keys(taxSummary).map(rate => `
+                    <div class="gst-row">
+                        <div class="gst-col" style="flex: 0.8;">${rate}%</div>
+                        <div class="gst-col" style="flex: 1.2;">${taxSummary[rate].taxable.toFixed(2)}</div>
+                        ${isInter ? `
+                            <div class="gst-col" style="flex: 2;">${taxSummary[rate].tax.toFixed(2)}</div>
+                        ` : `
+                            <div class="gst-col">${(taxSummary[rate].tax / 2).toFixed(2)}</div>
+                            <div class="gst-col">${(taxSummary[rate].tax / 2).toFixed(2)}</div>
+                        `}
+                    </div>
+                `).join('') : `
+                    <div class="gst-row">
+                        <div class="gst-col" style="flex: 1; border-right: none;">No Tax Details</div>
+                    </div>
+                `}
+            </div>
+
+            <div class="dashed" style="margin-top: 8px;"></div>
+            <div class="footer">
+                Thank You! Visit Again.
+            </div>
         </body>
     </html>
     `;
 };
 
+const generateDetailedHTML = (bill, settings, colors) => {
+    const store = settings?.store || {};
+    const storeAddress = store.address || {};
+    const bank = settings?.bankDetails || {};
+    const items = bill.cart || bill.items || [];
+    const customer = bill.customer || {};
+    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const isInter = bill.taxType === 'inter';
+    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+    const { showLogo = true, showHsn = true, showQrcode = true } = settings?.invoice || {};
+
+    const subtotal = Number(bill.totals?.subtotal || 0);
+    const tax = Number(bill.totals?.tax || 0);
+    const total = Number(bill.totals?.total || 0);
+
+    const itemsHTML = items.map((item, idx) => {
+        const qty = parseFloat(item.quantity || 0);
+        const rate = parseFloat(item.price || item.sellingPrice || 0);
+        const taxable = qty * rate;
+        const taxRate = parseFloat(item.taxRate || 0);
+        const rowTax = taxable * (taxRate / 100);
+        const rowTotal = taxable + rowTax;
+
+        return `
+            <tr style="min-height: 30px;">
+                <td style="border: 1px solid #000; text-align: center;">${idx + 1}</td>
+                <td style="border: 1px solid #000; padding-left: 4px;">${item.name} ${item.variantName ? `(${item.variantName})` : ''}</td>
+                <td style="border: 1px solid #000; text-align: center;">${qty}</td>
+                <td style="border: 1px solid #000; text-align: right; padding-right: 2px;">${rate.toFixed(2)}</td>
+                <td style="border: 1px solid #000; text-align: right; padding-right: 2px;">${taxable.toFixed(2)}</td>
+                ${isInter ? `
+                    <td style="border: 1px solid #000; text-align: center;">${taxRate}%</td>
+                    <td style="border: 1px solid #000; text-align: right; padding-right: 2px;">${rowTax.toFixed(2)}</td>
+                ` : `
+                    <td style="border: 1px solid #000; text-align: center;">${taxRate / 2}%</td>
+                    <td style="border: 1px solid #000; text-align: right; padding-right: 2px;">${(rowTax / 2).toFixed(2)}</td>
+                    <td style="border: 1px solid #000; text-align: center;">${taxRate / 2}%</td>
+                    <td style="border: 1px solid #000; text-align: right; padding-right: 2px;">${(rowTax / 2).toFixed(2)}</td>
+                `}
+                <td style="border: 1px solid #000; text-align: right; padding-right: 2px; font-weight: bold;">${rowTotal.toFixed(2)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+    <html>
+    <head>
+        <style>
+            body { font-family: sans-serif; margin: 0; padding: 20px; color: #000; font-size: 10px; }
+            .container { width: 100%; border: 2px solid #000; }
+            .row { display: flex; border-bottom: 1px solid #000; }
+            .col { flex: 1; border-right: 1px solid #000; padding: 5px; }
+            .col:last-child { border-right: none; }
+            .bold { font-weight: bold; }
+            .text-center { text-align: center; }
+            .bg-gray { background: #e2e2e*2; }
+            table { width: 100%; border-collapse: collapse; }
+            .checkbox { width: 10px; height: 10px; border: 1px solid #000; display: inline-block; margin-left: 5px; vertical-align: middle; }
+            .checked { background: #000; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="row">
+                <div class="col" style="flex: 0 0 70px; display: flex; align-items: center; justify-content: center;">
+                    ${showLogo && store.logo ? `<img src="${store.logo}" style="width: 60px; height: 60px; object-fit: contain;" />` : '<span class="bold">LOGO</span>'}
+                </div>
+                <div class="col" style="text-align: center;">
+                    <div class="bold" style="font-size: 14px;">${store.name || 'Store Name'}</div>
+                    <div>${storeAddress.street || ''}, ${storeAddress.city || ''}, ${storeAddress.state || ''} - ${storeAddress.pincode || ''}</div>
+                    <div>Tel: ${store.contact || ''}</div>
+                    <div class="bold">GSTIN: ${store.gstin || 'N/A'}</div>
+                </div>
+                <div class="col" style="flex: 0 0 100px; padding: 0;">
+                    <div style="border-bottom: 1px solid #000; padding: 2px;">Original <span class="checkbox checked"></span></div>
+                    <div style="border-bottom: 1px solid #000; padding: 2px;">Duplicate <span class="checkbox"></span></div>
+                    <div style="border-bottom: 1px solid #000; padding: 2px;">Triplicate <span class="checkbox"></span></div>
+                    <div style="padding: 2px;">Extra Copy <span class="checkbox"></span></div>
+                </div>
+            </div>
+            <div class="row bg-gray" style="justify-content: center; padding: 2px;"><span class="bold">TAX INVOICE</span></div>
+            <div class="row" style="justify-content: center; padding: 2px; font-style: italic;">(See rule 7, for a tax invoice referred to in section 31)</div>
+            <div class="row">
+                <div class="col">
+                    <div><span class="bold">Invoice No:</span> ${bill.weekly_sequence || '1'}</div>
+                    <div><span class="bold">Invoice Date:</span> ${invoiceDate}</div>
+                    <div style="margin-top: 5px;"><span class="bold">Reverse Charge (Y/N):</span> No</div>
+                    <div><span class="bold">State:</span> ${storeAddress.state || '-'}</div>
+                </div>
+                <div class="col">
+                    <div><span class="bold">Transport Mode:</span> -</div>
+                    <div><span class="bold">Vehicle Number:</span> -</div>
+                    <div style="margin-top: 5px;"><span class="bold">Date of Supply:</span> ${invoiceDate}</div>
+                    <div><span class="bold">Place of Supply:</span> ${isInter ? 'Inter-State' : 'Local'}</div>
+                </div>
+            </div>
+            <div class="row bg-gray">
+                <div class="col text-center"><span class="bold">Detail of Receiver (Billed to)</span></div>
+                <div class="col text-center"><span class="bold">Detail of Consignee (Shipped to)</span></div>
+            </div>
+            <div class="row" style="min-height: 60px;">
+                <div class="col">
+                    <div><span class="bold">Name:</span> ${customerName}</div>
+                    <div><span class="bold">Address:</span> ${customer.address || '-'}</div>
+                    <div><span class="bold">GSTIN:</span> ${customer.gstin || '-'}</div>
+                    <div><span class="bold">Phone:</span> ${customer.mobile || '-'}</div>
+                </div>
+                <div class="col">
+                    <div><span class="bold">Name:</span> ${customerName}</div>
+                    <div><span class="bold">Address:</span> ${customer.address || '-'}</div>
+                    <div><span class="bold">GSTIN:</span> ${customer.gstin || '-'}</div>
+                    <div><span class="bold">State:</span> ${customer.state || '-'}</div>
+                </div>
+            </div>
+            <table>
+                <thead class="bg-gray">
+                    <tr>
+                        <th rowspan="2" style="border: 1px solid #000; width: 30px;">S.No</th>
+                        <th rowspan="2" style="border: 1px solid #000;">Product Description</th>
+                        <th rowspan="2" style="border: 1px solid #000; width: 30px;">Qty</th>
+                        <th rowspan="2" style="border: 1px solid #000; width: 50px;">Rate</th>
+                        <th rowspan="2" style="border: 1px solid #000; width: 60px;">Taxable Value</th>
+                        ${isInter ? `
+                            <th colspan="2" style="border: 1px solid #000;">IGST</th>
+                        ` : `
+                            <th colspan="2" style="border: 1px solid #000;">CGST</th>
+                            <th colspan="2" style="border: 1px solid #000;">SGST</th>
+                        `}
+                        <th rowspan="2" style="border: 1px solid #000; width: 70px;">Total</th>
+                    </tr>
+                    <tr>
+                        ${isInter ? `
+                            <th style="border: 1px solid #000; width: 30px;">Rate</th>
+                            <th style="border: 1px solid #000; width: 50px;">Amt</th>
+                        ` : `
+                            <th style="border: 1px solid #000; width: 25px;">Rate</th>
+                            <th style="border: 1px solid #000; width: 35px;">Amt</th>
+                            <th style="border: 1px solid #000; width: 25px;">Rate</th>
+                            <th style="border: 1px solid #000; width: 35px;">Amt</th>
+                        `}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsHTML}
+                    <tr class="bold">
+                        <td colspan="4" style="border: 1px solid #000; text-align: right;">Total</td>
+                        <td style="border: 1px solid #000; text-align: right;">${subtotal.toFixed(2)}</td>
+                        ${isInter ? `
+                            <td colspan="2" style="border: 1px solid #000; text-align: right;">${tax.toFixed(2)}</td>
+                        ` : `
+                            <td colspan="2" style="border: 1px solid #000; text-align: right;">${(tax / 2).toFixed(2)}</td>
+                            <td colspan="2" style="border: 1px solid #000; text-align: right;">${(tax / 2).toFixed(2)}</td>
+                        `}
+                        <td style="border: 1px solid #000; text-align: right;">${total.toFixed(2)}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="row">
+                <div class="col" style="flex: 1.5;">
+                    <div class="bold">Total Invoice Amount in Words:</div>
+                    <div style="font-style: italic; margin-top: 5px;">${numberToWords(total)}</div>
+                    <div style="margin-top: 10px;">
+                        <div class="bold">Bank Details:</div>
+                        <div>A/c Name: ${bank.accountName || '-'}</div>
+                        <div>Bank: ${bank.bankName || '-'}</div>
+                        <div>A/c No: ${bank.accountNumber || '-'}</div>
+                        <div>IFSC: ${bank.ifsc || '-'}</div>
+                    </div>
+                </div>
+                <div class="col" style="flex: 1; padding: 0;">
+                    <div style="display: flex; justify-content: space-between; padding: 2px 5px; border-bottom: 1px solid #000;">
+                        <span>Total Amount before Tax:</span><span>${subtotal.toFixed(2)}</span>
+                    </div>
+                    ${isInter ? `
+                        <div style="display: flex; justify-content: space-between; padding: 2px 5px; border-bottom: 1px solid #000;">
+                            <span>Add: IGST:</span><span>${tax.toFixed(2)}</span>
+                        </div>
+                    ` : `
+                        <div style="display: flex; justify-content: space-between; padding: 2px 5px; border-bottom: 1px solid #000;">
+                            <span>Add: CGST:</span><span>${(tax / 2).toFixed(2)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 2px 5px; border-bottom: 1px solid #000;">
+                            <span>Add: SGST:</span><span>${(tax / 2).toFixed(2)}</span>
+                        </div>
+                    `}
+                    <div style="display: flex; justify-content: space-between; padding: 2px 5px; border-bottom: 1px solid #000;">
+                        <span>Total Tax Amount:</span><span>${tax.toFixed(2)}</span>
+                    </div>
+                    <div class="bg-gray bold" style="display: flex; justify-content: space-between; padding: 5px;">
+                        <span>Total Amount after Tax:</span><span>${total.toFixed(2)}</span>
+                    </div>
+                    <div class="text-center" style="font-size: 8px; padding: 2px;">GST on Reverse Charge: No</div>
+                </div>
+            </div>
+            <div class="row" style="border-bottom: none; min-height: 80px;">
+                <div class="col" style="flex: 1.5;">
+                    <div class="bold">Terms & Conditions:</div>
+                    <div style="font-size: 8px;">${settings?.invoice?.termsAndConditions || '1. Goods once sold will not be taken back. 2. Interest @18% pa will be charged if not paid within due date.'}</div>
+                </div>
+                <div class="col" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; text-align: right;">
+                    <div class="bold">For ${store.name || ''}</div>
+                    <div style="margin-top: 30px;">Authorised Signatory</div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+};
+
+const generateClassicHTML = (bill, settings, colors) => {
+    const store = settings?.store || {};
+    const storeAddress = store.address || {};
+    const items = bill.cart || bill.items || [];
+    const customer = bill.customer || {};
+    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const isInter = bill.taxType === 'inter';
+    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+    const currency = settings?.defaults?.currency || '₹';
+    const { showLogo = true } = settings?.invoice || {};
+
+    const itemsHTML = items.map((item, idx) => {
+        const qty = parseFloat(item.quantity || 0);
+        const rate = parseFloat(item.price || item.sellingPrice || 0);
+        const taxable = qty * rate;
+        const taxRate = parseFloat(item.taxRate || 0);
+        const total = taxable * (1 + taxRate / 100);
+
+        return `
+            <tr>
+                <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;">
+                    <div style="font-weight: bold; color: #1e293b;">${item.name}</div>
+                    <div style="font-size: 9px; color: #64748b; margin-top: 2px;">
+                        Rate: ${currency}${rate.toFixed(2)} | Tax: ${taxRate}% ${isInter ? 'IGST' : 'GST'}
+                    </div>
+                </td>
+                <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #1e293b;">${qty}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: bold; color: #1e293b;">${currency}${total.toFixed(2)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+    <html>
+    <head>
+        <style>
+            body { font-family: 'Helvetica', sans-serif; margin: 0; padding: 0; color: #334155; }
+            .header { background: ${colors.primary}; padding: 30px; color: #fff; display: flex; justify-content: space-between; align-items: center; }
+            .logo-box { width: 60px; height: 60px; background: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 4px; }
+            .content { padding: 30px; }
+            .addr-box { display: flex; justify-content: space-between; margin-bottom: 30px; border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; }
+            .footer { display: flex; margin-top: 30px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+            .grand-total { background: ${colors.primary}; color: #fff; padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 900; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div>
+                <div style="font-size: 24px; font-weight: 900; text-transform: uppercase;">${store.name || 'STORE NAME'}</div>
+                <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">${storeAddress.street || ''}, ${storeAddress.city || ''}</div>
+                <div style="font-size: 11px; margin-top: 2px; opacity: 0.8;">GSTIN: ${store.gstin || 'N/A'}</div>
+            </div>
+            ${showLogo && store.logo ? `<div class="logo-box"><img src="${store.logo}" style="width: 100%; height: 100%; object-fit: contain;"/></div>` : ''}
+        </div>
+        <div class="content">
+            <div class="addr-box">
+                <div>
+                    <div style="font-size: 10px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 5px;">Bill To:</div>
+                    <div style="font-size: 18px; font-weight: 900; color: #0f172a;">${customerName}</div>
+                    <div style="font-size: 13px; color: #64748b; margin-top: 5px;">${customer.mobile || ''}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 10px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 5px;">Invoice Details:</div>
+                    <div style="font-size: 14px; font-weight: bold; color: #0f172a;">No: ${bill.weekly_sequence || '1'}</div>
+                    <div style="font-size: 13px; color: #64748b; margin-top: 2px;">Date: ${invoiceDate}</div>
+                </div>
+            </div>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f8fafc;">
+                        <th style="padding: 12px; text-align: left; border-bottom: 2px solid ${colors.primary}; color: #475569; font-size: 12px;">Description</th>
+                        <th style="padding: 12px; text-align: center; border-bottom: 2px solid ${colors.primary}; color: #475569; font-size: 12px; width: 60px;">Qty</th>
+                        <th style="padding: 12px; text-align: right; border-bottom: 2px solid ${colors.primary}; color: #475569; font-size: 12px; width: 100px;">Total</th>
+                    </tr>
+                </thead>
+                <tbody>${itemsHTML}</tbody>
+            </table>
+            <div class="footer">
+                <div style="flex: 1.5; padding: 20px; border-right: 1px solid #e2e8f0;">
+                    <div style="font-weight: bold; font-size: 12px; margin-bottom: 10px;">Terms & Notes</div>
+                    <div style="font-size: 11px; line-height: 1.6; color: #64748b;">
+                        1. Goods once sold will be not taken back.<br/>
+                        2. Interest @18% pa will be charged if not paid within due date.<br/>
+                        Thank you for your business!
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <div style="padding: 15px; font-size: 12px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span>Subtotal:</span><span class="bold">${currency}${Number(bill.totals.subtotal).toFixed(2)}</span>
+                        </div>
+                        ${isInter ? `
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <span>IGST:</span><span class="bold">${currency}${Number(bill.totals.tax).toFixed(2)}</span>
+                            </div>
+                        ` : `
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <span>CGST:</span><span class="bold">${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <span>SGST:</span><span class="bold">${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span>
+                            </div>
+                        `}
+                        ${bill.totals.discount > 0 ? `
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; color: #ef4444;">
+                            <span>Discount:</span><span class="bold">-${currency}${Number(bill.totals.discount).toFixed(2)}</span>
+                        </div>
+                        ` : ''}
+                        <div style="display: flex; justify-content: space-between; color: #64748b; font-size: 10px;">
+                            <span>Round Off:</span><span>${bill.totals.roundOff.toFixed(2)}</span>
+                        </div>
+                    </div>
+                    <div class="grand-total">
+                        <span style="font-size: 12px; opacity: 0.9;">TOTAL DUE</span>
+                        <span>${currency}${Number(bill.totals.total).toFixed(2)}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+};
+
+const generateMinimalHTML = (bill, settings, colors) => {
+    const store = settings?.store || {};
+    const storeAddress = store.address || {};
+    const items = bill.cart || bill.items || [];
+    const customer = bill.customer || {};
+    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+    const currency = settings?.defaults?.currency || '₹';
+    const { showLogo = true } = settings?.invoice || {};
+
+    const itemsHTML = items.map((item) => {
+        const qty = parseFloat(item.quantity || 0);
+        const rate = parseFloat(item.price || item.sellingPrice || 0);
+        const taxable = qty * rate;
+        const taxRate = parseFloat(item.taxRate || 0);
+        const total = taxable * (1 + taxRate / 100);
+
+        return `
+            <tr style="border-bottom: 1px solid #f3f4f6;">
+                <td style="padding: 12px 0;">
+                    <div style="font-weight: 500; font-size: 14px;">${item.name}</div>
+                </td>
+                <td style="padding: 12px 0; text-align: center; color: #1f2937;">${qty}</td>
+                <td style="padding: 12px 0; text-align: right; color: #1f2937;">${rate.toFixed(2)}</td>
+                <td style="padding: 12px 0; text-align: right; color: #1f2937;">${taxRate}%</td>
+                <td style="padding: 12px 0; text-align: right; font-weight: bold; color: #111;">${total.toFixed(2)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+    <html>
+    <head>
+        <style>
+            body { font-family: sans-serif; margin: 0; padding: 0; color: #1f2937; line-height: 1.5; }
+            .header-teal { background: ${colors.primary}; color: #fff; padding: 40px; display: flex; justify-content: space-between; }
+            .content { padding: 40px; }
+            .meta-row { display: flex; justify-content: space-between; margin-bottom: 40px; }
+            .label { font-size: 10px; font-weight: bold; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+            .footer-flex { display: flex; gap: 40px; margin-top: 40px; }
+            .notes-card { flex: 1; background: #f0fdfa; padding: 20px; border-radius: 8px; }
+            .totals-list { flex: 1; }
+            .total-banner { background: ${colors.primary}; color: #fff; padding: 15px 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="header-teal">
+            <div style="display: flex; align-items: center; gap: 20px;">
+                ${showLogo && store.logo ? `<img src="${store.logo}" style="width: 60px; height: 60px; object-fit: contain; background: #fff; border-radius: 8px; padding: 5px;" />` : ''}
+                <div>
+                    <h1 style="margin: 0; font-size: 40px; font-weight: 900; text-transform: uppercase;">INVOICE</h1>
+                    <div style="margin-top: 10px; opacity: 0.8; font-weight: 600;">No: ${bill.weekly_sequence || '1'}</div>
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 18px; font-weight: bold;">${store.name || ''}</div>
+                <div style="font-size: 11px; opacity: 0.8; margin-top: 5px; max-width: 250px;">
+                    ${storeAddress.street || ''}, ${storeAddress.city || ''}, ${storeAddress.state || ''} ${storeAddress.pincode || ''}<br/>
+                    ${store.email || ''} | GSTIN: ${store.gstin || ''}
+                </div>
+            </div>
+        </div>
+        <div class="content">
+            <div class="meta-row">
+                <div>
+                    <div class="label">BILL TO</div>
+                    <div style="font-size: 20px; font-weight: 900;">${customerName}</div>
+                    <div style="font-size: 13px; color: #6b7280; margin-top: 3px;">${customer.mobile || ''}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="margin-bottom: 10px;">
+                        <div class="label">INVOICE DATE</div>
+                        <div style="font-weight: 600;">${invoiceDate}</div>
+                    </div>
+                </div>
+            </div>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #e5e7eb;">
+                        <th style="padding-bottom: 10px; text-align: left; font-size: 10px; color: #9ca3af; text-transform: uppercase;">ITEM</th>
+                        <th style="padding-bottom: 10px; text-align: center; font-size: 10px; color: #9ca3af; text-transform: uppercase; width: 50px;">QTY</th>
+                        <th style="padding-bottom: 10px; text-align: right; font-size: 10px; color: #9ca3af; text-transform: uppercase; width: 80px;">PRICE</th>
+                        <th style="padding-bottom: 10px; text-align: right; font-size: 10px; color: #9ca3af; text-transform: uppercase; width: 60px;">TAX</th>
+                        <th style="padding-bottom: 10px; text-align: right; font-size: 10px; color: #9ca3af; text-transform: uppercase; width: 100px;">AMOUNT</th>
+                    </tr>
+                </thead>
+                <tbody>${itemsHTML}</tbody>
+            </table>
+            <div class="footer-flex">
+                <div class="notes-card">
+                    <div class="label" style="color: #115e59;">NOTES</div>
+                    <div style="font-size: 12px; color: #374151;">Thank you for your business!</div>
+                    <div class="label" style="color: #115e59; margin-top: 15px;">TERMS</div>
+                    <div style="font-size: 10px; color: #6b7280;">1. Goods once sold will not be taken back.<br/>2. Interest @18% pa will be charged if not paid within due date.</div>
+                </div>
+                <div class="totals-list">
+                    <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f3f4f6;">
+                        <span style="color: #6b7280;">Subtotal</span><span style="font-weight: 600;">${currency}${Number(bill.totals.subtotal).toFixed(2)}</span>
+                    </div>
+                    ${isInter ? `
+                        <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                            <span style="color: #6b7280;">IGST</span><span style="font-weight: 600;">${currency}${Number(bill.totals.tax).toFixed(2)}</span>
+                        </div>
+                    ` : `
+                        <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                            <span style="color: #6b7280;">CGST</span><span style="font-weight: 600;">${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                            <span style="color: #6b7280;">SGST</span><span style="font-weight: 600;">${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span>
+                        </div>
+                    `}
+                    ${bill.totals.discount > 0 ? `
+                        <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #ef4444;">
+                            <span>Discount</span><span>-${currency}${Number(bill.totals.discount).toFixed(2)}</span>
+                        </div>
+                    ` : ''}
+                    <div class="total-banner">
+                        <span style="font-weight: bold; letter-spacing: 1px;">TOTAL</span>
+                        <span style="font-size: 24px; font-weight: 900;">${currency}${Number(bill.totals.total).toFixed(2)}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+};
+
+const generateCompactHTML = (bill, settings, colors) => {
+    const store = settings?.store || {};
+    const storeAddress = store.address || {};
+    const items = bill.cart || bill.items || [];
+    const customer = bill.customer || {};
+    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const isInter = bill.taxType === 'inter';
+    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+    const currency = settings?.defaults?.currency || '₹';
+    const { showLogo = true } = settings?.invoice || {};
+
+    const itemsHTML = items.map((item, idx) => {
+        const qty = parseFloat(item.quantity || 0);
+        const rate = parseFloat(item.price || item.sellingPrice || 0);
+        const taxable = qty * rate;
+        const taxRate = parseFloat(item.taxRate || 0);
+        const total = taxable * (1 + taxRate / 100);
+
+        return `
+            <tr>
+                <td style="padding: 10px; border-bottom: 1px solid ${colors.primary};">
+                    <div style="font-weight: bold; color: #1e293b;">${item.name}</div>
+                </td>
+                <td style="padding: 10px; border-bottom: 1px solid ${colors.primary}; text-align: center;">${qty}</td>
+                <td style="padding: 10px; border-bottom: 1px solid ${colors.primary}; text-align: right;">${rate.toFixed(2)}</td>
+                <td style="padding: 10px; border-bottom: 1px solid ${colors.primary}; text-align: right; font-weight: bold;">${total.toFixed(2)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+    <html>
+    <head>
+        <style>
+            body { font-family: serif; margin: 0; padding: 0; color: #475569; background: #fff; }
+            .header-compact { text-align: center; padding: 40px; }
+            .biz-name { font-size: 28px; font-weight: 900; color: ${colors.primary}; margin-bottom: 5px; text-transform: uppercase; }
+            .info-bar { background: #fef9ef; margin: 0 40px; padding: 15px 30px; border-top: 2px solid ${colors.primary}; border-bottom: 2px solid ${colors.primary}; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: ${colors.primary}; }
+            .content { padding: 40px; }
+            .addr-grid { display: flex; justify-content: space-between; margin-bottom: 30px; }
+            .section-title { font-size: 11px; font-weight: 900; color: ${colors.primary}; text-transform: uppercase; border-bottom: 2px solid ${colors.primary}; margin-bottom: 15px; padding-bottom: 5px; width: fit-content; }
+            .footer-box { border: 2px solid ${colors.primary}; margin-top: 30px; display: flex; }
+            .grand-total-row { background: #fef9ef; padding: 15px; display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 900; color: ${colors.primary}; border-bottom: 1px solid ${colors.primary}; }
+        </style>
+    </head>
+    <body>
+        <div class="header-compact">
+            ${showLogo && store.logo ? `<img src="${store.logo}" style="width: 80px; height: 80px; object-fit: contain; margin-bottom: 10px;" />` : ''}
+            <div class="biz-name">${store.name || 'KWIQ BILL'}</div>
+            <div style="font-size: 12px;">${storeAddress.street || ''}, ${storeAddress.city || ''}</div>
+            <div style="font-size: 11px; font-weight: bold; margin-top: 5px;">GSTIN: ${store.gstin || ''}</div>
+        </div>
+        <div class="info-bar">
+            <span>INVOICE NO: ${bill.weekly_sequence || '1'}</span>
+            <span>DATE: ${invoiceDate}</span>
+        </div>
+        <div class="content">
+            <div class="addr-grid">
+                <div style="flex: 1;">
+                    <div class="section-title">Sold To</div>
+                    <div style="font-size: 18px; font-weight: 900; color: #1e293b;">${customerName}</div>
+                    <div style="font-size: 13px; color: #64748b; margin-top: 5px;">${customer.mobile || ''}</div>
+                </div>
+                <div style="flex: 1; text-align: right;">
+                    <div class="section-title" style="margin-left: auto;">Company</div>
+                    <div style="font-size: 14px; font-weight: bold;">${store.name || ''}</div>
+                    <div style="font-size: 12px; color: #64748b;">${store.contact || ''}</div>
+                </div>
+            </div>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="color: ${colors.primary}; font-weight: 900; font-size: 12px; text-transform: uppercase;">
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid ${colors.primary};">Item</th>
+                        <th style="padding: 10px; text-align: center; border-bottom: 2px solid ${colors.primary}; width: 60px;">Qty</th>
+                        <th style="padding: 10px; text-align: right; border-bottom: 2px solid ${colors.primary}; width: 80px;">Rate</th>
+                        <th style="padding: 10px; text-align: right; border-bottom: 2px solid ${colors.primary}; width: 100px;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>${itemsHTML}</tbody>
+            </table>
+            <div class="footer-box">
+                <div style="flex: 1.5; padding: 20px; border-right: 2px solid ${colors.primary};">
+                    <div class="section-title">Notes / Terms</div>
+                    <div style="font-size: 11px; line-height: 1.6;">1. Goods once sold will be not taken back.<br/>2. Pay securely via UPI.</div>
+                </div>
+                <div style="flex: 1;">
+                    <div class="grand-total-row">
+                        <span style="font-size: 12px;">TOTAL</span>
+                        <span>${currency}${Number(bill.totals.total).toFixed(2)}</span>
+                    </div>
+                    <div style="padding: 15px; font-size: 11px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span>Subtotal:</span><span>${currency}${Number(bill.totals.subtotal).toFixed(2)}</span>
+                        </div>
+                        ${isInter ? `
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>IGST:</span><span>${currency}${Number(bill.totals.tax).toFixed(2)}</span>
+                            </div>
+                        ` : `
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                <span>CGST:</span><span>${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>SGST:</span><span>${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+};
+
 export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
-    // If Thermal Paper, use the new thermal template
     const paperSize = settings?.invoice?.paperSize || '80mm';
     if (paperSize === '80mm' || paperSize === '58mm') {
         return generateThermalReceiptHTML(bill, settings, mode);
     }
 
-    // ... Existing A4 Logic ...
     const isBW = mode === 'customer' || mode === 'bw';
     const template = (isBW && settings?.invoice?.billTemplate) ? settings.invoice.billTemplate : (settings?.invoice?.template || 'Classic');
-    const storeName = settings?.store?.name || 'Kwiq Billing';
-    const storeAddressObj = settings?.store?.address || {};
-    const storeAddress = `${storeAddressObj.street || ''}, ${storeAddressObj.city || ''}`;
-    const storePhone = settings?.store?.contact || settings?.store?.phone || '';
-    const storeEmail = settings?.store?.email || '';
-    const storeGstin = settings?.store?.gstin || '';
-    const currency = settings?.defaults?.currency || '₹';
 
-    const items = bill.cart || bill.items || [];
-    const customer = bill.customer || {};
-
-    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
-
-    // Ensure totals exist (handle flat DB structure vs nested Billing structure)
-    // This fixes the issue where history invoices show 0 because they are flat objects
     if (!bill.totals) {
         bill.totals = {
             total: bill.total || 0,
@@ -303,683 +812,22 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
             discount: bill.discount || 0,
             grossTotal: bill.grossTotal || 0,
             amountReceived: bill.amountReceived || 0,
-            roundOff: bill.roundOff || 0
+            roundOff: bill.roundOff || 0,
+            additionalCharges: bill.additionalCharges || 0
         };
     }
 
-    // Theme selection
-    const isCompact = template === 'Compact';
-    const isGST = template === 'Detailed' || template === 'GST';
-    const isMinimal = template === 'Minimal';
-    const isClassic = template === 'Classic';
+    let colors = isBW ? { primary: '#000000' } :
+        template === 'Detailed' ? { primary: '#334155' } :
+            template === 'Compact' ? { primary: '#8B5E3C' } :
+                template === 'Minimal' ? { primary: '#137A6E' } : { primary: '#003594' };
 
-    const docTitle = isBW ? 'BILL' : 'INVOICE';
+    if (template === 'Detailed' || template === 'GST') return generateDetailedHTML(bill, settings, colors);
+    if (template === 'Classic') return generateClassicHTML(bill, settings, colors);
+    if (template === 'Minimal') return generateMinimalHTML(bill, settings, colors);
+    if (template === 'Compact') return generateCompactHTML(bill, settings, colors);
 
-    // Toggle Settings
-    const {
-        showLogo = true,
-        showTaxBreakup = true,
-        showHsn = true,
-        showQrcode = true,
-        showTerms = true,
-        showStoreAddress = true
-    } = settings?.invoice || {};
-
-    // B&W overrides for customer bill
-    let colors = isBW ? {
-        primary: '#000000',
-        border: '#333333',
-        bg: '#ffffff',
-        text: '#000000',
-        lightText: '#666666'
-    } : (isGST ? {
-        primary: '#334155',
-        border: '#94a3b8',
-        bg: '#f1f5f9',
-        text: '#1e293b'
-    } : isCompact ? {
-        primary: '#8B5E3C', // Gold/Brown for Compact
-        bg: '#FEF9EF',      // Light Tan background
-        text: '#475569',
-        border: '#92400E'   // Darker gold for borders
-    } : isMinimal ? {
-        primary: '#137A6E', // Teal for Minimal
-        bg: '#f0f9f9',      // Light Teal for Notes
-        text: '#374151',
-        light: '#9ca3af'
-    } : {
-        primary: '#003594', // Corporate Blue for Classic
-        text: '#334155',
-        lightText: '#64748b',
-        border: '#e2e8f0'
-    });
-
-    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString() : new Date().toLocaleDateString();
-
-    let styles = `
-        body { font-family: Arial, sans-serif; color:#111; margin:0; padding:10px; }
-        table { width:100%; border-collapse:collapse; margin-top:10px; }
-        th, td { padding:8px; font-size:12px; border-bottom:1px solid #e5e7eb; }
-        th { border-bottom:2px solid ${colors.primary}; text-align: left; }
-        .text-right { text-align:right; }
-        .text-center { text-align:center; }
-        .bold { font-weight:700; }
-    `;
-
-    if (isGST) {
-        styles += `
-            .tax-invoice-banner { background: #f2f2f2; text-align: center; border-bottom: 1.5px solid #000; padding: 5px; font-weight: 800; font-size: 16px; }
-            .tax-subtitle { font-size: 10px; font-style: italic; border-bottom: 1.5px solid #000; text-align: center; padding: 2px; }
-            .meta-grid { display: flex; border-bottom: 1.5px solid #000; }
-            .meta-col { flex: 1; border-right: 1.5px solid #000; }
-            .meta-col:last-child { border-right: none; }
-            .meta-cell { padding: 5px 10px; border-bottom: 1px solid #ddd; font-size: 11px; }
-            .meta-cell:last-child { border-bottom: none; }
-            .m-label { font-weight: 800; margin-right: 5px; }
-            .addr-grid { display: flex; border-bottom: 1.5px solid #000; background: #fdfdfd; }
-            .addr-label-bar { background: #f2f2f2; font-weight: 800; font-size: 10px; text-align: center; padding: 3px; border-bottom: 1px solid #000; }
-            .summary-split { display: flex; border: 1.5px solid #000; border-top: none; }
-            .sum-left { flex: 1.5; padding: 10px; border-right: 1.5px solid #000; }
-            .sum-right { flex: 1; }
-            .sum-row { display: flex; justify-content: space-between; padding: 4px 10px; border-bottom: 1px solid #eee; font-size: 11px; }
-            .final-total { background: #f2f2f2; font-weight: 800; font-size: 13px; border-top: 1.5px solid #000; }
-            .footer-gst { display: flex; border-top: 1px solid #000; margin-top: 10px; border-bottom: 1.5px solid #000; }
-            .f-bank { flex: 1; padding: 10px; border-right: 1px solid #000; font-size: 10px; }
-            .f-sig { flex: 1; padding: 10px; text-align: right; }
-        `;
-    } else if (isMinimal) {
-        styles += `
-            .header-teal { background-color: ${colors.primary}; color: white; padding: 40px; display: flex; justify-content: space-between; align-items: flex-start; }
-            .header-teal .title-grp { text-align: left; }
-            .header-teal h1 { font-size: 48px; margin: 0; font-weight: 800; }
-            .header-teal .inv-id { font-size: 16px; opacity: 0.9; margin-top: 10px; font-weight: 600; }
-            .header-teal .biz-grp { text-align: right; max-width: 400px; }
-            .header-teal .biz-name { font-size: 24px; font-weight: 800; margin-bottom: 8px; display: block; }
-            .header-teal .biz-addr { font-size: 12px; line-height: 1.6; opacity: 0.9; display: block; }
-            .meta-minimal { display: flex; justify-content: space-between; padding: 40px; margin-top: 20px; }
-            .label-tiny { font-size: 10px; font-weight: 800; color: ${colors.light || '#94a3b8'}; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1.5px; }
-            .val-bold { font-size: 20px; font-weight: 900; color: #111827; }
-            .date-row { display: flex; justify-content: flex-end; gap: 40px; font-size: 13px; margin-bottom: 8px; }
-            .date-row span:first-child { color: ${colors.light || '#6b7280'}; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
-            .date-row span:last-child { font-weight: 600; color: #111827; min-width: 100px; text-align: right; }
-            .items-table { margin: 20px 40px; width: calc(100% - 80px); }
-            .items-table th { text-transform: uppercase; letter-spacing: 1px; color: #374151; font-weight: 800; }
-            .footer-minimal { display: flex; justify-content: space-between; padding: 20px 40px; margin-top: 40px; align-items: flex-start; }
-            .notes-box { background: ${colors.bg}; padding: 20px; border-radius: 8px; width: 45%; }
-            .total-container { width: 42%; text-align: right; }
-            .gross-box { background: ${colors.primary}; padding: 15px 20px; color: white; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; }
-            .gross-val { font-size: 24px; font-weight: 900; }
-        `;
-    } else if (isCompact) {
-        styles += `
-            .header-compact { text-align: center; padding: 30px 40px; }
-            .biz-name { font-size: 24px; font-weight: 800; color: ${colors.primary}; margin-bottom: 5px; }
-            .info-bar { background-color: ${colors.bg}; margin: 20px 40px; padding: 12px 20px; border-top: 2px solid ${colors.primary}; border-bottom: 2px solid ${colors.primary}; display: flex; justify-content: space-between; align-items: center; }
-            .address-box { display: flex; justify-content: space-between; padding: 0 40px; margin-top: 20px; }
-            .addr-label { font-weight: 800; color: ${colors.primary}; text-transform: uppercase; font-size: 12px; border-bottom: 1.5px solid ${colors.primary}; margin-bottom: 10px; padding-bottom: 4px; width: 80%; }
-            .footer-container { display: flex; margin: 20px 40px; border: 1px solid ${colors.primary}; }
-            .footer-left { flex: 1.5; padding: 15px; border-right: 1px solid ${colors.primary}; }
-            .footer-right { flex: 1; }
-            .grand-total-box { background-color: ${colors.bg}; display: flex; justify-content: space-between; padding: 15px; color: ${colors.primary}; font-weight: 800; font-size: 16px; border-bottom: 1px solid ${colors.primary}; }
-        `;
-    } else {
-        styles += `
-            .header-blue { background-color: ${colors.primary}; padding: 30px 40px; color: white; display: flex; align-items: center; justify-content: space-between; }
-            .logo-circle { width: 80px; height: 80px; background: white; border-radius: 40px; display: flex; align-items: center; justify-content: center; color: ${colors.primary}; font-weight: bold; font-size: 14px; text-transform: uppercase; }
-            .meta-section { padding: 20px 40px; display: flex; flex-direction: column; align-items: flex-end; }
-            .address-box { display: flex; justify-content: space-between; padding: 20px 40px; margin-top: 20px; border-bottom: 1px solid #eee; }
-            .company-name { font-weight: 800; font-size: 18px; margin-bottom: 5px; display: block; }
-            .balance-box { background-color: ${colors.primary}; width: 350px; padding: 12px 20px; color: white; display: flex; justify-content: space-between; align-items: center; }
-            .footer-container { display: flex; margin: 20px 40px; border: 1.5px solid #eee; margin-top: 30px; }
-            .footer-left { flex: 1.5; padding: 15px; border-right: 1.5px solid #eee; }
-            .footer-right { flex: 1; }
-            .summ-row { display: flex; justify-content: space-between; padding: 6px 15px; border-bottom: 1px solid #f8fafc; font-size: 12px; }
-            .grand-total-box { background-color: ${colors.bg}; display: flex; justify-content: space-between; padding: 15px; color: ${colors.primary}; font-weight: 800; font-size: 18px; border-top: 2.5px solid ${colors.primary}; }
-            .thanks-msg { font-size: 24px; font-weight: 800; font-style: italic; color: ${colors.text}; margin-top: 40px; padding: 0 40px; }
-            .signature-container { display: flex; flex-direction: column; align-items: flex-end; padding: 40px; }
-            .sig-line { width: 200px; border-top: 1.5px solid #333; margin-bottom: 8px; }
-        `;
-    }
-
-    // No need to append 80mm styles here as we handle it above with a dedicated template
-
-
-    // Calculate Tax Summary Breakdown
-    const taxSummary = {};
-    const isInter = bill.taxType === 'inter'; // Helper
-
-    items.forEach(item => {
-        const rate = parseFloat(item.taxRate || 0);
-        const price = parseFloat(item.price || item.sellingPrice || 0);
-        const qty = parseFloat(item.quantity || 0);
-        const taxable = price * qty;
-        const taxVal = taxable * rate / 100;
-
-        if (!taxSummary[rate]) {
-            taxSummary[rate] = { taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 };
-        }
-        taxSummary[rate].taxable += taxable;
-        if (isInter) {
-            taxSummary[rate].igst += taxVal;
-        } else {
-            taxSummary[rate].cgst += taxVal / 2;
-            taxSummary[rate].sgst += taxVal / 2;
-        }
-        taxSummary[rate].total += taxVal;
-    });
-
-    const taxTableRows = Object.keys(taxSummary).filter(rate => parseFloat(rate) > 0).map(rate => {
-        const data = taxSummary[rate];
-        return `
-            <tr>
-                <td style="text-align: center; border: 1px solid #ddd; padding: 4px;">${rate}%</td>
-                <td style="text-align: right; border: 1px solid #ddd; padding: 4px;">${data.taxable.toFixed(2)}</td>
-                ${isInter ? `
-                <td style="text-align: right; border: 1px solid #ddd; padding: 4px;">${data.igst.toFixed(2)}</td>
-                ` : `
-                <td style="text-align: right; border: 1px solid #ddd; padding: 4px;">${data.cgst.toFixed(2)}</td>
-                <td style="text-align: right; border: 1px solid #ddd; padding: 4px;">${data.sgst.toFixed(2)}</td>
-                `}
-                <td style="text-align: right; border: 1px solid #ddd; padding: 4px;">${data.total.toFixed(2)}</td>
-            </tr>
-        `;
-    }).join('');
-
-    const taxSummaryTable = showTaxBreakup ? `
-    <div style="margin-top: 15px; margin-bottom: 10px;">
-        <div style="font-size: 10px; font-weight: 800; margin-bottom: 4px; border-bottom: 1px solid #000; display: inline-block;">TAX BREAKUP SUMMARY</div>
-        <table style="width: 100%; border-collapse: collapse; border: 1px solid #ddd;">
-            <thead>
-                <tr style="background: #f8fafc;">
-                    <th style="font-size: 9px; border: 1px solid #ddd; padding: 4px;">Rate</th>
-                    <th style="font-size: 9px; border: 1px solid #ddd; padding: 4px; text-align: right;">Taxable</th>
-                    ${isInter ? `
-                        <th style="font-size: 9px; border: 1px solid #ddd; padding: 4px; text-align: right;">IGST</th>
-                        ` : `
-                        <th style="font-size: 9px; border: 1px solid #ddd; padding: 4px; text-align: right;">CGST</th>
-                        <th style="font-size: 9px; border: 1px solid #ddd; padding: 4px; text-align: right;">SGST</th>
-                        `}
-                    <th style="font-size: 9px; border: 1px solid #ddd; padding: 4px; text-align: right;">Total Tax</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${taxTableRows}
-            </tbody>
-        </table>
-    </div>
-    ` : '';
-
-    const itemsHTML = items.map((item, idx) => {
-        const qty = parseFloat(item.quantity || 0);
-        const rate = parseFloat(item.price || item.sellingPrice || 0);
-        const taxable = qty * rate;
-        const taxRate = parseFloat(item.taxRate || 0);
-        const cgst = (taxable * (taxRate / 2) / 100).toFixed(2);
-        const sgst = (taxable * (taxRate / 2) / 100).toFixed(2);
-        const igst = (taxable * (taxRate) / 100).toFixed(2);
-        const total = (taxable + (isInter ? parseFloat(igst) : (parseFloat(cgst) + parseFloat(sgst)))).toFixed(2);
-
-        if (isGST) {
-            return `
-        <tr>
-                    <td class="text-center">${idx + 1}</td>
-                    <td>${item.name}</td>
-                    ${showHsn ? `<td class="text-center">${item.hsn || '-'}</td>` : ''}
-                    <td class="text-center">${qty}</td>
-                    <td class="text-right">${rate.toFixed(2)}</td>
-                    <td class="text-right">${taxable.toFixed(2)}</td>
-                    ${showTaxBreakup ? (isInter ? `
-                    <td class="text-center" colspan="2">${taxRate}%</td>
-                    <td class="text-right" colspan="2">${igst}</td>
-                    ` : `
-                    <td class="text-center">${taxRate / 2}%</td>
-                    <td class="text-right">${cgst}</td>
-                    <td class="text-center">${taxRate / 2}%</td>
-                    <td class="text-right">${sgst}</td>
-                    `) : ''
-                }
-    <td class="text-right">${total}</td>
-                </tr>
-    `;
-        } else if (isMinimal) {
-            const taxDetail = taxRate > 0 ? (isInter ? `${taxRate}% IGST` : `${taxRate / 2}% CGST<br/>${taxRate / 2}% SGST`) : '-';
-            return `
-    <tr>
-    <td>${item.name}</td>
-                    ${showHsn ? `<td class="text-center">${item.hsn || '-'}</td>` : ''}
-                    <td class="text-center">${qty}</td>
-                    <td class="text-right">${rate.toFixed(2)}</td>
-                    ${showTaxBreakup ? `<td class="text-center" style="font-size: 11px;">${taxDetail}</td>` : ''}
-<td class="text-right">${total}</td>
-                </tr>
-    `;
-        } else if (isClassic) {
-            return `
-    <tr>
-                    <td>
-                        <div style="font-weight: 600;">${item.name}</div>
-                        <div style="font-size: 9px; color: #666;">
-                            Rate: ${currency} ${rate.toFixed(2)}
-                            ${showTaxBreakup ? (isInter ? ` | IGST: ${taxRate}%` : ` | CGST: ${taxRate / 2}% | SGST: ${taxRate / 2}%`) : ''}
-                            ${showHsn && item.hsn ? ` | HSN: ${item.hsn}` : ''}
-                        </div>
-                    </td>
-                    <td class="text-center">${qty}</td>
-                    <td class="text-right">${showTaxBreakup ? currency + ' ' + (isInter ? parseFloat(igst).toFixed(2) : (parseFloat(cgst) + parseFloat(sgst)).toFixed(2)) : currency + ' ' + rate.toFixed(2)}</td>
-                    <td class="text-right">${currency} ${total}</td>
-                </tr>
-    `;
-        }
-        return `
-    <tr>
-                <td>
-                    <div style="font-weight: 600;">${item.name}</div>
-                    ${item.variant ? `<div style="font-size: 10px; color: #666;">${item.variant}</div>` : ''}
-                    ${(showHsn && item.hsn) ? `<div style="font-size: 9px; color: #94a3b8;">HSN: ${item.hsn}</div>` : ''}
-                </td>
-                <td class="text-center">${item.quantity}</td>
-                <td class="text-right">${currency}${rate.toFixed(2)}</td>
-                <td class="text-right">${currency}${itemTotal}</td>
-            </tr>
-    `;
-    }).join('');
-
-    if (isMinimal) {
-        return `
-    <html>
-            <head><style>${styles}</style></head>
-            <body>
-                <div class="page">
-                    <div class="header-teal">
-                        <div class="title-grp">
-                            <h1 style="text-transform: uppercase; letter-spacing: 2px;">${isBW ? 'Bill' : 'Invoice'}</h1>
-                            <div class="inv-id">No: ${bill.weekly_sequence || '1'}</div>
-                            <div style="font-size: 10px; opacity: 0.7; margin-top: 5px;">Ref: #${bill.id}</div>
-                        </div>
-                        <div class="biz-grp">
-                            <span class="biz-name" style="text-transform: uppercase;">${storeName}</span>
-                            <span class="biz-addr">${storeAddress}</span>
-                            <span class="biz-addr">${storePhone} | ${storeEmail}</span>
-                            ${storeGstin ? `<span class="biz-addr">GSTIN: ${storeGstin}</span>` : ''}
-                        </div>
-                    </div>
-
-                    <div class="meta-minimal">
-                        <div class="bill-grp">
-                            <div class="label-tiny">Bill To</div>
-                            <div class="val-bold">${customerName}</div>
-                            <div style="font-size: 14px; margin-top: 4px; color: #4b5563;">${customer.mobile || ''}</div>
-                        </div>
-                        <div class="dates-grp">
-                            <div class="date-row"><span>Date</span> <span>${invoiceDate}</span></div>
-                            <div class="date-row"><span>Status</span> <span style="color: ${(bill.status === 'Unpaid' || bill.status === 'Partially Paid') ? '#ef4444' : '#059669'}; font-weight: 800;">${(bill.status || 'Paid').toUpperCase()}</span></div>
-                            ${bill.paymentMethod ? `<div class="date-row"><span>Method</span> <span style="font-weight: 600;">${bill.paymentMethod}</span></div>` : ''}
-                        </div>
-                    </div>
-
-                    <table class="items-table">
-                        <thead>
-                            <tr style="border-bottom: 2px solid #000;">
-                                <th style="padding: 12px 5px;">Description</th>
-                                ${showHsn ? `<th class="text-center" width="60">HSN</th>` : ''}
-                                <th class="text-center" width="60">Qty</th>
-                                <th class="text-right" width="100">Price</th>
-                                ${showTaxBreakup ? `<th class="text-center" width="100">Tax</th>` : ''}
-                                <th class="text-right" width="100">Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${itemsHTML}
-                        </tbody>
-                    </table>
-
-                    <div style="padding: 0 40px;">${taxSummaryTable}</div>
-
-                    <div class="footer-minimal">
-                        <div class="notes-box">
-                            <div class="label-tiny" style="margin-bottom: 10px;">Notes</div>
-                            <div style="font-size: 13px; color: #4b5563; line-height: 1.5;">
-                                ${bill.internalNotes ? `<b>Remarks:</b> ${bill.internalNotes}<br/><br/>` : ''}
-                                Thank you for your business!<br/>
-                                Please Visit Again.
-                            </div>
-                        </div>
-                        <div class="total-container">
-                            <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f3f4f6;">
-                                <span style="font-weight:600; color:#6b7280; font-size: 13px;">Subtotal</span>
-                                <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals?.subtotal || 0).toFixed(2)}</span>
-                            </div>
-                            ${Number(bill.totals?.tax || 0) > 0 ? (bill.taxType === 'inter' ? `
-                                <div style="display: flex; justify-content: space-between; padding: 5px 0;">
-                                    <span style="font-weight:600; color:#6b7280; font-size: 13px;">IGST</span>
-                                    <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals.tax).toFixed(2)}</span>
-                                </div>
-                            ` : `
-                                <div style="display: flex; justify-content: space-between; padding: 5px 0;">
-                                    <span style="font-weight:600; color:#6b7280; font-size: 13px;">CGST</span>
-                                    <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals.tax / 2).toFixed(2)}</span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; padding: 5px 0;">
-                                    <span style="font-weight:600; color:#6b7280; font-size: 13px;">SGST</span>
-                                    <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals.tax / 2).toFixed(2)}</span>
-                                </div>
-                            `) : ''}
-                            ${bill.totals?.additionalCharges > 0 ? `
-                                <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #000;">
-                                    <span style="font-weight:600; font-size: 13px;">Extra Charges</span>
-                                    <span style="font-weight:700;">+${currency} ${Number(bill.totals.additionalCharges).toFixed(2)}</span>
-                                </div>
-                            ` : ''}
-                            ${bill.totals?.discount > 0 ? `
-                                <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #ef4444;">
-                                    <span style="font-weight:600; font-size: 13px;">Discount</span>
-                                    <span style="font-weight:700;">-${currency} ${Number(bill.totals.discount).toFixed(2)}</span>
-                                </div>
-                            ` : ''}
-                            ${bill.totals?.loyaltyPointsDiscount > 0 ? `
-                                <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #10b981;">
-                                    <span style="font-weight:600; font-size: 13px;">Loyalty Disc</span>
-                                    <span style="font-weight:700;">-${currency} ${Number(bill.totals.loyaltyPointsDiscount).toFixed(2)}</span>
-                                </div>
-                            ` : ''}
-                            <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #6b7280;">
-                                <span style="font-weight:600; font-size: 13px;">Round Off</span>
-                                <span style="font-weight:700;">${(bill.totals?.roundOff || 0) > 0 ? '+' : ''}${(bill.totals?.roundOff || 0).toFixed(2)}</span>
-                            </div>
-                            <div class="gross-box" style="margin-top: 15px;">
-                                <span style="font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Grand Total</span>
-                                <span class="gross-val">${currency} ${Number(bill.totals?.total || 0).toFixed(2)}</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div style="margin: 40px 40px 0 40px; border-top: 1px solid #f3f4f6; padding-top: 20px; font-size: 11px; color: #9ca3af; text-align: center;">
-                        This is a computer generated invoice. No signature required.
-                    </div>
-                </div>
-            </body>
-        </html> `;
-    }
-
-    if (isGST) {
-        const subtotal = Number(bill.totals?.subtotal || 0);
-        const tax = Number(bill.totals?.tax || 0);
-        const total = Number(bill.totals?.total || 0);
-
-        return `
-    <html>
-            <head><style>${styles}</style></head>
-            <body>
-                <div class="gst-container">
-                    <div class="header-top">
-                        ${showLogo ? `<div class="logo-box">LOGO</div>` : ''}
-                        <div class="biz-header">
-                            <h2 style="margin:0; text-transform: uppercase; letter-spacing: 1px;">${storeName}</h2>
-                            ${showStoreAddress ? `
-                            <div style="font-size:11px; margin: 4px 0; color: #4b5563;">${storeAddress}</div>
-                            <div style="font-size:11px; color: #4b5563;">Contact: ${storePhone}</div>
-                            ` : ''}
-                            <div style="font-size:12px; font-weight:800; margin-top: 4px;">GSTIN: ${storeGstin}</div>
-                        </div>
-                        <div class="copy-indicator">
-                            <div class="copy-row">Original for Recipient <div class="checkbox checked"></div></div>
-                            <div class="copy-row">Duplicate for Transporter <div class="checkbox"></div></div>
-                            <div class="copy-row">Triplicate for Supplier <div class="checkbox"></div></div>
-                        </div>
-                    </div>
-
-                    <div class="tax-invoice-banner">
-                        ${isBW ? 'BILL' : 'TAX INVOICE'} 
-                        ${bill.status ? `<span style="font-size: 10px; background: rgba(0,0,0,0.1); padding: 2px 8px; border-radius: 4px; vertical-align: middle; margin-left: 10px; border: 1px solid #000;">${bill.status.toUpperCase()}</span>` : ''}
-                    </div>
-                    <div class="tax-subtitle">Invoice of goods under Section 31 of CGST Act</div>
-
-                    <div class="meta-grid">
-                        <div class="meta-col">
-                            <div class="meta-cell"><span class="m-label">Invoice No:</span> <b>${bill.weekly_sequence || '1'}</b></div>
-                            <div class="meta-cell"><span class="m-label">Invoice Date:</span> ${invoiceDate}</div>
-                            <div class="meta-cell"><span class="m-label">State:</span> ${storeAddressObj.state || '-'}</div>
-                        </div>
-                        <div class="meta-col">
-                            <div class="meta-cell"><span class="m-label">Transportation:</span> - </div>
-                            <div class="meta-cell"><span class="m-label">Vehicle No:</span> - </div>
-                            <div class="meta-cell"><span class="m-label">Place of Supply:</span> Local</div>
-                        </div>
-                    </div>
-                    <div class="addr-grid">
-                        <div class="meta-col">
-                            <div class="addr-label-bar">Bill To (Recipient)</div>
-                            <div style="padding:10px; font-size:12px; line-height: 1.6;">
-                                <b>Name:</b> ${customerName}<br/>
-                                <b>Contact:</b> ${customer.mobile || '-'}<br/>
-                                <b>Address:</b> -
-                            </div>
-                        </div>
-                    </div>
-                    <table style="border: 1px solid #000; border-top: none;">
-                        <thead>
-                            <tr style="background: #f2f2f2;">
-                                <th rowspan="2" align="center" style="border: 1px solid #000; width: 30px;">S.N</th>
-                                <th rowspan="2" style="border: 1px solid #000;">Product Description</th>
-                                ${showHsn ? `<th rowspan="2" align="center" style="border: 1px solid #000; width: 50px;">HSN</th>` : ''}
-                                <th rowspan="2" align="center" style="border: 1px solid #000; width: 30px;">Qty</th>
-                                <th rowspan="2" align="right" style="border: 1px solid #000; width: 70px;">Rate</th>
-                                <th rowspan="2" align="right" style="border: 1px solid #000; width: 80px;">Taxable</th>
-                                ${showTaxBreakup ? (isInter ? `
-                                <th colspan="4" style="border: 1px solid #000;">IGST</th>
-                                ` : `
-                                <th colspan="2" style="border: 1px solid #000;">CGST</th>
-                                <th colspan="2" style="border: 1px solid #000;">SGST</th>
-                                `) : ''}
-                                <th rowspan="2" align="right" style="border: 1px solid #000; width: 90px;">Total</th>
-                            </tr>
-                            <tr style="background: #f2f2f2;">
-                                ${showTaxBreakup ? (isInter ? `
-                                <th width="70" style="border: 1px solid #000;">Rate</th>
-                                <th width="100" style="border: 1px solid #000;">Amount</th>
-                                ` : `
-                                <th width="35" style="border: 1px solid #000;">Rate</th>
-                                <th width="50" style="border: 1px solid #000;">Amt</th>
-                                <th width="35" style="border: 1px solid #000;">Rate</th>
-                                <th width="50" style="border: 1px solid #000;">Amt</th>
-                                `) : ''}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${itemsHTML}
-                            <tr style="font-weight:800; background:#f9f9f9;">
-                                <td colspan="${showHsn ? 5 : 4}" class="text-right">Total</td>
-                                <td class="text-right">${subtotal.toFixed(2)}</td>
-                                ${showTaxBreakup ? (isInter
-                ? `<td colspan="4" class="text-right" style="border: 1px solid #000;">${tax.toFixed(2)}</td>`
-                : `<td colspan="2" class="text-right" style="border: 1px solid #000;">${(tax / 2).toFixed(2)}</td><td colspan="2" class="text-right" style="border: 1px solid #000;">${(tax / 2).toFixed(2)}</td>`)
-                : ''}
-                                <td class="text-right">${total.toFixed(2)}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    
-                    ${taxSummaryTable}
-
-                    <div class="summary-split">
-                        <div class="sum-left">
-                            <div style="font-weight:800; font-size:11px;">Amount in Words:</div>
-                            <div style="font-style:italic; font-size:12px; margin-top:5px; color: ${colors.primary};">${numberToWords(total)}</div>
-                        </div>
-                        <div class="sum-right">
-                            <div class="sum-row"><span>Total Amount before Tax:</span> <span>${subtotal.toFixed(2)}</span></div>
-                            ${showTaxBreakup ? (isInter ? `
-                            <div class="sum-row"><span>Add: IGST:</span> <span>${tax.toFixed(2)}</span></div>
-                            ` : `
-                            <div class="sum-row"><span>Add: CGST:</span> <span>${(tax / 2).toFixed(2)}</span></div>
-                            <div class="sum-row"><span>Add: SGST:</span> <span>${(tax / 2).toFixed(2)}</span></div>
-                            `) : ''}
-                            ${bill.totals?.additionalCharges > 0 ? `
-                            <div class="sum-row"><span>Add: Extra Charges:</span> <span>${Number(bill.totals.additionalCharges).toFixed(2)}</span></div>
-                            ` : ''}
-                            ${(bill.totals?.discount > 0) ? `
-                            <div class="sum-row" style="color: #ef4444;"><span>Add: Bill Discount:</span> <span>-${Number(bill.totals.discount).toFixed(2)}</span></div>
-                            ` : ''}
-                            ${(bill.totals?.loyaltyPointsDiscount > 0) ? `
-                            <div class="sum-row" style="color: #10b981;"><span>Add: Loyalty Discount:</span> <span>-${Number(bill.totals.loyaltyPointsDiscount).toFixed(2)}</span></div>
-                            ` : ''}
-                            <div class="sum-row"><span>Round Off:</span> <span>${(bill.totals?.roundOff || 0) > 0 ? '+' : ''}${(bill.totals?.roundOff || 0).toFixed(2)}</span></div>
-                            <div class="sum-row final-total"><span>Total Amount after Tax:</span> <span>${total.toFixed(2)}</span></div>
-                            <div style="font-size:9px; text-align:center; padding:2px;">GST on Reverse Charge: No</div>
-                        </div>
-                    </div>
-
-                    <div class="footer-gst">
-                        <div class="f-bank">
-                            ${bill.internalNotes ? `<b>REMARKS:</b> ${bill.internalNotes}<br/><br/>` : ''}
-                            <b>Terms & Conditions:</b><br/>
-                            1. Goods once sold will not be taken back.<br/>
-                            2. 24% interest will be charged if not paid within 15 days.<br/>
-                            3. Subject to local jurisdiction.
-                        </div>
-                        <div class="f-sig">
-                             ${showQrcode ? `<div style="text-align:center; margin-bottom:10px;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=UPI://pay?pa=store@upi&pn=${encodeURIComponent(storeName)}" width="60" /></div>` : ''}
-                            <div class="thanks-msg" style="font-size:14px; font-weight:800; text-align:center; margin-bottom:10px;">Visit Again!</div>
-                             ${showTerms ? `
-                            <div style="font-weight:800; margin:5px 0;">For ${storeName}</div>
-                            <div style="margin-top:40px; font-size:11px; font-weight:700; border-top: 1px solid #000; display: inline-block; padding-top: 4px;">Authorised Signatory</div>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-            </body>
-            </html>
-    `;
-    }
-
-    // Default return (Classic/Centered)
-    return `
-    <html>
-        <head><style>${styles}</style></head>
-        <body>
-            <div class="page">
-                <div class="header-blue">
-                    <div class="header-title">
-                        ${docTitle}<br/>
-                        <span style="font-size: 14px; opacity: 0.9;">No: ${bill.weekly_sequence || '1'}</span>
-                        ${(bill.status && bill.status !== 'Paid') ? `<div style="font-size: 12px; margin-top: 5px; background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 4px; display: inline-block;">${bill.status.toUpperCase()}</div>` : ''}
-                    </div>
-                    <div style="text-align: right">
-                        <div style="font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;">${storeName}</div>
-                        <div style="font-size: 13px; margin-top: 5px; color: rgba(255,255,255,0.9);">${storeAddress}</div>
-                        <div style="font-size: 11px; margin-top: 2px; opacity: 0.8;">Ref: #${bill.id}</div>
-                    </div>
-                </div>
-
-                <div class="addr-box">
-                    <div>
-                        <div class="bold" style="text-transform: uppercase; font-size: 10px; color: #64748b; margin-bottom: 5px;">Bill To:</div>
-                        <div style="font-size: 16px; font-weight: 800;">${customerName}</div>
-                        <div style="font-size: 13px; color: #475569; margin-top: 4px;">${customer.mobile || ''}</div>
-                    </div>
-
-                    <div style="width: 100%;">${taxSummaryTable}</div>
-
-                    <div class="footer-container">
-                        <div class="footer-left">
-                            <div class="footer-ttl">Terms & Instructions</div>
-                            <div class="footer-txt">
-                                1. Goods once sold will not be taken back.<br/>
-                                2. Thank you for your business!
-                            </div>
-                            ${bill.internalNotes ? `<div style="margin-top:15px; font-weight:700; font-size:12px; border: 1px dashed #cbd5e1; padding:8px; border-radius:4px;">REMARKS: ${bill.internalNotes}</div>` : ''}
-                            <div style="font-weight:900; font-size:18px; margin-top:20px; color:#000;">Thank you, Visit Again!</div>
-                        </div>
-                        <div class="footer-right">
-                            <div class="summ-row"><span>SUBTOTAL</span><span>${currency}${(bill.totals?.subtotal || 0).toFixed(2)}</span></div>
-                            
-                            ${(Number(bill.totals?.tax || 0) > 0) ? (bill.taxType === 'inter' ? `
-                                <div class="summ-row"><span>IGST</span><span>${currency}${Number(bill.totals.tax).toFixed(2)}</span></div>
-                            ` : `
-                                <div class="summ-row"><span>CGST</span><span>${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span></div>
-                                <div class="summ-row"><span>SGST</span><span>${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span></div>
-                            `) : ''}
-
-                            ${(bill.totals?.discount > 0) ? `
-                                <div class="summ-row" style="color: #ef4444;"><span>DISCOUNT</span><span>-${currency}${(bill.totals.discount).toFixed(2)}</span></div>
-                            ` : ''}
-                            ${(bill.totals?.loyaltyPointsDiscount > 0) ? `
-                                <div class="summ-row" style="color: #10b981;"><span>LOYALTY DISC</span><span>-${currency}${(bill.totals.loyaltyPointsDiscount).toFixed(2)}</span></div>
-                            ` : ''}
-                            <div class="summ-row"><span>ROUND OFF</span><span>${(bill.totals?.roundOff || 0) > 0 ? '+' : ''}${(bill.totals?.roundOff || 0).toFixed(2)}</span></div>
-
-                            <div class="summ-row"><span>RECEIVED BALANCE</span><span>${currency}${(bill.amountReceived || 0).toFixed(2)}</span></div>
-                            <div class="summ-row"><span>BALANCE DUE</span><span>${currency}${Math.max(0, (bill.totals?.total || 0) - (bill.amountReceived || 0)).toFixed(2)}</span></div>
-                            <div class="grand-total-box"><span>GRAND TOTAL</span><span>${currency}${(bill.totals?.total || 0).toFixed(2)}</span></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div style="padding: 0 40px;">
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-                        <thead>
-                            <tr style="background: #f8fafc;">
-                                <th style="padding: 12px; border-bottom: 2px solid ${colors.primary};">Description</th>
-                                <th class="text-center" style="padding: 12px; border-bottom: 2px solid ${colors.primary};">Qty</th>
-                                <th class="text-right" style="padding: 12px; border-bottom: 2px solid ${colors.primary};">Price</th>
-                                <th class="text-right" style="padding: 12px; border-bottom: 2px solid ${colors.primary};">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${itemsHTML}
-                        </tbody>
-                    </table>
-
-                    <div style="margin-top: 20px;">
-                        ${isGST ? '' : taxSummaryTable}
-                    </div>
-
-                    <div class="footer-container">
-                        <div class="footer-left">
-                            <div style="font-weight: 800; font-size: 12px; color: #000; margin-bottom: 8px;">Terms & Instructions</div>
-                            <div style="font-size: 11px; line-height: 1.6; color: #475569;">
-                                1. Goods once sold will not be taken back.<br/>
-                                2. Interest will be charged @ 18% if not paid on time.<br/>
-                                3. Thank you for your business!
-                            </div>
-                            ${bill.internalNotes ? `<div style="margin-top:15px; font-weight:700; font-size:12px; border: 1px dashed #cbd5e1; padding:10px; border-radius:6px; background:#f8fafc;">REMARKS: ${bill.internalNotes}</div>` : ''}
-                            <div style="font-weight: 900; font-size: 20px; margin-top: 20px; color: ${colors.primary};">Thank you, Visit Again!</div>
-                        </div>
-                        <div class="footer-right">
-                            <div class="summ-row"><span>SUBTOTAL</span><span>${currency} ${Number(bill.totals?.subtotal || 0).toFixed(2)}</span></div>
-                            
-                            ${(Number(bill.totals?.tax || 0) > 0) ? (bill.taxType === 'inter' ? `
-                                <div class="summ-row"><span>IGST</span><span>${currency} ${Number(bill.totals.tax).toFixed(2)}</span></div>
-                            ` : `
-                                <div class="summ-row"><span>CGST</span><span>${currency} ${Number(bill.totals.tax / 2).toFixed(2)}</span></div>
-                                <div class="summ-row"><span>SGST</span><span>${currency} ${Number(bill.totals.tax / 2).toFixed(2)}</span></div>
-                            `) : ''}
-
-                            ${(Number(bill.totals?.additionalCharges || 0) > 0) ? `
-                                <div class="summ-row" style="color: #000;"><span>EXTRA CHARGES</span><span>+${currency} ${Number(bill.totals.additionalCharges).toFixed(2)}</span></div>
-                            ` : ''}
-                            ${(Number(bill.totals?.discount || 0) > 0) ? `
-                                <div class="summ-row" style="color: #ef4444;"><span>DISCOUNT</span><span>-${currency} ${Number(bill.totals.discount).toFixed(2)}</span></div>
-                            ` : ''}
-                            ${(Number(bill.totals?.loyaltyPointsDiscount || 0) > 0) ? `
-                                <div class="summ-row" style="color: #10b981;"><span>LOYALTY DISCOUNT</span><span>-${currency} ${Number(bill.totals.loyaltyPointsDiscount).toFixed(2)}</span></div>
-                            ` : ''}
-
-                            <div class="summ-row"><span>ROUND OFF</span><span>${(bill.totals?.roundOff || 0) > 0 ? '+' : ''}${(bill.totals?.roundOff || 0).toFixed(2)}</span></div>
-                            <div class="summ-row"><span>RECEIVED TOTAL</span><span>${currency} ${Number(bill.amountReceived || 0).toFixed(2)}</span></div>
-                            <div class="summ-row"><span>BALANCE DUE</span><span>${currency} ${Math.max(0, Number(bill.totals?.total || 0) - Number(bill.amountReceived || 0)).toFixed(2)}</span></div>
-                            <div class="grand-total-box"><span>GRAND TOTAL</span><span>${currency} ${Number(bill.totals?.total || 0).toFixed(2)}</span></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="signature-container">
-                    <div class="sig-line"></div>
-                    <div style="font-size: 12px; font-weight: 800;">Authorized Signatory</div>
-                </div>
-            </div>
-        </body>
-        </html>
-    `;
+    return generateClassicHTML(bill, settings, colors);
 };
 
 /**
@@ -1215,7 +1063,21 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
         // Called as (bill, settings, mode)
         settings = arg2 || {};
         mode = arg3 || 'invoice';
-        format = settings?.invoice?.paperSize || '80mm';
+
+        // Choose format based on mode (Bill vs Invoice)
+        // customer/bw = Bill Receipt (Thermal)
+        // invoice = System Invoice (A4/A5)
+        if (mode === 'customer' || mode === 'bw') {
+            format = settings?.invoice?.billPaperSize || '80mm';
+        } else {
+            // Default to Invoice Size, unless template is explicitly 'Thermal' (legacy check)
+            const template = settings?.invoice?.template || 'Classic';
+            if (template === 'Thermal') {
+                format = settings?.invoice?.billPaperSize || '80mm';
+            } else {
+                format = settings?.invoice?.invoicePaperSize || 'A4';
+            }
+        }
     }
 
     // Ensure format is in settings for downstream calls
@@ -1227,14 +1089,26 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
         const paperSize = format; // settings.invoice.paperSize is now synced
 
         // Define width based on paper size
+        // Define width based on paper size
         let width = 302; // Default for 80mm
-        if (paperSize === '58mm') width = 219;
+        let height = undefined; // Default auto/page height
+
+        if (paperSize === '58mm') {
+            width = 219;
+            height = 8000; // Simulate long roll
+        }
         else if (paperSize === 'A4') width = 595;
         else if (paperSize === 'A5') width = 420;
+        else {
+            // 80mm case
+            width = 302;
+            height = 8000; // Simulate long roll
+        }
 
         await Print.printAsync({
             html,
             width,
+            height,
             orientation: Print.Orientation.portrait,
             printerUrl: settings?.invoice?.selectedPrinter?.url || settings?.invoice?.selectedPrinter?.id,
         });
