@@ -1,5 +1,6 @@
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 import { db } from './database';
 
 /**
@@ -11,7 +12,7 @@ let tokenRefreshPromise = null;
 /**
  * Helper: Fetch with Timeout to prevent hanging connections
  */
-export const fetchWithTimeout = async (url, options = {}, timeout = 10000) => {
+export const fetchWithTimeout = async (url, options = {}, timeout = 30000) => {
   const controller = new AbortController();
   const id = setTimeout(() => {
     console.warn(`[Drive] Fetch timeout reached for: ${url}`);
@@ -148,9 +149,13 @@ export const uploadFileToFolder = async (accessToken, folderId, fileName, conten
   const boundary = 'foo_bar_baz';
   const metadata = {
     name: fileName,
-    mimeType: 'application/json',
-    parents: [folderId] // Important: Set parent folder
+    mimeType: 'application/json'
   };
+
+  // Only include parents for NEW files (POST)
+  if (!existingFile) {
+    metadata.parents = [folderId];
+  }
 
   const body =
     `--${boundary}\r\n` +
@@ -177,7 +182,102 @@ export const uploadFileToFolder = async (accessToken, folderId, fileName, conten
     body: body,
   });
 
-  return uploadRes.json();
+  const responseText = await uploadRes.text();
+  let data = {};
+  try {
+    data = JSON.parse(responseText);
+  } catch (e) {
+    // Not JSON or empty
+  }
+
+  if (!uploadRes.ok) {
+    console.error(`[Sync] File Upload Failed (${fileName}): ${uploadRes.status}`, data);
+  }
+
+  return data;
+};
+
+/**
+ * Helper: Upload Image to Folder
+ */
+export const uploadImageToFolder = async (accessToken, folderId, fileName, localUri, mimeType = 'image/jpeg') => {
+  try {
+    // Read file as base64 or extract from data URL
+    let base64;
+    if (localUri.startsWith('data:image')) {
+      base64 = localUri.split(',')[1];
+    } else {
+      base64 = await FileSystem.readAsStringAsync(localUri, { encoding: 'base64' });
+    }
+
+    // Search for existing file
+    const searchRes = await fetchWithTimeout(
+      `https://www.googleapis.com/drive/v3/files?q=name='${fileName}' and '${folderId}' in parents and trashed=false`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const searchData = await searchRes.json();
+    const existingFile = searchData.files && searchData.files.length > 0 ? searchData.files[0] : null;
+
+    // Metadata
+    const metadata = {
+      name: fileName,
+      mimeType: mimeType
+    };
+
+    // Only include parents for NEW files (POST)
+    if (!existingFile) {
+      metadata.parents = [folderId];
+    }
+
+    const boundary = 'foo_bar_baz_image';
+    const body =
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: ${mimeType}\r\n` +
+      `Content-Transfer-Encoding: base64\r\n\r\n` +
+      `${base64}\r\n` +
+      `--${boundary}--`;
+
+    const url = existingFile
+      ? `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+
+    const method = existingFile ? 'PATCH' : 'POST';
+
+    const uploadRes = await fetchWithTimeout(url, {
+      method: method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body: body,
+    });
+
+    const responseText = await uploadRes.text();
+    let data = {};
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      console.error(`[Sync] Failed to parse Drive response as JSON: ${responseText}`);
+    }
+
+    if (!uploadRes.ok) {
+      console.error(`[Sync] Drive Upload Failed: ${uploadRes.status} ${uploadRes.statusText}`, data);
+      return null;
+    }
+
+    if (!data.id) {
+      console.warn(`[Sync] Drive Upload Success but no ID returned. Response:`, data);
+    } else {
+      console.log(`[Sync] Image ${fileName} ${existingFile ? 'updated' : 'uploaded'}. ID: ${data.id}`);
+    }
+    return data;
+  } catch (e) {
+    console.error(`[Sync] Failed to upload image ${fileName}:`, e);
+    return null;
+  }
 };
 
 /**
@@ -284,11 +384,12 @@ export const syncUserDataToDrive = async (user, allData) => {
 /**
  * Main: Restore Data from Drive (Snapshot Restore)
  */
-export const restoreUserDataFromDrive = async (user) => {
+export const restoreUserDataFromDrive = async (user, onProgress) => {
   console.log('[Restore] Starting restore for user:', user?.id);
   if (!user || !user.id) return;
 
   try {
+    if (onProgress) onProgress('Connecting to Cloud... (Est. time: 5s)', 0.35);
     const accessToken = await getAccessToken();
     if (!accessToken) {
       console.log('[Restore] No access token, skipping.');
@@ -311,28 +412,30 @@ export const restoreUserDataFromDrive = async (user) => {
     const folderId = searchData.files[0].id;
     console.log('[Restore] Found backup folder ID:', folderId);
 
-    // Helper to fetch and parse JSON file
-    const fetchFile = async (baseName) => {
-      try {
-        console.log(`[Restore] Searching for ${baseName}...`);
-        const fileQuery = `name='${baseName}' and '${folderId}' in parents and trashed=false`;
-        const fRes = await fetchWithTimeout(
-          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(fileQuery)}`,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        const fData = await fRes.json();
+    // 1. List ALL files in the folder once to avoid multiple search API calls
+    if (onProgress) onProgress('Connecting to backup engine...', 0.42);
+    const listQuery = `'${folderId}' in parents and trashed=false`;
+    const listRes = await fetchWithTimeout(
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQuery)}&fields=files(id,name)`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const listData = await listRes.json();
+    const filesMap = {};
+    if (listData.files) {
+      listData.files.forEach(f => { filesMap[f.name] = f.id; });
+    }
 
-        if (fData.files && fData.files.length > 0) {
-          console.log(`[Restore] Found ${baseName} (ID: ${fData.files[0].id}), downloading...`);
+    // Helper to download JSON file using the map
+    const fetchFileFromMap = async (baseName) => {
+      try {
+        const fileId = filesMap[baseName];
+        if (fileId) {
+          console.log(`[Restore] Downloading ${baseName} (ID: ${fileId})...`);
           const contentRes = await fetchWithTimeout(
-            `https://www.googleapis.com/drive/v3/files/${fData.files[0].id}?alt=media`,
+            `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
             { headers: { Authorization: `Bearer ${accessToken}` } }
           );
-          const json = await contentRes.json();
-          console.log(`[Restore] Successfully downloaded ${baseName}`);
-          return json;
-        } else {
-          console.log(`[Restore] File ${baseName} not found in folder.`);
+          return await contentRes.json();
         }
       } catch (e) {
         console.log(`[Restore] Error fetching ${baseName}:`, e);
@@ -340,43 +443,101 @@ export const restoreUserDataFromDrive = async (user) => {
       return null;
     };
 
-    // Parallel Fetch All Data
-    console.log('[Restore] Fetching all backup files in parallel...');
+    // Helper to download image using the map
+    const downloadImageFromMap = async (baseName) => {
+      try {
+        const fileId = filesMap[baseName];
+        if (fileId) {
+          let baseUrl = FileSystem.documentDirectory || '';
+          if (baseUrl && !baseUrl.endsWith('/')) baseUrl += '/';
+          const destinationUri = `${baseUrl}${baseName}`;
+
+          await FileSystem.downloadAsync(
+            `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+            destinationUri,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          return destinationUri;
+        }
+      } catch (e) {
+        console.warn(`[Restore] Failed to download image ${baseName}:`, e);
+      }
+      return null;
+    };
+
+    // Parallel Fetch All Data using the optimized map
+    if (onProgress) onProgress('Downloading store snapshots... (Est. time: 3s)', 0.45);
     const [settings, products, customers, expenses, invoices] = await Promise.all([
-      fetchFile('settings.json'),
-      fetchFile('products.json'),
-      fetchFile('customers.json'),
-      fetchFile('expenses.json'),
-      fetchFile('invoices.json')
+      fetchFileFromMap('settings.json'),
+      fetchFileFromMap('products.json'),
+      fetchFileFromMap('customers.json'),
+      fetchFileFromMap('expenses.json'),
+      fetchFileFromMap('invoices.json')
     ]);
+
+    // Restore Logo if available
+    let localLogoUri = null;
+    try {
+      localLogoUri = await downloadImageFromMap('store_logo.jpg');
+    } catch (e) {
+      console.warn("[Restore] Logo restore failed", e);
+    }
 
     // 1. Restore Settings
     if (settings && Array.isArray(settings) && settings.length > 0) {
+      if (onProgress) onProgress('Syncing store preferences...', 0.48);
       try {
         const localSaved = await AsyncStorage.getItem('app_settings');
         const localSettings = localSaved ? JSON.parse(localSaved) : {};
         const driveSettings = settings[0];
 
+        // LOGO PRIORITY: 
+        // 1. Freshly downloaded local URI (best performance)
+        // 2. Portable base64 from settings.json (backup)
+        // 3. Keep existing if nothing else found
+        let finalLogo = localLogoUri;
+        if (!finalLogo && driveSettings.store?.logo && driveSettings.store.logo.startsWith('data:image')) {
+          finalLogo = driveSettings.store.logo;
+          console.log('[Restore] Using base64 logo from settings.json as fallback.');
+        }
+
         // Deep merge drive settings with local
         const merged = {
           ...localSettings,
           ...driveSettings,
-          store: { ...localSettings.store, ...(driveSettings.store || {}) },
+          store: {
+            ...localSettings.store,
+            ...(driveSettings.store || {}),
+            // FORCE localLogoUri if we have it, otherwise fallback to base64 from JSON
+            logo: localLogoUri || (driveSettings.store?.logo && driveSettings.store.logo.startsWith('data:image') ? driveSettings.store.logo : null)
+          },
           tax: { ...localSettings.tax, ...(driveSettings.tax || {}) },
           invoice: { ...localSettings.invoice, ...(driveSettings.invoice || {}) },
           defaults: { ...localSettings.defaults, ...(driveSettings.defaults || {}) }
         };
 
+        // FINAL SANITY CHECK: If localLogoUri exists but merge somehow missed it, force it.
+        if (localLogoUri) {
+          merged.store.logo = localLogoUri;
+        }
+
         await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
-        console.log('[Restore] Settings merged and restored.');
+        console.log('[Restore] Settings merged and restored. Logo source:', localLogoUri ? 'Local File' : (merged.store.logo ? 'Base64' : 'None'));
       } catch (e) {
         console.warn('[Restore] Settings merge failed, forcing overwrite:', e);
-        await AsyncStorage.setItem('app_settings', JSON.stringify(settings[0]));
+        // If merge fails, still try to inject logo
+        const toSave = settings[0];
+        const finalLogo = localLogoUri || (toSave.store?.logo?.startsWith('data:image') ? toSave.store.logo : null);
+        if (toSave.store) {
+          toSave.store.logo = finalLogo;
+        }
+        await AsyncStorage.setItem('app_settings', JSON.stringify(toSave));
       }
     }
 
     // 2. Restore Products
     if (products && Array.isArray(products)) {
+      if (onProgress) onProgress(`Restoring ${products.length} products...`, 0.52);
       await db.withTransactionAsync(async () => {
         for (const p of products) {
           await db.runAsync(
@@ -391,6 +552,7 @@ export const restoreUserDataFromDrive = async (user) => {
 
     // 3. Restore Customers
     if (customers && Array.isArray(customers)) {
+      if (onProgress) onProgress(`Restoring ${customers.length} customers...`, 0.55);
       await db.withTransactionAsync(async () => {
         for (const c of customers) {
           await db.runAsync(
@@ -405,6 +567,7 @@ export const restoreUserDataFromDrive = async (user) => {
 
     // 4. Restore Expenses
     if (expenses && Array.isArray(expenses)) {
+      if (onProgress) onProgress(`Restoring ${expenses.length} expenses...`, 0.57);
       await db.withTransactionAsync(async () => {
         for (const e of expenses) {
           await db.runAsync(
@@ -419,6 +582,7 @@ export const restoreUserDataFromDrive = async (user) => {
 
     // 5. Restore Invoices
     if (invoices && Array.isArray(invoices)) {
+      if (onProgress) onProgress(`Restoring ${invoices.length} invoices...`, 0.59);
       await db.withTransactionAsync(async () => {
         for (const i of invoices) {
           await db.runAsync(
@@ -452,8 +616,60 @@ export const syncSettingsToDrive = async (user, settings) => {
     // 1. Ensure Folder Exists
     const folderId = await getOrCreateFolder(accessToken, folderName);
 
-    // 2. Prepare content (Wrap in array to match restore expectation)
-    const content = JSON.stringify([settings], null, 2);
+    // 2. Wrap settings in array for backwards compat
+    // CLONE settings to avoid mutating state passed in
+    const settingsToSave = JSON.parse(JSON.stringify(settings));
+
+    // CHECK FOR LOGO UPLOAD
+    if (settingsToSave.store && settingsToSave.store.logo) {
+      let logoUri = settingsToSave.store.logo;
+      let shouldUpload = false;
+      let mimeType = 'image/jpeg';
+
+      if (typeof logoUri === 'string') {
+        if (logoUri.startsWith('file://')) {
+          shouldUpload = true;
+          if (logoUri.endsWith('.png')) mimeType = 'image/png';
+        } else if (logoUri.startsWith('data:image')) {
+          // Handle base64
+          shouldUpload = true;
+          const match = logoUri.match(/^data:(image\/\w+);base64,/);
+          if (match) mimeType = match[1];
+        }
+      }
+
+      if (shouldUpload) {
+        console.log(`[Sync] Found new logo (${mimeType}), uploading to Drive...`);
+        const uploadResult = await uploadImageToFolder(accessToken, folderId, 'store_logo.jpg', logoUri, mimeType);
+        if (uploadResult && uploadResult.id) {
+          console.log('[Sync] Logo uploaded successfully.');
+        }
+
+        // PORTABILITY FIX: If the logo is a local file, convert to base64 for the settings.json backup
+        // This ensures that even if local file download fails on restore, the logo persists via JSON
+        if (logoUri.startsWith('file://')) {
+          try {
+            const base64 = await FileSystem.readAsStringAsync(logoUri, { encoding: 'base64' });
+            settingsToSave.store.logo = `data:${mimeType};base64,${base64}`;
+          } catch (e) {
+            console.warn('[Sync] Failed to convert local logo to base64 for backup:', e);
+          }
+        }
+      } else if (typeof logoUri === 'string' && logoUri.startsWith('file://')) {
+        // If it's a file path but we decided NOT to upload (maybe old logic?), 
+        // we still MUST NOT save a device-specific path to settings.json
+        // Let's at least null it out or try to preserve it if it was already in Drive as a file.
+        // For safety, we should really ensure it's portable.
+        try {
+          const base64 = await FileSystem.readAsStringAsync(logoUri, { encoding: 'base64' });
+          settingsToSave.store.logo = `data:image/jpeg;base64,${base64}`;
+        } catch (e) {
+          settingsToSave.store.logo = null;
+        }
+      }
+    }
+
+    const content = JSON.stringify([settingsToSave], null, 2);
 
     // 3. Upload
     await uploadFileToFolder(accessToken, folderId, 'settings.json', content);

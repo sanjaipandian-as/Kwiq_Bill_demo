@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, Image } from 'react-native';
 import { Card } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
@@ -493,14 +493,27 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
     const boldStyle = { ...textStyle, fontWeight: 'bold' };
     const dividerStyle = { borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginVertical: 8 };
 
+    const isInclusive = settings?.tax?.defaultType === 'Inclusive' || settings?.tax?.priceMode === 'Inclusive';
+
     // Calculate Tax Summary for Layout
     const taxSummary = {};
     items.forEach(item => {
         const rate = parseFloat(item.taxRate || 0);
         const price = parseFloat(item.price || item.sellingPrice || 0);
         const qty = parseFloat(item.quantity || 0);
-        const taxable = price * qty;
-        const taxVal = taxable * rate / 100;
+
+        let taxable = price * qty;
+        let taxVal = 0;
+
+        if (isInclusive) {
+            // Inclusive: Back-calculate taxable
+            const totalInc = price * qty;
+            taxable = totalInc / (1 + (rate / 100));
+            taxVal = totalInc - taxable;
+        } else {
+            // Exclusive: Taxable is price * qty
+            taxVal = taxable * rate / 100;
+        }
 
         if (!taxSummary[rate]) {
             taxSummary[rate] = { taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 };
@@ -518,7 +531,14 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
     return (
         <View style={{ backgroundColor: '#fff', borderRadius: 4, padding: 16, shadowColor: '#000', shadowOpacity: 0.1, elevation: 4 }}>
             {/* Header */}
-            <View style={{ alignItems: 'center', marginBottom: 8 }}>
+            <View style={{ alignItems: 'center', marginBottom: 12 }}>
+                {store.logo ? (
+                    <Image
+                        source={{ uri: store.logo }}
+                        style={{ width: 60, height: 60, marginBottom: 8, borderRadius: 8 }}
+                        resizeMode="contain"
+                    />
+                ) : null}
                 <Text style={{ ...boldStyle, fontSize: 14, textTransform: 'uppercase' }}>{store.name || 'Store Name'}</Text>
                 <Text style={{ ...textStyle, textAlign: 'center', marginTop: 4 }}>
                     {typeof store.address === 'object'

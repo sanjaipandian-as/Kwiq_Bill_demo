@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 
 import { triggerAutoSave } from '../services/autosaveService';
 import services, { API } from '../services/api';
@@ -208,6 +209,22 @@ export const SettingsProvider = ({ children, user }) => {
         return () => clearInterval(intervalId);
     }, []);
 
+    const ensurePortableSettings = async (s) => {
+        if (s.store?.logo && s.store.logo.startsWith('file://')) {
+            try {
+                const base64 = await FileSystem.readAsStringAsync(s.store.logo, { encoding: 'base64' });
+                const mime = s.store.logo.endsWith('.png') ? 'image/png' : 'image/jpeg';
+                return {
+                    ...s,
+                    store: { ...s.store, logo: `data:${mime};base64,${base64}` }
+                };
+            } catch (e) {
+                console.warn('[SettingsContext] Portability conversion failed:', e);
+            }
+        }
+        return s;
+    };
+
     const updateSettings = (section, updates) => {
         setSettings(prev => {
             const newSettings = {
@@ -219,64 +236,83 @@ export const SettingsProvider = ({ children, user }) => {
             };
             AsyncStorage.setItem('app_settings', JSON.stringify(newSettings));
 
-            const onboardingData = {
-                user: newSettings.user,
-                store: newSettings.store,
-                userEmail: user?.email || newSettings.user?.email,
-                onboardingCompletedAt: newSettings.onboardingCompletedAt
-            };
-            services.settings.updateSettings(onboardingData).then(() => {
-                AsyncStorage.setItem('settings_dirty', 'false');
-                setIsSettingsDirty(false);
-            }).catch(err => {
-                console.log('Background Sync to MongoDB failed (Keep Dirty):', err.message);
-                AsyncStorage.setItem('settings_dirty', 'true');
-                setIsSettingsDirty(true);
-            });
+            (async () => {
+                const portable = await ensurePortableSettings(newSettings);
+                const onboardingData = {
+                    user: portable.user,
+                    store: portable.store,
+                    userEmail: user?.email || portable.user?.email,
+                    onboardingCompletedAt: portable.onboardingCompletedAt
+                };
 
-            if (user && user.id) {
-                const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                syncSettingsToDrive(user, newSettings)
-                    .then(success => console.log('Background: Drive Sync (Settings Update)', success ? 'Success' : 'Failed'))
-                    .catch(err => console.error('Background: Drive Sync Error:', err));
-            }
+                try {
+                    await services.settings.updateSettings(onboardingData);
+                    AsyncStorage.setItem('settings_dirty', 'false');
+                    setIsSettingsDirty(false);
+                } catch (err) {
+                    console.log('Background Sync to MongoDB failed (Keep Dirty):', err.message);
+                    AsyncStorage.setItem('settings_dirty', 'true');
+                    setIsSettingsDirty(true);
+                }
+
+                if (user && user.id) {
+                    const { syncSettingsToDrive } = require('../services/googleDriveservices');
+                    syncSettingsToDrive(user, portable) // Use portable version here
+                        .then(success => console.log('Background: Drive Sync (Settings Update)', success ? 'Success' : 'Failed'))
+                        .catch(err => console.error('Background: Drive Sync Error:', err));
+                }
+            })();
 
             return newSettings;
         });
     };
 
+    const [isLogoUploading, setIsLogoUploading] = useState(false);
+
     const saveFullSettings = async (fullSettings) => {
+        setIsUploading(true);
         try {
             const updated = { ...fullSettings, lastUpdatedAt: new Date() };
+
+            // 1. Instant Local Update
             setSettings(updated);
             await AsyncStorage.setItem('app_settings', JSON.stringify(updated));
 
-            let driveSuccess = false;
-            if (user && user.id) {
+            // 2. Fire-and-forget Cloud Sync (Keep tracking status via isUploading)
+            (async () => {
                 try {
-                    const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                    driveSuccess = await syncSettingsToDrive(user, updated);
-                    if (driveSuccess) console.log('Background: Drive Sync Success');
-                    else console.warn('Background: Drive Sync Failed');
+                    if (user && user.id) {
+                        const { syncSettingsToDrive } = require('../services/googleDriveservices');
+                        const isNewLogo = updated.store?.logo && (
+                            updated.store.logo.startsWith('file://') ||
+                            updated.store.logo.startsWith('data:image')
+                        );
+                        if (isNewLogo) setIsLogoUploading(true);
+                        const portable = await ensurePortableSettings(updated);
+                        await syncSettingsToDrive(user, portable); // Use portable version here
+                        setIsLogoUploading(false);
+
+                        await services.settings.updateSettings(portable);
+                        console.log('[SettingsContext] Cloud sync completed.');
+                    }
                 } catch (err) {
-                    console.error('Background: Drive Sync Error:', err);
+                    console.warn('[SettingsContext] Background Cloud Sync Info:', err.message);
+                } finally {
+                    setIsUploading(false);
+                    setIsLogoUploading(false);
                 }
-            }
+            })();
 
-            try {
-                await services.settings.updateSettings(updated);
-                console.log('Background: Settings saved to MongoDB');
-            } catch (err) {
-                console.warn('Background: MongoDB Sync Warning:', err.message);
-            }
-
+            // 3. Trigger secondary hooks
             setTimeout(() => {
                 triggerAutoSave().catch(e => console.warn('AutoSave Warning:', e));
-            }, 100);
+            }, 50);
 
             return true;
         } catch (error) {
-            console.error('Failed to save full settings locally', error);
+            console.error('Failed to save settings locally', error);
+            setIsUploading(false);
+            setIsLogoUploading(false);
             throw error;
         }
     };
@@ -326,7 +362,7 @@ export const SettingsProvider = ({ children, user }) => {
             Alert.alert("Cloud Backup", "Please log in with Google to enable Cloud Backup.");
             return false;
         }
-        setLoading(true);
+        setIsUploading(true);
         try {
             const { fetchAllTableData } = require('../services/database');
             const { syncUserDataToDrive } = require('../services/googleDriveservices');
@@ -340,7 +376,7 @@ export const SettingsProvider = ({ children, user }) => {
             console.error('Cloud Backup Error:', error);
             return false;
         } finally {
-            setLoading(false);
+            setIsUploading(false);
         }
     };
 
@@ -358,6 +394,7 @@ export const SettingsProvider = ({ children, user }) => {
             loading,
             queueLength,
             isUploading,
+            isLogoUploading,
             checkQueueStatus
         }}>
             {children}

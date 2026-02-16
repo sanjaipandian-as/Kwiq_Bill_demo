@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, Animated, Dimensions, Pressable,
-    TouchableWithoutFeedback, Platform, StatusBar, ScrollView, TouchableOpacity
+    TouchableWithoutFeedback, Platform, StatusBar, ScrollView, TouchableOpacity, Image
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { ScanBarcode, Receipt, FileText, PieChart, X, Users, LogOut, ChevronRight, Package, Settings, Trash2 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 
 const { width, height } = Dimensions.get('window');
 const MENU_WIDTH = width * 0.82;
@@ -21,6 +22,8 @@ const MENU_ITEMS = [
 const SideMenu = ({ isOpen, onClose }) => {
     const navigation = useNavigation();
     const { logout, user } = useAuth();
+    const { settings } = useSettings();
+    const storeLogo = settings?.store?.logo;
     const slideAnim = useRef(new Animated.Value(-MENU_WIDTH)).current;
     const opacityAnim = useRef(new Animated.Value(0)).current;
 
@@ -52,7 +55,11 @@ const SideMenu = ({ isOpen, onClose }) => {
                 <View style={styles.drawerHeader}>
                     <View style={styles.userSection}>
                         <View style={styles.avatarLarge}>
-                            <Text style={styles.avatarText}>{user?.name?.charAt(0) || 'K'}</Text>
+                            {storeLogo ? (
+                                <Image source={{ uri: storeLogo }} style={styles.avatarImage} resizeMode="contain" />
+                            ) : (
+                                <Text style={styles.avatarText}>{settings?.store?.name?.charAt(0) || user?.name?.charAt(0) || 'K'}</Text>
+                            )}
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.userName} numberOfLines={1}>{user?.name || 'Administrator'}</Text>
@@ -139,19 +146,22 @@ const styles = StyleSheet.create({
         backgroundColor: '#ffffff',
         borderTopRightRadius: 30,
         borderBottomRightRadius: 30,
-        paddingTop: Platform.OS === 'ios' ? 60 : StatusBar.currentHeight + 20,
+        paddingTop: Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 24) + 20,
         shadowColor: '#000',
         shadowOffset: { width: 10, height: 0 },
         shadowOpacity: 0.1,
         shadowRadius: 30,
         elevation: 25,
+        display: 'flex',       // Ensure flex behavior
+        flexDirection: 'column' // Stack children vertically
     },
     drawerHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 24,
-        marginBottom: 35
+        marginBottom: 35,
+        flexShrink: 0 // Don't shrink header
     },
     userSection: {
         flexDirection: 'row',
@@ -165,8 +175,10 @@ const styles = StyleSheet.create({
         borderRadius: 18,
         backgroundColor: '#000',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        overflow: 'hidden'
     },
+    avatarImage: { width: '100%', height: '100%', backgroundColor: '#fff' },
     avatarText: { color: '#fff', fontSize: 22, fontWeight: '900' },
     userName: { fontSize: 18, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
     statusBadge: {
@@ -193,7 +205,10 @@ const styles = StyleSheet.create({
         borderColor: '#f1f5f9'
     },
 
-    menuList: { flex: 1, paddingHorizontal: 16 },
+    menuList: {
+        flex: 1,
+        paddingHorizontal: 16
+    },
     sectionLabel: {
         fontSize: 10,
         fontWeight: '900',
@@ -230,6 +245,10 @@ const styles = StyleSheet.create({
     drawerFooter: {
         padding: 24,
         paddingBottom: Platform.OS === 'ios' ? 40 : 30,
+        flexShrink: 0, // Don't shrink footer
+        borderTopWidth: 1,
+        borderTopColor: '#f8fafc',
+        backgroundColor: '#fff' // Ensure background
     },
     logoutBtn: {
         flexDirection: 'row',
@@ -240,14 +259,18 @@ const styles = StyleSheet.create({
         paddingHorizontal: 24,
         borderRadius: 24,
         borderWidth: 1.5,
-        borderColor: '#fef2f2',
-        marginBottom: 25
+        borderColor: '#fee2e2', // Darker border for visibility
+        marginBottom: 15,
+        shadowColor: '#fee2e2',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+        elevation: 4
     },
-    logoutBtnPressed: { backgroundColor: '#fef2f2' },
     logoutText: { fontSize: 15, fontWeight: '900', color: '#ef4444', letterSpacing: 0.8 },
     versionContainer: { alignItems: 'center', gap: 4 },
-    versionHeader: { fontSize: 10, color: '#f1f5f9', fontWeight: '900', letterSpacing: 1.5 },
-    versionSub: { fontSize: 8, color: '#f8fafc', fontWeight: '800' }
+    versionHeader: { fontSize: 10, color: '#94a3b8', fontWeight: '900', letterSpacing: 1.5 }, // Visible color
+    versionSub: { fontSize: 8, color: '#cbd5e1', fontWeight: '800' } // Visible color
 });
 
 export default SideMenu;

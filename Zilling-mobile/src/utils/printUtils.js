@@ -107,6 +107,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
         <head><style>${styles}</style></head>
         <body>
             <div class="text-center">
+                ${settings?.store?.logo ? `<img src="${settings.store.logo}" style="width: 50px; height: 50px; object-fit: contain; margin-bottom: 5px;" />` : ''}
                 <div class="store-name">${storeName}</div>
                 <div>${storeAddress}</div>
                 <div>Phone: ${storePhone}</div>
@@ -1091,7 +1092,7 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
         // Define width based on paper size
         // Define width based on paper size
         let width = 302; // Default for 80mm
-        let height = undefined; // Default auto/page height
+        let height = undefined; // Default auto/page height 
 
         if (paperSize === '58mm') {
             width = 219;

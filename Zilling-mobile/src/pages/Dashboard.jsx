@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Modal, Dimensions, TouchableOpacity
+  View, Text, StyleSheet, ScrollView, Pressable, Modal, Dimensions, TouchableOpacity, Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import { useExpenses } from '../context/ExpenseContext';
 import { useCustomers } from '../context/CustomerContext';
 import ScanBarcodeModal from '../components/ScanBarcodeModal';
+import { useSettings } from '../context/SettingsContext';
 
 const { width } = Dimensions.get('window');
 
@@ -25,7 +26,7 @@ const getStartOfWeek = (date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const diff = d.getDate() - day; // Start week on Sunday
   d.setDate(diff);
   return d;
 };
@@ -69,6 +70,8 @@ export default function Dashboard() {
   const { expenses } = useExpenses();
   const { customers } = useCustomers();
   const { user } = useAuth();
+  const { settings } = useSettings();
+  const storeLogo = settings?.store?.logo;
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -240,8 +243,12 @@ export default function Dashboard() {
           <SafeAreaView edges={['top']}>
             <View style={styles.topBar}>
               <View style={styles.userRow}>
-                <Pressable onPress={() => setIsMenuOpen(true)} style={styles.hamburger}>
-                  <Menu size={24} color="#fff" />
+                <Pressable onPress={() => setIsMenuOpen(true)} style={[styles.hamburger, storeLogo && styles.logoHamburger]}>
+                  {storeLogo ? (
+                    <Image source={{ uri: storeLogo }} style={styles.topLogo} resizeMode="contain" />
+                  ) : (
+                    <Menu size={24} color="#fff" />
+                  )}
                 </Pressable>
                 <View>
                   <Text style={styles.greeting}>Hello,</Text>
@@ -564,6 +571,8 @@ const styles = StyleSheet.create({
   greeting: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '600' },
   userName: { fontSize: 20, fontWeight: '800', color: '#fff' },
   hamburger: { backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 12 },
+  logoHamburger: { padding: 0, backgroundColor: 'transparent', overflow: 'hidden' },
+  topLogo: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#fff' },
   scanBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
 
   // Date Filter Section - Full Width

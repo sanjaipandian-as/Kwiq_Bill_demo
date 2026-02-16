@@ -52,13 +52,13 @@ const getStartOfWeek = (date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+  const diff = d.getDate() - day; // Start week on Sunday
   d.setDate(diff);
   return d;
 };
 
 // Custom Sparkline Component
-const Sparkline = ({ data, height = 180 }) => {
+const Sparkline = ({ data, height = 180, color = '#525252' }) => {
   const chartWidth = width - 64; // Account for padding
   if (!data || data.length === 0) {
     return (
@@ -85,8 +85,8 @@ const Sparkline = ({ data, height = 180 }) => {
       <Svg width={chartWidth} height={height}>
         <Defs>
           <SvgLinearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <Stop offset="0%" stopColor="#10b981" stopOpacity="0.2" />
-            <Stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+            <Stop offset="0%" stopColor={color} stopOpacity="0.1" />
+            <Stop offset="100%" stopColor={color} stopOpacity="0" />
           </SvgLinearGradient>
         </Defs>
         {/* Fill Area */}
@@ -100,8 +100,8 @@ const Sparkline = ({ data, height = 180 }) => {
         <Path
           d={pathData}
           fill="none"
-          stroke="#10b981"
-          strokeWidth="3"
+          stroke={color}
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -153,6 +153,73 @@ const DonutChart = ({ percentage, color, radius = 45, strokeWidth = 10, label, s
   );
 };
 
+// Skeleton Loader Component
+const ReportsSkeleton = () => (
+  <View style={styles.mainContainer}>
+    {/* Header Skeleton */}
+    <View style={styles.headerWrapper}>
+      <LinearGradient
+        colors={['#1e293b', '#0f172a']}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        style={[styles.headerGradient, { opacity: 0.9 }]}
+      >
+        <SafeAreaView edges={['top']}>
+          <View style={styles.topBar}>
+            <View style={styles.headerLeft}>
+              <View style={[styles.backBtn, { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: 'transparent' }]} />
+              <View style={{ marginLeft: 16 }}>
+                <View style={{ width: 120, height: 24, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 6, marginBottom: 6 }} />
+                <View style={{ width: 80, height: 16, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 4 }} />
+              </View>
+            </View>
+            <View style={[styles.exportBtn, { backgroundColor: 'rgba(255,255,255,0.1)' }]} />
+          </View>
+          <View style={[styles.dateFilterSection, { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'transparent', height: 50 }]} />
+        </SafeAreaView>
+      </LinearGradient>
+    </View>
+
+    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      {/* KPI Skeleton */}
+      <View style={styles.kpiGrid}>
+        {[1, 2, 3, 4].map((i) => (
+          <View key={i} style={[styles.kpiCard, { borderColor: '#f8fafc' }]}>
+            <View style={styles.kpiHeader}>
+              <View style={[styles.iconCircle, { backgroundColor: '#f1f5f9' }]} />
+              <View style={{ width: 60, height: 12, backgroundColor: '#f1f5f9', borderRadius: 4 }} />
+            </View>
+            <View style={{ width: '80%', height: 24, backgroundColor: '#e2e8f0', borderRadius: 6 }} />
+          </View>
+        ))}
+      </View>
+
+      {/* Chart Skeleton */}
+      <View style={[styles.sectionContainer, { height: 240, justifyContent: 'center', alignItems: 'center' }]}>
+        <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
+          <View style={{ width: 100, height: 20, backgroundColor: '#f1f5f9', borderRadius: 4 }} />
+          <View style={{ width: 60, height: 20, backgroundColor: '#f1f5f9', borderRadius: 4 }} />
+        </View>
+        <View style={{ width: '100%', height: 150, backgroundColor: '#f8fafc', borderRadius: 12 }} />
+      </View>
+
+      {/* List Skeleton */}
+      <View style={styles.sectionContainer}>
+        <View style={{ width: 120, height: 20, backgroundColor: '#f1f5f9', borderRadius: 4, marginBottom: 20 }} />
+        {[1, 2, 3].map(i => (
+          <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f8fafc' }}>
+            <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#f1f5f9', marginRight: 14 }} />
+            <View style={{ flex: 1 }}>
+              <View style={{ width: '50%', height: 16, backgroundColor: '#f1f5f9', borderRadius: 4, marginBottom: 6 }} />
+              <View style={{ width: '30%', height: 12, backgroundColor: '#f1f5f9', borderRadius: 4 }} />
+            </View>
+            <View style={{ width: 60, height: 16, backgroundColor: '#f1f5f9', borderRadius: 4 }} />
+          </View>
+        ))}
+      </View>
+    </ScrollView>
+  </View>
+);
+
 export default function ReportsPage() {
   const navigation = useNavigation();
   const { transactions } = useTransactions();
@@ -166,7 +233,7 @@ export default function ReportsPage() {
 
   // Simulate initial load
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 500);
+    const timer = setTimeout(() => setLoading(false), 800);
     return () => clearTimeout(timer);
   }, []);
 
@@ -427,11 +494,7 @@ export default function ReportsPage() {
   };
 
   if (loading || !analyticsData) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-      </View>
-    );
+    return <ReportsSkeleton />;
   }
 
   const { totalSales, orderCount, averageOrderValue, totalExpenses, netProfit, activeCustomers, inventoryValue, trendData, topProducts, paymentMethods, labels } = analyticsData;
@@ -485,8 +548,8 @@ export default function ReportsPage() {
           {/* Total Sales */}
           <View style={styles.kpiCard}>
             <View style={styles.kpiHeader}>
-              <View style={[styles.iconCircle, { backgroundColor: '#f1f5f9' }]}>
-                <TrendingUp size={18} color="#0f172a" />
+              <View style={[styles.iconCircle, { backgroundColor: '#000' }]}>
+                <TrendingUp size={18} color="#fff" />
               </View>
               <Text style={styles.kpiLabel}>TOTAL REVENUE</Text>
             </View>
@@ -496,12 +559,12 @@ export default function ReportsPage() {
           {/* Net Profit */}
           <View style={styles.kpiCard}>
             <View style={styles.kpiHeader}>
-              <View style={[styles.iconCircle, { backgroundColor: netProfit >= 0 ? '#dcfce7' : '#fee2e2' }]}>
-                <Wallet size={18} color={netProfit >= 0 ? '#16a34a' : '#ef4444'} />
+              <View style={[styles.iconCircle, { backgroundColor: '#fff', borderWidth: 1, borderColor: '#000' }]}>
+                <Wallet size={18} color="#000" />
               </View>
               <Text style={styles.kpiLabel}>NET PROFIT</Text>
             </View>
-            <Text style={[styles.kpiValue, { color: netProfit >= 0 ? '#16a34a' : '#ef4444' }]}>
+            <Text style={styles.kpiValue}>
               {netProfit >= 0 ? '+' : '-'}₹{Math.abs(netProfit).toLocaleString()}
             </Text>
           </View>
@@ -509,8 +572,8 @@ export default function ReportsPage() {
           {/* Orders */}
           <View style={styles.kpiCard}>
             <View style={styles.kpiHeader}>
-              <View style={[styles.iconCircle, { backgroundColor: '#f1f5f9' }]}>
-                <ShoppingBag size={18} color="#0f172a" />
+              <View style={[styles.iconCircle, { backgroundColor: '#f4f4f5' }]}>
+                <ShoppingBag size={18} color="#000" />
               </View>
               <Text style={styles.kpiLabel}>ORDERS</Text>
             </View>
@@ -520,48 +583,52 @@ export default function ReportsPage() {
           {/* Expenses */}
           <View style={styles.kpiCard}>
             <View style={styles.kpiHeader}>
-              <View style={[styles.iconCircle, { backgroundColor: '#fee2e2' }]}>
-                <CreditCard size={18} color="#ef4444" />
+              <View style={[styles.iconCircle, { backgroundColor: '#000' }]}>
+                <CreditCard size={18} color="#fff" />
               </View>
               <Text style={styles.kpiLabel}>EXPENSES</Text>
             </View>
-            <Text style={[styles.kpiValue, { color: '#ef4444' }]}>₹{totalExpenses.toLocaleString()}</Text>
+            <Text style={styles.kpiValue}>₹{totalExpenses.toLocaleString()}</Text>
           </View>
         </View>
 
 
         {/* Budget Overview (Donut Charts) */}
         <View style={styles.sectionContainer}>
-          <View style={styles.sectionHeader}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <Text style={styles.sectionTitle}>Budget Overview</Text>
-            {/* Contextual Pill */}
-            <View style={{ backgroundColor: netProfit > 0 ? '#dcfce7' : '#fee2e2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: netProfit > 0 ? '#16a34a' : '#ef4444' }}>
-                {netProfit > 0 ? 'HEALTHY' : 'ATTENTION'}
+            {/* Status Indicator - Humanized */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: netProfit > 0 ? '#dcfce7' : '#fee2e2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 4, backgroundColor: netProfit > 0 ? '#16a34a' : '#ef4444', marginRight: 6 }} />
+              <Text style={{ fontSize: 12, fontWeight: '700', color: netProfit > 0 ? '#16a34a' : '#ef4444' }}>
+                {netProfit > 0 ? 'Healthy' : 'Critical'}
               </Text>
             </View>
           </View>
 
-          <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 20, lineHeight: 20 }}>
+          {/* Natural Language Insight */}
+          <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 24, lineHeight: 20 }}>
             {netProfit > 0
-              ? 'Your business is profitable. Keep monitoring expenses to maximize margins.'
-              : 'Expenses are exceeding revenue. Review your spending.'}
+              ? 'Excellent work! Your business is generating healthy profits compared to your operational costs.'
+              : 'Attention needed. Your current expenses are high relative to revenue, impacting your bottom line.'}
           </Text>
 
-          <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingVertical: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 40, alignItems: 'center', paddingBottom: 10 }}>
             <DonutChart
               percentage={totalSales > 0 ? Math.round((totalExpenses / totalSales) * 100) : 0}
               color="#ef4444"
-              label="Expense Ratio"
-              subLabel="of Revenue"
+              label="Expenses"
+              subLabel="ratio"
               radius={55}
+              strokeWidth={8}
             />
             <DonutChart
               percentage={totalSales > 0 ? Math.round((netProfit / totalSales) * 100) : 0}
               color="#10b981"
-              label="Profit Margin"
-              subLabel="of Revenue"
+              label="Profit"
+              subLabel="margin"
               radius={55}
+              strokeWidth={8}
             />
           </View>
         </View>
@@ -573,7 +640,7 @@ export default function ReportsPage() {
             <Text style={styles.sectionSub}>{dateFilter}</Text>
           </View>
           <View style={styles.chartContainer}>
-            <Sparkline data={trendData} height={160} />
+            <Sparkline data={trendData} height={160} color="#3b82f6" />
             <View style={styles.chartLabels}>
               {labels.map((l, i) => (
                 <Text key={i} style={styles.chartLabelText}>{l}</Text>
@@ -594,20 +661,20 @@ export default function ReportsPage() {
               ) : topProducts.map((item, idx) => (
                 <View key={idx} style={styles.listItem}>
                   {/* Rank Badge */}
-                  <View style={[styles.rankBadge, { backgroundColor: idx === 0 ? '#fefce8' : '#f8fafc' }]}>
-                    {idx === 0 ? <Trophy size={16} color="#ca8a04" /> : <Text style={styles.rankText}>{idx + 1}</Text>}
+                  <View style={[styles.rankBadge, { backgroundColor: idx === 0 ? '#000' : '#f4f4f5' }]}>
+                    {idx === 0 ? <Trophy size={14} color="#fff" /> : <Text style={[styles.rankText, { color: '#000' }]}>{idx + 1}</Text>}
                   </View>
 
                   <View style={{ flex: 1 }}>
                     <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                      <Package size={12} color="#94a3b8" />
+                      <Package size={12} color="#737373" />
                       <Text style={styles.itemSub}> {item.sales} sold</Text>
                     </View>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={styles.itemValue}>₹{item.total.toLocaleString()}</Text>
-                    <Text style={{ fontSize: 10, color: '#16a34a', fontWeight: '600' }}>{item.margin}% margin</Text>
+                    <Text style={{ fontSize: 10, color: '#525252', fontWeight: '600' }}>{item.margin}% margin</Text>
                   </View>
                 </View>
               ))}
@@ -630,7 +697,7 @@ export default function ReportsPage() {
                     key={idx}
                     style={[
                       styles.distSegment,
-                      { flex: method.percentage || 1, backgroundColor: method.color }
+                      { flex: method.percentage || 1, backgroundColor: method.color } // Use existing colors (already simplified to grayscale in logic if needed, or update logic next)
                     ]}
                   />
                 ))}

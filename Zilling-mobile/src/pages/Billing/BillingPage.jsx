@@ -244,8 +244,17 @@ export default function BillingPage({ navigation, route }) {
       }
     });
 
-    // 4. Calculate Bill Discount (post-tax typically, or pre-tax depending on user, but we'll follow previous pattern of post-tax for billDiscount)
-    const totalBeforeBillDiscount = taxableAfterLoyalty + aggTax + additionalCharges;
+    // 4. Calculate Bill Discount
+    let totalBeforeBillDiscount;
+    if (isInclusive) {
+      // If inclusive, the tax is already in taxableAfterLoyalty (which is derived from price * qty)
+      // So we don't add aggTax again.
+      totalBeforeBillDiscount = taxableAfterLoyalty + additionalCharges;
+    } else {
+      // If exclusive, add tax to the subtotal
+      totalBeforeBillDiscount = taxableAfterLoyalty + aggTax + additionalCharges;
+    }
+
     const total = Math.max(0, totalBeforeBillDiscount - billDiscount);
 
     // 5. Calculate New Points Earned on ORIGINAL Subtotal (₹1 per ₹10 spent)
@@ -255,11 +264,16 @@ export default function BillingPage({ navigation, route }) {
     const roundedTotal = Math.round(total);
     const roundOff = roundedTotal - total;
 
+    // Determine the "Taxable Subtotal" to return
+    // For Exclusive: It is just taxableAfterLoyalty
+    // For Inclusive: It is taxableAfterLoyalty - aggTax (Reverse calculated)
+    const displaySubtotal = isInclusive ? (taxableAfterLoyalty - aggTax) : taxableAfterLoyalty;
+
     return {
       grossTotal: aggGross,
       itemDiscount: aggItemDisc,
-      subtotal: taxableAfterLoyalty, // Taxable value after loyalty but before tax
-      originalSubtotal: aggSubtotal,
+      subtotal: displaySubtotal, // This is the Taxable Value
+      originalSubtotal: aggSubtotal, // This is the sum of (Price * Qty)
       tax: aggTax,
       cgst: taxType === 'intra' ? aggTax / 2 : 0,
       sgst: taxType === 'intra' ? aggTax / 2 : 0,
@@ -286,7 +300,7 @@ export default function BillingPage({ navigation, route }) {
     if (JSON.stringify(newTotals) !== JSON.stringify(currentBill.totals)) {
       updateCurrentBill({ totals: newTotals });
     }
-  }, [currentBill.cart, currentBill.billDiscount, currentBill.additionalCharges, currentBill.loyaltyPointsDiscount, currentBill.taxType]);
+  }, [currentBill.cart, currentBill.billDiscount, currentBill.additionalCharges, currentBill.loyaltyPointsDiscount, currentBill.taxType, settings?.tax?.priceMode, settings?.tax?.defaultType]);
 
   // --- Handle "Edit Invoice" Navigation Params ---
   useEffect(() => {
@@ -661,18 +675,31 @@ export default function BillingPage({ navigation, route }) {
         date: new Date(),
         items: currentBill.cart
           .filter(item => item.id && item.quantity > 0)
-          .map(item => ({
-            productId: item._dbId || item.id, // Use original DB ID for stock updates
-            variantId: item.id !== (item._dbId || item.id) ? item.id : null,
-            variantName: item.variantName || null,
-            name: item.name,
-            quantity: parseFloat(item.quantity) || 0,
-            price: parseFloat(item.price || item.sellingPrice) || 0,
-            total: parseFloat(item.total) || 0,
-            taxRate: item.taxRate || 0,
-            hsn: item.hsn || '',
-            unit: item.unit || ''
-          })),
+          .map(item => {
+            const isInclusive = settings?.tax?.defaultType === 'Inclusive' || settings?.tax?.priceMode === 'Inclusive';
+            const price = parseFloat(item.price || item.sellingPrice) || 0;
+            const qty = parseFloat(item.quantity) || 0;
+            const taxRate = parseFloat(item.taxRate) || 0;
+            // Calculate Taxable Value per item
+            let taxableValue = price * qty;
+            if (isInclusive) {
+              taxableValue = (price * qty) / (1 + (taxRate / 100));
+            }
+
+            return {
+              productId: item._dbId || item.id, // Use original DB ID for stock updates
+              variantId: item.id !== (item._dbId || item.id) ? item.id : null,
+              variantName: item.variantName || null,
+              name: item.name,
+              quantity: qty,
+              price: price,
+              taxableValue: taxableValue, // Explicitly send taxable value
+              total: parseFloat(item.total) || 0,
+              taxRate: taxRate,
+              hsn: item.hsn || '',
+              unit: item.unit || ''
+            };
+          }),
         grossTotal: parseFloat(currentBill.totals.grossTotal) || 0,
         itemDiscount: parseFloat(currentBill.totals.itemDiscount) || 0,
         subtotal: parseFloat(currentBill.totals.subtotal) || 0,
@@ -730,18 +757,31 @@ export default function BillingPage({ navigation, route }) {
         date: new Date(),
         items: currentBill.cart
           .filter(item => item.id && item.quantity > 0)
-          .map(item => ({
-            productId: item._dbId || item.id,
-            variantId: item.id !== (item._dbId || item.id) ? item.id : null,
-            variantName: item.variantName || null,
-            name: item.name,
-            quantity: parseFloat(item.quantity) || 0,
-            price: parseFloat(item.price || item.sellingPrice) || 0,
-            total: parseFloat(item.total) || 0,
-            taxRate: item.taxRate || 0,
-            hsn: item.hsn || '',
-            unit: item.unit || ''
-          })),
+          .map(item => {
+            const isInclusive = settings?.tax?.defaultType === 'Inclusive' || settings?.tax?.priceMode === 'Inclusive';
+            const price = parseFloat(item.price || item.sellingPrice) || 0;
+            const qty = parseFloat(item.quantity) || 0;
+            const taxRate = parseFloat(item.taxRate) || 0;
+            // Calculate Taxable Value per item
+            let taxableValue = price * qty;
+            if (isInclusive) {
+              taxableValue = (price * qty) / (1 + (taxRate / 100));
+            }
+
+            return {
+              productId: item._dbId || item.id,
+              variantId: item.id !== (item._dbId || item.id) ? item.id : null,
+              variantName: item.variantName || null,
+              name: item.name,
+              quantity: qty,
+              price: price,
+              taxableValue: taxableValue, // Explicitly send taxable value
+              total: parseFloat(item.total) || 0,
+              taxRate: taxRate,
+              hsn: item.hsn || '',
+              unit: item.unit || ''
+            };
+          }),
         grossTotal: parseFloat(currentBill.totals.grossTotal) || 0,
         itemDiscount: parseFloat(currentBill.totals.itemDiscount) || 0,
         subtotal: parseFloat(currentBill.totals.subtotal) || 0,

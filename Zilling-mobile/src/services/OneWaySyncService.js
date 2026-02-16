@@ -121,14 +121,25 @@ export const SyncService = {
             if (!folderId) return { success: false, processedCount: 0, failures: 1, error: "No Folder ID" };
 
             // 1. List all files in events folder
-            updateStatus('Fetching file list from Drive...');
+            updateStatus('Fetching cloud updates...');
+
+            // OPTIMIZATION: Use Incremental Sync by filtering by createdTime
+            const lastSyncTime = await AsyncStorage.getItem(LAST_SYNCED_KEY);
+            let timeFilter = "";
+            if (lastSyncTime) {
+                // Formatting for Google Drive RFC 3339
+                const date = new Date(lastSyncTime);
+                timeFilter = ` and createdTime > '${date.toISOString()}'`;
+                console.log(`[Sync] Performing incremental sync since: ${date.toISOString()}`);
+            }
 
             let allFiles = [];
             let nextPageToken = null;
             // Fetch all pages of files
             do {
-                const query = `'${folderId}' in parents and trashed=false`;
-                const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name&pageSize=1000${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+                const query = `'${folderId}' in parents and trashed=false${timeFilter}`;
+                // OPTIMIZATION: only fetch necessary fields
+                const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name&pageSize=1000&fields=nextPageToken,files(id,name)${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
 
                 try {
                     const res = await fetchWithTimeout(url, {
@@ -177,13 +188,29 @@ export const SyncService = {
             updateStatus(`${filesToProcess.length} new events found.`);
 
             // Optimization: Fetch event contents in parallel batches
-            const BATCH_SIZE = 5; // Reduced from 10 to help reliability
+            const BATCH_SIZE = 150;
             let processedCount = 0;
             let failures = 0;
 
+            const startTime = Date.now();
+
             for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
                 const batch = filesToProcess.slice(i, i + BATCH_SIZE);
-                updateStatus(`Processing Batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(filesToProcess.length / BATCH_SIZE)}...`);
+
+                // Estimate time remaining
+                if (i > 0) {
+                    const elapsed = Date.now() - startTime;
+                    const msPerEvent = elapsed / i;
+                    const remaining = filesToProcess.length - i;
+                    const estMs = remaining * msPerEvent;
+                    const estMin = Math.ceil(estMs / (60 * 1000));
+                    const estSec = Math.ceil((estMs % (60 * 1000)) / 1000);
+
+                    let timeStr = estMin > 0 ? `${estMin}m ${estSec}s` : `${estSec}s`;
+                    updateStatus(`Syncing... (Est. time: ${timeStr})`);
+                } else {
+                    updateStatus(`Starting data download...`);
+                }
 
                 const envelopes = await Promise.all(batch.map(async (file) => {
                     let attempts = 0;

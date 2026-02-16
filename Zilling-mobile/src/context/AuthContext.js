@@ -68,9 +68,8 @@ export const AuthProvider = ({ children }) => {
       await AsyncStorage.setItem('user', JSON.stringify(userData));
 
       // 4. RESTORE: Fetch Snapshot & Settings from Drive (Before setting user state)
-      if (onProgress) onProgress('Restoring your backup...', 0.4);
       try {
-        await restoreUserDataFromDrive(userData);
+        await restoreUserDataFromDrive(userData, onProgress);
       } catch (restoreErr) {
         console.log('Restore failed:', restoreErr);
       }

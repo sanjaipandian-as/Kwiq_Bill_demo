@@ -57,7 +57,7 @@ import services from '../../services/api';
 const SettingsPage = ({ navigation }) => {
   // Trigger clear cache
   const { logout } = useAuth();
-  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, lastEventSyncTime, syncStatus, loading, queueLength, isUploading } = useSettings();
+  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, lastEventSyncTime, syncStatus, loading, queueLength, isUploading, isLogoUploading } = useSettings();
   const { fetchCustomers } = useCustomers();
   const { fetchProducts } = useProducts();
   const { fetchTransactions } = useTransactions();
@@ -67,6 +67,8 @@ const SettingsPage = ({ navigation }) => {
   const [taxGroups, setTaxGroups] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
   const [localSettings, setLocalSettings] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showSuccessIcon, setShowSuccessIcon] = useState(false);
 
   useEffect(() => {
     if (settings && !isEditing) {
@@ -125,14 +127,26 @@ const SettingsPage = ({ navigation }) => {
       },
       lastUpdatedAt: new Date()
     };
+    setIsSaving(true);
     try {
+      // saveFullSettings handles: Local DB, MongoDB, and Settings Drive Sync
       await saveFullSettings(payload);
+
       setUnsavedChanges(false);
       setIsEditing(false);
-      Alert.alert('Success', 'Settings saved successfully');
+
+      // Success animation
+      setShowSuccessIcon(true);
+      setTimeout(() => setShowSuccessIcon(false), 2000);
+
+      showToast("Settings updated successfully", "success");
+      // Optional: Background full sync if really needed, but not on every small save
+      // syncToCloud(); 
     } catch (error) {
       console.error("Failed to save settings", error);
-      Alert.alert('Error', 'Failed to save settings. Local state updated.');
+      Alert.alert('Error', 'Failed to save settings. Check your connection.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -188,6 +202,7 @@ const SettingsPage = ({ navigation }) => {
     });
   };
 
+
   const pickImage = async () => {
     if (!isEditing) setIsEditing(true);
 
@@ -202,15 +217,16 @@ const SettingsPage = ({ navigation }) => {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.5,
+      quality: 0.7, // Increased quality for a clearer logo
       base64: true,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const asset = result.assets[0];
-      // Create data URI
-      const base64Img = `data:${asset.mimeType};base64,${asset.base64}`;
-      handleChange('store', 'logo', base64Img);
+      // Detect mime type or fallback to jpeg
+      const mimeType = asset.mimeType || 'image/jpeg';
+      const dataUri = `data:${mimeType};base64,${asset.base64}`;
+      handleChange('store', 'logo', dataUri);
     }
   };
 
@@ -272,9 +288,10 @@ const SettingsPage = ({ navigation }) => {
 
   if (loading || !settings || !localSettings) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.container, styles.center]}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
         <ActivityIndicator size="large" color="#000" />
-        <Text style={{ marginTop: 12, fontWeight: '600' }}>Loading Settings...</Text>
+        <Text style={{ marginTop: 16, fontSize: 16, fontWeight: '700', color: '#000' }}>Loading Settings...</Text>
       </View>
     );
   }
@@ -294,9 +311,10 @@ const SettingsPage = ({ navigation }) => {
       case 'store':
         return (
           <View style={styles.tabContent}>
+            {/* Basic Details Card - Black & White */}
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#10b981' }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <Building size={20} color="#fff" />
                 </View>
                 <Text style={styles.cardTitle}>Basic Details</Text>
@@ -310,6 +328,7 @@ const SettingsPage = ({ navigation }) => {
                         value={localSettings.store.name}
                         onChangeText={(v) => handleChange('store', 'name', v)}
                         placeholder="e.g. Kwiq Billing Store"
+                        style={{ fontWeight: '600' }}
                       />
                     </View>
                     <View style={styles.inputGroup}>
@@ -321,7 +340,7 @@ const SettingsPage = ({ navigation }) => {
                       />
                     </View>
                     <View style={styles.inputRow}>
-                      <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
                         <Text style={styles.label}>Contact Number</Text>
                         <Input
                           value={localSettings.store.contact}
@@ -329,14 +348,14 @@ const SettingsPage = ({ navigation }) => {
                           keyboardType="phone-pad"
                         />
                       </View>
-                    </View>
-                    <View style={styles.inputGroup}>
-                      <Text style={styles.label}>Email Address</Text>
-                      <Input
-                        value={localSettings.store.email}
-                        onChangeText={(v) => handleChange('store', 'email', v)}
-                        keyboardType="email-address"
-                      />
+                      <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                        <Text style={styles.label}>Email Address</Text>
+                        <Input
+                          value={localSettings.store.email}
+                          onChangeText={(v) => handleChange('store', 'email', v)}
+                          keyboardType="email-address"
+                        />
+                      </View>
                     </View>
                   </>
                 ) : (
@@ -350,6 +369,7 @@ const SettingsPage = ({ navigation }) => {
               </View>
             </Card>
 
+            {/* Location Card - Black & White */}
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
@@ -365,6 +385,8 @@ const SettingsPage = ({ navigation }) => {
                       <Input
                         value={localSettings.store.address?.street}
                         onChangeText={(v) => handleChange('store', 'address', v, 'street')}
+                        placeholder="Shop No, Building, Area"
+                        style={{ height: 48 }}
                       />
                     </View>
                     <View style={styles.inputRow}>
@@ -388,8 +410,14 @@ const SettingsPage = ({ navigation }) => {
                 ) : (
                   <TouchableOpacity onPress={() => setIsEditing(true)}>
                     <DetailRow label="Street Address" value={settings.store.address?.street} icon={MapPin} />
-                    <DetailRow label="City" value={settings.store.address?.city} />
-                    <DetailRow label="Pincode" value={settings.store.address?.pincode} />
+                    <View style={{ flexDirection: 'row', gap: 16 }}>
+                      <View style={{ flex: 1 }}>
+                        <DetailRow label="City" value={settings.store.address?.city} icon={Building} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <DetailRow label="Pincode" value={settings.store.address?.pincode} icon={MapPin} />
+                      </View>
+                    </View>
                   </TouchableOpacity>
                 )}
               </View>
@@ -397,84 +425,119 @@ const SettingsPage = ({ navigation }) => {
 
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#8b5cf6' }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <ImageIcon size={20} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Store Logo</Text>
+                <Text style={styles.cardTitle}>Store Branding</Text>
               </View>
+
               <View style={styles.cardPadding}>
-                {localSettings.store.logo ? (
-                  <View style={{ alignItems: 'center' }}>
-                    <View style={{ position: 'relative' }}>
-                      <Image
-                        source={{ uri: localSettings.store.logo }}
-                        style={{ width: 120, height: 120, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' }}
-                      />
-                      {isEditing && (
-                        <TouchableOpacity
-                          onPress={removeLogo}
-                          style={{
+                <View style={{ flexDirection: 'row', gap: 20 }}>
+                  {/* Logo Preview Area */}
+                  <TouchableOpacity
+                    onPress={isEditing ? pickImage : () => setIsEditing(true)}
+                    style={{
+                      width: 100,
+                      height: 100,
+                      borderRadius: 16,
+                      backgroundColor: '#f8fafc',
+                      borderWidth: 1,
+                      borderColor: '#e2e8f0',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      overflow: 'hidden',
+                      borderStyle: localSettings.store.logo ? 'solid' : 'dashed'
+                    }}
+                  >
+                    {localSettings.store.logo ? (
+                      <View style={{ width: '100%', height: '100%', position: 'relative' }}>
+                        <Image source={{ uri: localSettings.store.logo }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                        {isLogoUploading && (
+                          <View style={{
                             position: 'absolute',
-                            top: -10,
-                            right: -10,
-                            backgroundColor: '#ef4444',
-                            borderRadius: 15,
-                            width: 30,
-                            height: 30,
-                            alignItems: 'center',
+                            top: 0, left: 0, right: 0, bottom: 0,
+                            backgroundColor: 'rgba(255,255,255,0.7)',
                             justifyContent: 'center',
-                            elevation: 4,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.2,
-                            shadowRadius: 2
+                            alignItems: 'center'
+                          }}>
+                            <ActivityIndicator size="small" color="#000" />
+                          </View>
+                        )}
+                      </View>
+                    ) : (
+                      <View style={{ justifyContent: 'center', alignItems: 'center' }}>
+                        {isLogoUploading ? <ActivityIndicator size="small" color="#000" /> : <Upload size={24} color="#94a3b8" />}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+
+                  {/* Controls */}
+                  <View style={{ flex: 1, justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#0f172a', marginBottom: 4 }}>
+                      Store Logo
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 16 }}>
+                      Visible on your receipts & PDF invoices. Recommended 500x500px (1:1).
+                    </Text>
+
+                    {isEditing ? (
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={pickImage}
+                          style={{
+                            backgroundColor: '#000',
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                            borderRadius: 8,
+                            alignItems: 'center',
+                            flexDirection: 'row',
+                            gap: 6
                           }}
                         >
-                          <Trash2 size={16} color="#fff" />
+                          <Upload size={14} color="#fff" />
+                          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>
+                            {localSettings.store.logo ? 'Change' : 'Upload'}
+                          </Text>
                         </TouchableOpacity>
-                      )}
-                    </View>
-                    {isEditing && (
-                      <TouchableOpacity
-                        onPress={pickImage}
-                        style={{ marginTop: 12, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#f1f5f9' }}
-                      >
-                        <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>Change Logo</Text>
+
+                        {localSettings.store.logo && (
+                          <TouchableOpacity
+                            onPress={removeLogo}
+                            style={{
+                              backgroundColor: '#fff',
+                              borderWidth: 1,
+                              borderColor: '#e2e8f0',
+                              paddingVertical: 8,
+                              paddingHorizontal: 12,
+                              borderRadius: 8,
+                              alignItems: 'center'
+                            }}
+                          >
+                            <Trash2 size={14} color="#000" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ) : (
+                      <TouchableOpacity onPress={() => setIsEditing(true)}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#000', textDecorationLine: 'underline' }}>
+                          Edit Branding
+                        </Text>
                       </TouchableOpacity>
                     )}
                   </View>
-                ) : (
-                  <TouchableOpacity
-                    onPress={isEditing ? pickImage : () => setIsEditing(true)}
-                    activeOpacity={0.7}
-                    style={{
-                      width: '100%',
-                      height: 120,
-                      borderRadius: 12,
-                      backgroundColor: '#f8fafc',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderWidth: 2,
-                      borderColor: '#e2e8f0',
-                      borderStyle: 'dashed'
-                    }}
-                  >
-                    <View style={{ backgroundColor: '#ede9fe', padding: 12, borderRadius: 30, marginBottom: 8 }}>
-                      <Upload size={24} color="#8b5cf6" />
-                    </View>
-                    <Text style={{ fontSize: 14, color: '#475569', fontWeight: '600' }}>Upload Store Logo</Text>
-                    <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Square (1:1) recommended</Text>
-                  </TouchableOpacity>
-                )}
+                </View>
 
-                <View style={{ marginTop: 20, backgroundColor: '#f0fdf4', padding: 12, borderRadius: 10, flexDirection: 'row', alignItems: 'flex-start' }}>
-                  <RotateCcw size={16} color="#16a34a" style={{ marginTop: 2, marginRight: 10 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 12, color: '#166534', fontWeight: '700' }}>Cloud Sync Active</Text>
-                    <Text style={{ fontSize: 11, color: '#16a34a', marginTop: 2, lineHeight: 16 }}>
-                      Your logo is securely stored and synced to your Google Drive. It will appear on all your digital and printed invoices.
-                    </Text>
-                  </View>
+                {/* Footer Note & Sync Status */}
+                <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+                  {isLogoUploading ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
+                      <ActivityIndicator size="small" color="#000" />
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#000' }}>Syncing Logo to Cloud...</Text>
+                    </View>
+                  ) : null}
+                  <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
+                    Logo is automatically synced to cloud storage for backup.
+                  </Text>
                 </View>
               </View>
             </Card>
@@ -567,22 +630,25 @@ const SettingsPage = ({ navigation }) => {
             <Card style={styles.card}>
               <View style={styles.cardPadding}>
                 <View style={styles.toggleRow}>
-                  <View>
-                    <Text style={styles.cardTitle}>GST Configuration</Text>
-                    <Text style={styles.helperText}>Enable tax calculations & compliance</Text>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <View style={{ padding: 6, backgroundColor: '#f1f5f9', borderRadius: 8 }}>
+                        <Calculator size={18} color="#000" />
+                      </View>
+                      <Text style={styles.cardTitle}>GST Compliance</Text>
+                    </View>
+                    <Text style={[styles.helperText, { marginTop: 0 }]}>Enable tax calculations & GSTIN for receipts</Text>
                   </View>
                   <Switch
                     value={localSettings.tax.gstEnabled}
                     onValueChange={(v) => handleChange('tax', 'gstEnabled', v)}
                     trackColor={{ false: '#f1f5f9', true: '#000000' }}
+                    thumbColor="#fff"
                   />
                 </View>
 
                 {localSettings.tax.gstEnabled && (
-                  <>
-                    <View style={styles.divider} />
-
-                    {/* GSTIN Input */}
+                  <View style={{ marginTop: 20 }}>
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>GSTIN Number</Text>
                       {isEditing ? (
@@ -590,144 +656,196 @@ const SettingsPage = ({ navigation }) => {
                           value={localSettings.store.gstin}
                           onChangeText={(v) => handleChange('store', 'gstin', v.toUpperCase())}
                           autoCapitalize="characters"
-                          placeholder="22AAAAA0000A1Z5"
+                          placeholder="e.g. 29ABCDE1234F1Z5"
+                          style={{ fontWeight: '700', letterSpacing: 1 }}
                         />
                       ) : (
-                        <TouchableOpacity onPress={() => setIsEditing(true)}>
-                          <View style={styles.readOnlyBadge}>
-                            <Text style={styles.readOnlyBadgeText}>{settings.store.gstin || 'Not set'}</Text>
+                        <TouchableOpacity onPress={() => setIsEditing(true)} activeOpacity={0.8}>
+                          <View style={{ padding: 14, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 16, fontWeight: '700', color: settings.store.gstin ? '#000' : '#cbd5e1', letterSpacing: 1 }}>
+                              {settings.store.gstin || 'Enter GSTIN'}
+                            </Text>
+                            <Edit2 size={16} color="#94a3b8" />
                           </View>
                         </TouchableOpacity>
                       )}
                     </View>
-
-                    {/* Default Preference Toggle */}
-                    <View style={[styles.inputGroup, { marginTop: 16 }]}>
-                      <Text style={styles.label}>Default Billing Type</Text>
-                      <View style={styles.segmentedControl}>
+                    {/* Tax Calculation Mode Selector - Black & White */}
+                    <View style={{ marginTop: 8 }}>
+                      <Text style={styles.label}>Tax Calculation Mode</Text>
+                      <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
+                        {/* Exclusive Choice */}
                         <TouchableOpacity
-                          style={[
-                            styles.segmentBtn,
-                            (localSettings.tax.defaultTaxType || 'intra') === 'intra' && styles.segmentBtnActive
-                          ]}
-                          onPress={() => handleChange('tax', 'defaultTaxType', 'intra')}
+                          activeOpacity={0.8}
+                          onPress={() => handleChange('tax', 'priceMode', 'Exclusive')}
+                          style={{
+                            flex: 1,
+                            backgroundColor: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#000' : '#fff',
+                            borderWidth: 2,
+                            borderColor: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#000' : '#e2e8f0',
+                            borderRadius: 16,
+                            padding: 16,
+                            position: 'relative'
+                          }}
                         >
-                          <Text style={[
-                            styles.segmentText,
-                            (localSettings.tax.defaultTaxType || 'intra') === 'intra' && styles.segmentTextActive
-                          ]}>Intrastate (Local)</Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <View style={{ padding: 8, backgroundColor: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#333' : '#f1f5f9', borderRadius: 8 }}>
+                              <Plus size={20} color={(localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#fff' : '#000'} />
+                            </View>
+                            {(localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' && (
+                              <CheckCircle2 size={20} color="#fff" />
+                            )}
+                          </View>
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#fff' : '#000' }}>Exclusive</Text>
+                          <Text style={{ fontSize: 11, color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#d4d4d4' : '#64748b', fontWeight: '600', marginTop: 4 }}>Price + Tax</Text>
+                          <Text style={{ fontSize: 10, color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#a3a3a3' : '#94a3b8', marginTop: 8, lineHeight: 14 }}>
+                            Tax is added on top of the product price.
+                          </Text>
                         </TouchableOpacity>
+
+                        {/* Inclusive Choice */}
                         <TouchableOpacity
-                          style={[
-                            styles.segmentBtn,
-                            (localSettings.tax.defaultTaxType || 'intra') === 'inter' && styles.segmentBtnActive
-                          ]}
-                          onPress={() => handleChange('tax', 'defaultTaxType', 'inter')}
+                          activeOpacity={0.8}
+                          onPress={() => handleChange('tax', 'priceMode', 'Inclusive')}
+                          style={{
+                            flex: 1,
+                            backgroundColor: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#000' : '#fff',
+                            borderWidth: 2,
+                            borderColor: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#000' : '#e2e8f0',
+                            borderRadius: 16,
+                            padding: 16,
+                            position: 'relative'
+                          }}
                         >
-                          <Text style={[
-                            styles.segmentText,
-                            (localSettings.tax.defaultTaxType || 'intra') === 'inter' && styles.segmentTextActive
-                          ]}>Interstate (Outside)</Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <View style={{ padding: 8, backgroundColor: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#333' : '#f1f5f9', borderRadius: 8 }}>
+                              <CheckCircle2 size={20} color={(localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#fff' : '#000'} />
+                            </View>
+                            {(localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' && (
+                              <CheckCircle2 size={20} color="#fff" />
+                            )}
+                          </View>
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#fff' : '#000' }}>Inclusive</Text>
+                          <Text style={{ fontSize: 11, color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#d4d4d4' : '#64748b', fontWeight: '600', marginTop: 4 }}>Tax in Price</Text>
+                          <Text style={{ fontSize: 10, color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#a3a3a3' : '#94a3b8', marginTop: 8, lineHeight: 14 }}>
+                            Product price already includes the tax component.
+                          </Text>
                         </TouchableOpacity>
                       </View>
-                      <Text style={styles.helperTextSmall}>
-                        Choose which tax mode is applied by default for new customers.
-                      </Text>
                     </View>
-                  </>
+                  </View>
                 )}
               </View>
             </Card>
 
-            {/* Tax Matrix Section */}
-            <View style={styles.sectionHeader}>
-              <View>
-                <Text style={styles.sectionTitle}>Tax Slabs Matrix</Text>
-                <Text style={styles.sectionSubtitle}>Define tax rates and see calculated components</Text>
-              </View>
-              {isEditing && (
-                <TouchableOpacity onPress={addTaxGroup} style={[styles.addBtn, { backgroundColor: '#10b981' }]}>
-                  <Plus size={18} color="#fff" />
-                  <Text style={styles.addBtnText}>Add Slab</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {taxGroups.map((group) => (
-              <Card key={group.id} style={[styles.matrixCard, !group.active && styles.matrixDisabled]}>
-                {/* Card Header: Name & Rate */}
-                <View style={styles.matrixHeaderRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.labelSmall}>SLAB NAME</Text>
-                    {isEditing ? (
-                      <Input
-                        style={styles.matrixInputCompact}
-                        value={group.name}
-                        onChangeText={(v) => updateTaxGroup(group.id, 'name', v)}
-                        placeholder="e.g. GST 18%"
-                      />
+            {/* Tax Slabs List - Black & White */}
+            {localSettings.tax.gstEnabled && (
+              <View style={{ marginTop: 24, marginBottom: 40 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingHorizontal: 4 }}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Tax Slabs</Text>
+                    <Text style={styles.sectionSubtitle}>Defined rates for your products</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {!isEditing ? (
+                      <TouchableOpacity
+                        onPress={() => setIsEditing(true)}
+                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, gap: 6, borderWidth: 1, borderColor: '#e2e8f0' }}
+                      >
+                        <Edit2 size={16} color="#000" />
+                        <Text style={{ color: '#000', fontSize: 12, fontWeight: '700' }}>Edit Slabs</Text>
+                      </TouchableOpacity>
                     ) : (
-                      <Text style={styles.matrixName}>{group.name}</Text>
+                      <TouchableOpacity
+                        onPress={addTaxGroup}
+                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#000', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, gap: 6 }}
+                      >
+                        <Plus size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Add Slab</Text>
+                      </TouchableOpacity>
                     )}
                   </View>
+                </View>
 
-                  <View style={{ width: 100, alignItems: 'center' }}>
-                    <Text style={styles.labelSmall}>RATE (%)</Text>
-                    {isEditing ? (
-                      <Input
-                        style={styles.matrixRateInput}
-                        keyboardType="numeric"
-                        value={group.rate.toString()}
-                        onChangeText={(v) => updateTaxGroup(group.id, 'rate', v)}
-                      />
-                    ) : (
-                      <Text style={styles.matrixRateDisplay}>{group.rate}%</Text>
-                    )}
-                  </View>
-
-                  {isEditing && (
-                    <TouchableOpacity onPress={() => removeTaxGroup(group.id)} style={styles.deleteBtnIcon}>
-                      <Trash2 size={20} color="#ef4444" />
-                    </TouchableOpacity>
+                {/* List Container */}
+                <View style={{ backgroundColor: '#fff', borderRadius: 20, padding: 8, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                  {taxGroups.length === 0 ? (
+                    <View style={{ padding: 30, alignItems: 'center' }}>
+                      <Text style={{ color: '#94a3b8', fontWeight: '600', marginBottom: 10 }}>No tax slabs defined.</Text>
+                      <TouchableOpacity
+                        onPress={() => { setIsEditing(true); addTaxGroup(); }}
+                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#000', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, gap: 6 }}
+                      >
+                        <Plus size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Create First Slab</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    taxGroups.map((group, index) => (
+                      <View
+                        key={group.id}
+                        style={{
+                          padding: 16,
+                          backgroundColor: '#fff',
+                          borderBottomWidth: index === taxGroups.length - 1 ? 0 : 1,
+                          borderBottomColor: '#f1f5f9'
+                        }}
+                      >
+                        {isEditing ? (
+                          // Edit Mode Layout
+                          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', marginBottom: 4 }}>NAME</Text>
+                              <Input
+                                value={group.name}
+                                onChangeText={(v) => updateTaxGroup(group.id, 'name', v)}
+                                placeholder="e.g. GST 18%"
+                                style={{ height: 44, fontSize: 14 }}
+                              />
+                            </View>
+                            <View style={{ width: 80 }}>
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', marginBottom: 4 }}>RATE %</Text>
+                              <Input
+                                value={group.rate.toString()}
+                                onChangeText={(v) => updateTaxGroup(group.id, 'rate', v)}
+                                keyboardType="numeric"
+                                style={{ height: 44, textAlign: 'center', fontSize: 16, fontWeight: '700' }}
+                              />
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => removeTaxGroup(group.id)}
+                              style={{ marginTop: 24, padding: 10, backgroundColor: '#f1f5f9', borderRadius: 10 }}
+                            >
+                              <Trash2 size={20} color="#000" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          // View Mode Layout (Unchanged)
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                            <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}>
+                              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{group.rate}%</Text>
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 15, fontWeight: '700', color: '#334155' }}>{group.name}</Text>
+                              <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#94a3b8', marginRight: 4 }} />
+                                  <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }}>C/S: {group.cgst}%</Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#475569', marginRight: 4 }} />
+                                  <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }}>IGST: {group.igst || group.rate}%</Text>
+                                </View>
+                              </View>
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    ))
                   )}
                 </View>
-
-                {/* Card Body: Split View */}
-                <View style={styles.matrixSplitView}>
-                  {/* Intrastate (Local) */}
-                  <View style={[styles.matrixSplitCol, { borderRightWidth: 1, borderRightColor: '#f1f5f9' }]}>
-                    <Text style={styles.splitHeader}>INTRASTATE</Text>
-                    <Text style={styles.splitSub}>Within State</Text>
-
-                    <View style={styles.taxComponentRow}>
-                      <View style={styles.taxCompBadge}>
-                        <Text style={styles.taxCompLabel}>CGST</Text>
-                        <Text style={styles.taxCompVal}>{group.cgst}%</Text>
-                      </View>
-                      <View style={styles.taxCompBadge}>
-                        <Text style={styles.taxCompLabel}>SGST</Text>
-                        <Text style={styles.taxCompVal}>{group.sgst}%</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Interstate (Remote) */}
-                  <View style={styles.matrixSplitCol}>
-                    <Text style={styles.splitHeader}>INTERSTATE</Text>
-                    <Text style={styles.splitSub}>Outside State</Text>
-
-                    <View style={styles.taxComponentRow}>
-                      <View style={[styles.taxCompBadge, { backgroundColor: '#eff6ff' }]}>
-                        <Text style={[styles.taxCompLabel, { color: '#1d4ed8' }]}>IGST</Text>
-                        <Text style={[styles.taxCompVal, { color: '#1e3a8a' }]}>{group.igst || group.rate}%</Text>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              </Card>
-
-
-            ))}
+              </View>
+            )}
             <View style={{ height: 40 }} />
           </View>
         );
@@ -1250,68 +1368,106 @@ const SettingsPage = ({ navigation }) => {
       case 'contact':
         return (
           <View style={styles.tabContent}>
-            <View style={{ padding: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={{ backgroundColor: '#eff6ff', padding: 10, borderRadius: 12 }}>
-                <Headset size={28} color="#2563eb" />
+            {/* Header Section */}
+            <View style={{ marginBottom: 24, paddingHorizontal: 4 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                <Headset size={24} color="#fff" />
               </View>
-              <View>
-                <Text style={{ fontSize: 24, fontWeight: '900', color: '#1e293b' }}>Help & Support</Text>
-                <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Get in touch with Kwiq Billing team.</Text>
-              </View>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Help & Support</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 6, fontWeight: '500' }}>
+                Have questions? We're here to help you grow.
+              </Text>
             </View>
 
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => Linking.openURL('tel:+919159317290')}
-              style={[styles.contactCard, { borderColor: '#e0f2fe' }]}
-            >
-              <View style={[styles.contactIconCircle, { backgroundColor: '#f0f9ff' }]}>
-                <Phone size={24} color="#0284c7" />
-              </View>
-              <View style={{ flex: 1, marginLeft: 16 }}>
-                <Text style={styles.contactLabel}>Call Us</Text>
-                <Text style={styles.contactValue}>+91 91593 17290</Text>
-              </View>
-              <ChevronRight size={20} color="#94a3b8" />
-            </TouchableOpacity>
+            {/* Support Actions */}
+            <View style={{ gap: 12 }}>
+              {/* WhatsApp - Primary Action */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => Linking.openURL('whatsapp://send?phone=+919159317290&text=Hi Kwiq Billing Support, I need help with...')}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#000',
+                  paddingVertical: 18,
+                  paddingHorizontal: 20,
+                  borderRadius: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 10,
+                  elevation: 4
+                }}
+              >
+                <MessageCircle size={24} color="#fff" />
+                <View style={{ flex: 1, marginLeft: 16 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Chat on WhatsApp</Text>
+                  <Text style={{ fontSize: 12, color: '#a3a3a3', marginTop: 2 }}>Instant replies from our team</Text>
+                </View>
+                <View style={{ backgroundColor: '#333', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>ONLINE</Text>
+                </View>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => Linking.openURL('mailto:support@kwiqbill.com')}
-              style={[styles.contactCard, { borderColor: '#f0fdf4' }]}
-            >
-              <View style={[styles.contactIconCircle, { backgroundColor: '#f0fdf4' }]}>
-                <Mail size={24} color="#16a34a" />
-              </View>
-              <View style={{ flex: 1, marginLeft: 16 }}>
-                <Text style={styles.contactLabel}>Email Support</Text>
-                <Text style={styles.contactValue}>support@kwiqbill.com</Text>
-              </View>
-              <ChevronRight size={20} color="#94a3b8" />
-            </TouchableOpacity>
+              {/* Call Us */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => Linking.openURL('tel:+919159317290')}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#fff',
+                  borderWidth: 1,
+                  borderColor: '#e2e8f0',
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  borderRadius: 16
+                }}
+              >
+                <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 10 }}>
+                  <Phone size={20} color="#000" />
+                </View>
+                <View style={{ flex: 1, marginLeft: 16 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Call Support</Text>
+                  <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>+91 91593 17290</Text>
+                </View>
+                <ChevronRight size={20} color="#cbd5e1" />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => Linking.openURL('whatsapp://send?phone=+919159317290&text=Hi Kwiq Billing Support, I need help with...')}
-              style={[styles.contactCard, { borderColor: '#f0fdf4', borderLeftWidth: 5, borderLeftColor: '#25D366' }]}
-            >
-              <View style={[styles.contactIconCircle, { backgroundColor: '#ecfdf5' }]}>
-                <MessageCircle size={24} color="#059669" />
-              </View>
-              <View style={{ flex: 1, marginLeft: 16 }}>
-                <Text style={styles.contactLabel}>WhatsApp Chat</Text>
-                <Text style={styles.contactValue}>+91 91593 17290</Text>
-              </View>
-              <View style={{ backgroundColor: '#25D366', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 }}>
-                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>ONLINE</Text>
-              </View>
-            </TouchableOpacity>
+              {/* Email Us */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => Linking.openURL('mailto:support@kwiqbill.com')}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#fff',
+                  borderWidth: 1,
+                  borderColor: '#e2e8f0',
+                  paddingVertical: 16,
+                  paddingHorizontal: 20,
+                  borderRadius: 16
+                }}
+              >
+                <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 10 }}>
+                  <Mail size={20} color="#000" />
+                </View>
+                <View style={{ flex: 1, marginLeft: 16 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Email Us</Text>
+                  <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>support@kwiqbill.com</Text>
+                </View>
+                <ChevronRight size={20} color="#cbd5e1" />
+              </TouchableOpacity>
+            </View>
 
-            <View style={{ marginTop: 20, padding: 20, backgroundColor: '#f8fafc', borderRadius: 24, alignItems: 'center' }}>
-              <HelpCircle size={40} color="#94a3b8" style={{ marginBottom: 12 }} />
-              <Text style={{ fontSize: 16, fontWeight: '800', color: '#475569', textAlign: 'center' }}>Need immediate help?</Text>
-              <Text style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', marginTop: 4, lineHeight: 20 }}>
-                Our support team is available from 9 AM to 7 PM (Mon-Sat). We usually respond within 2 hours.
+            {/* Info Footer */}
+            <View style={{ marginTop: 24, padding: 24, backgroundColor: '#fafafa', borderRadius: 20, borderWidth: 1, borderColor: '#f1f5f9', alignItems: 'center' }}>
+              <View style={{ padding: 10, backgroundColor: '#fff', borderRadius: 24, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
+                <HelpCircle size={24} color="#000" />
+              </View>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a', textAlign: 'center' }}>Available Mon-Sat</Text>
+              <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4, lineHeight: 18, maxWidth: 260 }}>
+                Our team is available from 9:00 AM to 7:00 PM. We typically respond within 2 hours.
               </Text>
             </View>
           </View>
@@ -1361,6 +1517,17 @@ const SettingsPage = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+      {/* Full Screen Sync Overlay */}
+      {isUploading && (
+        <View style={styles.syncOverlay}>
+          <View style={styles.syncContent}>
+            <ActivityIndicator size="large" color="#000" />
+            <Text style={styles.syncText}>{syncStatus && syncStatus !== 'Ready' ? syncStatus : 'Syncing to Cloud...'}</Text>
+            <Text style={styles.syncSubText}>Please wait a moment while we secure your data</Text>
+          </View>
+        </View>
+      )}
       {/* Custom Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -1385,15 +1552,22 @@ const SettingsPage = ({ navigation }) => {
           )}
 
           <TouchableOpacity
-            onPress={unsavedChanges ? handleSave : null}
+            onPress={(unsavedChanges && !isSaving) ? handleSave : null}
             activeOpacity={unsavedChanges ? 0.7 : 1}
+            disabled={isSaving}
             style={[
               styles.saveBtn,
-              { backgroundColor: unsavedChanges ? '#10b981' : '#f1f5f9' },
-              !unsavedChanges && { opacity: 0.5, borderWidth: 1, borderColor: '#e2e8f0' }
+              { backgroundColor: showSuccessIcon ? '#22c55e' : (unsavedChanges ? '#10b981' : '#f1f5f9') },
+              (!unsavedChanges || isSaving) && !showSuccessIcon && { opacity: 0.5, borderWidth: 1, borderColor: '#e2e8f0' }
             ]}
           >
-            <Save size={20} color={unsavedChanges ? "#fff" : "#94a3b8"} />
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : showSuccessIcon ? (
+              <CheckCircle2 size={20} color="#fff" />
+            ) : (
+              <Save size={20} color={unsavedChanges ? "#fff" : "#94a3b8"} />
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -1432,10 +1606,15 @@ const SettingsPage = ({ navigation }) => {
       </View>
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        enabled={Platform.OS === 'ios'}
         style={{ flex: 1 }}
       >
-        <ScrollView style={styles.scroller} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+        <ScrollView
+          style={styles.scroller}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 100, flexGrow: 1 }}
+        >
           {renderTabContent()}
           <View style={styles.footer}>
             <Text style={styles.footerText}>Version 1.0.0 (Build 2026.1)</Text>
@@ -1890,6 +2069,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9a3412',
     flex: 1,
+    lineHeight: 18,
+  },
+
+  // --- Sync Overlay Styles ---
+  syncOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    zIndex: 9999,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  syncContent: {
+    width: '80%',
+    padding: 30,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  syncText: {
+    marginTop: 20,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#000',
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  syncSubText: {
+    marginTop: 10,
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '600',
+    textAlign: 'center',
     lineHeight: 18,
   },
 

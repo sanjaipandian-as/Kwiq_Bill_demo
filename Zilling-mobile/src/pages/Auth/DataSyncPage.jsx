@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions, SafeAreaView, StatusBar } from 'react-native';
 import * as Progress from 'react-native-progress';
-import { CloudDownload, Server, CheckCircle2, ChevronRight, Info } from 'lucide-react-native';
+import { CloudDownload, Server, CheckCircle2, ChevronRight, Info, Clock } from 'lucide-react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -49,19 +49,28 @@ const DataSyncPage = ({ progressMessage, progressValue }) => {
                 {/* Progress Section */}
                 <View style={styles.progressSection}>
                     <View style={styles.progressLabelRow}>
-                        <Text style={styles.currentTask}>{progressMessage || 'Connecting...'}</Text>
+                        <Text style={styles.currentTask}>{progressMessage?.split(' (Est. time:')[0] || 'Connecting...'}</Text>
                         <Text style={styles.percentageText}>{Math.round(progressValue * 100)}%</Text>
                     </View>
 
                     <Progress.Bar
                         progress={progressValue}
                         width={width - 60}
-                        height={8}
+                        height={10}
                         color="#6366f1"
                         unfilledColor="#f1f5f9"
                         borderWidth={0}
-                        borderRadius={4}
+                        borderRadius={5}
                     />
+
+                    {/* Estimated Time Section */}
+                    {progressMessage?.includes('Est. time:') && (
+                        <View style={styles.estTimeContainer}>
+                            <Clock size={16} color="#6366f1" />
+                            <Text style={styles.estTimeLabel}>Estimated Time Remaining: </Text>
+                            <Text style={styles.estTimeValue}>{progressMessage.split('Est. time: ')[1].replace(')', '')}</Text>
+                        </View>
+                    )}
                 </View>
 
                 <View style={{ flex: 1 }} />
@@ -176,7 +185,28 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'flex-end',
-        marginBottom: 10,
+        marginBottom: 12,
+    },
+    estTimeContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 16,
+        backgroundColor: '#f5f3ff',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 10,
+        alignSelf: 'flex-start'
+    },
+    estTimeLabel: {
+        fontSize: 13,
+        color: '#475569',
+        marginLeft: 8,
+        fontWeight: '500'
+    },
+    estTimeValue: {
+        fontSize: 13,
+        color: '#6366f1',
+        fontWeight: '700'
     },
     currentTask: {
         fontSize: 14,
