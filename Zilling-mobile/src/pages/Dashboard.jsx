@@ -143,12 +143,16 @@ export default function Dashboard() {
     const paid = filteredTx.length - pending.length;
 
     // Low Stock (independent of date)
-    const lowStock = products.filter(p => (parseFloat(p.stock) || 0) < 10);
+    const lowStock = products.filter(p => {
+      const stock = parseFloat(p.stock) || 0;
+      const minStock = parseFloat(p.min_stock) || parseFloat(p.minStock) || 0;
+      return minStock > 0 && stock <= minStock;
+    });
 
     // Top Customers
     const custMap = {};
     filteredTx.forEach(t => {
-      const name = t.customerName || 'Walk-in';
+      const name = t.customerName || 'Guest';
       if (!custMap[name]) custMap[name] = 0;
       custMap[name] += (t.total || 0);
     });
@@ -489,7 +493,7 @@ export default function Dashboard() {
                       <Receipt size={20} color={isPaid ? '#22c55e' : '#ef4444'} />
                     </View>
                     <View style={styles.txnCardInfo}>
-                      <Text style={styles.txnCardCustomer}>{tx.customerName || 'Walk-in Customer'}</Text>
+                      <Text style={styles.txnCardCustomer}>{tx.customerName || 'Guest'}</Text>
                       <View style={styles.txnCardMetaRow}>
                         <Text style={styles.txnCardInvoice}>INV-{tx.invoiceNumber || '001'}</Text>
                         <Text style={styles.txnCardDot}>•</Text>
@@ -498,10 +502,10 @@ export default function Dashboard() {
                     </View>
                     <View style={styles.txnCardRight}>
                       <Text style={styles.txnCardAmount}>₹{(tx.total || 0).toLocaleString()}</Text>
-                      <View style={[styles.txnStatusBadge, { backgroundColor: isPaid ? '#dcfce7' : '#fee2e2' }]}>
-                        <View style={[styles.statusDot, { backgroundColor: isPaid ? '#22c55e' : '#ef4444' }]} />
-                        <Text style={[styles.txnStatusText, { color: isPaid ? '#22c55e' : '#ef4444' }]}>
-                          {isPaid ? 'Paid' : 'Unpaid'}
+                      <View style={[styles.txnStatusBadge, { backgroundColor: isPaid ? '#dcfce7' : '#fee2e2', borderColor: isPaid ? '#dcfce7' : '#fee2e2' }]}>
+                        <View style={[styles.statusDot, { backgroundColor: isPaid ? '#15803d' : '#b91c1c' }]} />
+                        <Text style={[styles.txnStatusText, { color: isPaid ? '#15803d' : '#b91c1c' }]}>
+                          {isPaid ? 'PAID' : 'UNPAID'}
                         </Text>
                       </View>
                     </View>
@@ -958,10 +962,11 @@ const styles = StyleSheet.create({
   txnStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 5,
-    borderRadius: 8,
-    gap: 5,
+    borderRadius: 50,
+    gap: 6,
+    borderWidth: 1,
   },
   statusDot: {
     width: 6,
@@ -969,8 +974,10 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   txnStatusText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
   },
 
   // Old List Styles (kept for other sections)

@@ -26,7 +26,8 @@ import {
     Image as ImageIcon,
     Camera,
     ChevronRight,
-    ArrowLeft
+    ArrowLeft,
+    Cloud
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -329,12 +330,18 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                         disabled={isSubmitting}
                     >
                         {isSubmitting ? (
-                            <Text style={styles.saveBtnText}>Saving...</Text>
+                            <Text style={styles.saveBtnText}>Syncing to Drive...</Text>
                         ) : (
                             <Text style={styles.saveBtnText}>{isEditMode ? 'Update Expense' : 'Save Expense'}</Text>
                         )}
                         {!isSubmitting && <ChevronRight size={20} color="#fff" />}
                     </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12 }}>
+                        <Cloud size={10} color="#94a3b8" />
+                        <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            Encrypted & Synced to Google Drive
+                        </Text>
+                    </View>
                 </View>
             </View>
         </RNModal>

@@ -123,13 +123,13 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
             {/* Row 5: Addresses Content */}
             <View style={[styles.detailedRow, { borderBottomWidth: 1, minHeight: 70 }]}>
                 <View style={[styles.detailedCol, { flex: 1 }]}>
-                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Name:</Text> {invoice.customer?.name || 'Walk-in Customer'}</Text>
+                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Name:</Text> {invoice.customer?.name || ''}</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> {invoice.customer?.address || '-'}</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>GSTIN:</Text> {invoice.customer?.gstin || '-'}</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Phone:</Text> {invoice.customer?.mobile || '-'}</Text>
                 </View>
                 <View style={[styles.detailedCol, { flex: 1, borderRightWidth: 0 }]}>
-                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Name:</Text> {invoice.customer?.name || 'Walk-in Customer'}</Text>
+                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Name:</Text> {invoice.customer?.name || ''}</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> {invoice.customer?.address || '-'}</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>GSTIN:</Text> {invoice.customer?.gstin || '-'}</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>State:</Text> {invoice.customer?.state || '-'}</Text>

@@ -63,10 +63,6 @@ const SideMenu = ({ isOpen, onClose }) => {
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.userName} numberOfLines={1}>{user?.name || 'Administrator'}</Text>
-                            <View style={styles.statusBadge}>
-                                <View style={styles.statusDot} />
-                                <Text style={styles.userRole}>SYSTEM ACTIVE</Text>
-                            </View>
                         </View>
                     </View>
                     <Pressable onPress={onClose} style={styles.closeIcon}>
@@ -181,19 +177,6 @@ const styles = StyleSheet.create({
     avatarImage: { width: '100%', height: '100%', backgroundColor: '#fff' },
     avatarText: { color: '#fff', fontSize: 22, fontWeight: '900' },
     userName: { fontSize: 18, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
-    statusBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginTop: 4,
-        backgroundColor: '#f1f5f9',
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 8,
-        alignSelf: 'flex-start'
-    },
-    statusDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#10b981' },
-    userRole: { fontSize: 8, color: '#64748b', fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
     closeIcon: {
         width: 42,
         height: 42,

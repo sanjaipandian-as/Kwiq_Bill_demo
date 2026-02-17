@@ -72,12 +72,12 @@ const CustomerStep = ({ customer, onSelect, onNext }) => {
             ) : (
                 <View style={styles.emptyState}>
                     <TouchableOpacity
-                        style={styles.walkInBtn}
-                        onPress={() => onSelect({ id: 'walk-in', name: 'Walk-in Customer' })}
+                        style={[styles.walkInBtn, { borderColor: '#2563eb' }]}
+                        onPress={() => onSelect('search')}
                     >
-                        <User size={32} color="#64748b" />
-                        <Text style={styles.walkInTitle}>Walk-in Customer</Text>
-                        <Text style={styles.walkInSub}>Quick checkout without saving details</Text>
+                        <UserPlus size={40} color="#2563eb" />
+                        <Text style={[styles.walkInTitle, { color: '#2563eb' }]}>Add Customer</Text>
+                        <Text style={styles.walkInSub}>A customer name and mobile number are required to proceed.</Text>
                     </TouchableOpacity>
                 </View>
             )}

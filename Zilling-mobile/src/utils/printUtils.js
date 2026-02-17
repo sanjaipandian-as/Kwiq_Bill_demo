@@ -35,7 +35,7 @@ export const numberToWords = (num) => {
 };
 
 const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
-    const paperSize = settings?.invoice?.billPaperSize || '80mm';
+    const paperSize = '80mm';
     const storeName = settings?.store?.name || 'Store Name';
     const storeAddressObj = settings?.store?.address || {};
     const storeAddress = `${storeAddressObj.street || ''}, ${storeAddressObj.city || ''}`;
@@ -44,7 +44,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
 
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
-    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const customerName = bill.customerName || customer.fullName || customer.name || '';
 
     // Date formatting
     const date = new Date(bill.date || Date.now());
@@ -56,6 +56,17 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
     const totalTax = (bill.totals?.tax || bill.tax || 0);
     const totalAmount = bill.totals?.total || bill.total || 0;
     const roundOff = bill.totals?.roundOff || 0;
+    const loyaltyDiscount = bill.totals?.loyaltyPointsDiscount || 0;
+    const amountReceived = parseFloat(bill.amountReceived || 0);
+    const balanceDue = Math.max(0, totalAmount - amountReceived);
+
+    let paymentStatus = 'Not Paid';
+    if (amountReceived >= totalAmount) {
+        paymentStatus = 'Paid Fully';
+    } else if (amountReceived > 0) {
+        paymentStatus = 'Partially Paid';
+    }
+
     const paymentMode = (bill.payments && bill.payments.length > 0) ? bill.payments[0].method : (bill.paymentType || 'Cash');
 
     // Tax Summary
@@ -86,20 +97,27 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
         .text-right { text-align: right; }
         .bold { font-weight: 900; }
         .dashed { border-bottom: 1px dashed #000; margin: 4px 0; }
-        .store-name { font-size: 14px; font-weight: 900; text-transform: uppercase; margin-bottom: 2px; }
-        .header-title { font-size: 12px; font-weight: 900; padding: 2px 0; }
-        .row { display: flex; justify-content: space-between; margin: 1px 0; }
-        .table { width: 100%; border-collapse: collapse; }
-        .table th { border-bottom: 1px dashed #000; padding: 4px 0; text-align: left; font-weight: 900; }
-        .table td { padding: 2px 0; vertical-align: top; }
-        .grand-total { font-size: 14px; font-weight: 900; border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 4px 0; margin: 4px 0; }
-        .gst-summary-title { font-weight: 900; margin-top: 8px; margin-bottom: 2px; }
-        .gst-box { border: 1px dashed #000; margin-top: 4px; }
-        .gst-header { display: flex; border-bottom: 1px dashed #000; background: #f0f0f0; }
-        .gst-row { display: flex; }
-        .gst-col { flex: 1; text-align: center; font-size: 9px; padding: 2px 0; border-right: 1px dashed #000; }
+        .store-name { font-size: 16px; font-weight: 900; text-transform: uppercase; margin-bottom: 4px; }
+        .header-title { font-size: 12px; font-weight: 900; padding: 2px 0; border-top: 1px dashed #000; border-bottom: 1px dashed #000; margin: 5px 0; }
+        .row { display: flex; justify-content: space-between; margin: 2px 0; }
+        .table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+        .table th { border-bottom: 1px dashed #000; padding: 5px 0; text-align: left; font-weight: 900; }
+        .table td { padding: 4px 0; vertical-align: top; }
+        .item-info { display: flex; flex-direction: column; }
+        .item-row { display: flex; border-bottom: 1px dotted #eee; padding: 4px 0; }
+        .item-name-cell { flex: 2; word-wrap: break-word; }
+        .item-price-cell { flex: 1; text-align: right; white-space: nowrap; }
+        .item-total-cell { flex: 1; text-align: right; white-space: nowrap; }
+        .grand-total { font-size: 14px; font-weight: 900; border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 6px 0; margin: 8px 0; }
+        .payment-box { background-color: #f9f9f9; padding: 5px; border: 1px dashed #000; margin: 10px 0; }
+        .gst-summary-title { font-weight: 900; margin-top: 12px; margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .gst-box { border: 1px solid #000; margin-top: 4px; width: 100%; }
+        .gst-header { display: flex; border-bottom: 1px solid #000; background: #eee; font-weight: 900; }
+        .gst-row { display: flex; border-bottom: 1px dotted #000; }
+        .gst-row:last-child { border-bottom: none; }
+        .gst-col { flex: 1; text-align: center; font-size: 10px; padding: 4px 0; border-right: 1px solid #000; }
         .gst-col:last-child { border-right: none; }
-        .footer { margin-top: 10px; text-align: center; }
+        .footer { margin-top: 15px; text-align: center; font-size: 10px; }
     `;
 
     return `
@@ -109,50 +127,47 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
             <div class="text-center">
                 ${settings?.store?.logo ? `<img src="${settings.store.logo}" style="width: 50px; height: 50px; object-fit: contain; margin-bottom: 5px;" />` : ''}
                 <div class="store-name">${storeName}</div>
-                <div>${storeAddress}</div>
-                <div>Phone: ${storePhone}</div>
-                ${storeGstin ? `<div>GSTIN: ${storeGstin}</div>` : ''}
+                <div style="font-size: 10px;">${storeAddress}</div>
+                <div style="font-size: 10px;">Phone: ${storePhone}</div>
+                ${storeGstin ? `<div style="font-size: 10px;">GSTIN: ${storeGstin}</div>` : ''}
             </div>
 
-            <div class="dashed"></div>
             <div class="text-center header-title">BILL RECEIPT</div>
-            <div class="dashed"></div>
 
             <div class="row">
-                <span>Bill No: ${bill.id ? bill.id.slice(-6).toUpperCase() : '-'}</span>
+                <span>Bill No: <span class="bold">${bill.id ? bill.id.slice(-6).toUpperCase() : '-'}</span></span>
                 <span>Date: ${dateStr}</span>
             </div>
             <div class="row">
-                <span>Cust: ${customerName.split(' ')[0]}</span>
+                <span>Cust: ${customerName}</span>
                 <span>Time: ${timeStr}</span>
             </div>
             <div class="row">
                 <span>Mode: ${paymentMode}</span>
-                <span></span>
             </div>
-
-            <div class="dashed"></div>
 
             <table class="table">
                 <thead>
                     <tr>
-                        <th style="width: 20px;">Sn</th>
-                        <th>Item</th>
-                        <th style="width: 50px; text-align: right;">Rate</th>
-                        <th style="width: 60px; text-align: right;">Amt</th>
+                        <th style="width: 10%;">Sn</th>
+                        <th style="width: 50%;">Item</th>
+                        <th style="width: 20%; text-align: right;">Rate</th>
+                        <th style="width: 20%; text-align: right;">Amt</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${items.map((item, i) => `
                         <tr>
                             <td>${i + 1}</td>
-                            <td>${item.name} ${item.variantName ? `(${item.variantName})` : ''}</td>
+                            <td>
+                                <div class="item-info">
+                                    <span class="bold">${item.name}</span>
+                                    ${item.variantName ? `<span style="font-size: 9px; font-style: italic;">(${item.variantName})</span>` : ''}
+                                    <span style="font-size: 9px; color: #444;">Qty: ${item.quantity} ${item.unit || ''}</span>
+                                </div>
+                            </td>
                             <td class="text-right">${parseFloat(item.price || item.sellingPrice).toFixed(2)}</td>
                             <td class="text-right">${parseFloat(item.total).toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td colspan="3" style="font-size: 9px; color: #444;">Qty: ${item.quantity}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -175,9 +190,41 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
             </div>
             ` : ''}
 
+            ${loyaltyDiscount > 0 ? `
+            <div class="row" style="color: #10b981;">
+                <span>Loyalty Reward:</span>
+                <span class="bold">-₹${loyaltyDiscount.toFixed(2)}</span>
+            </div>
+            ` : ''}
+
             <div class="grand-total row">
                 <span>GRAND TOTAL:</span>
                 <span>₹${totalAmount.toFixed(2)}</span>
+            </div>
+
+            <div class="payment-box">
+                <div class="row bold" style="font-size: 11px; margin-bottom: 4px; border-bottom: 1px solid #000; padding-bottom: 2px;">
+                    <span>PAYMENT STATUS:</span>
+                    <span>${paymentStatus.toUpperCase()}</span>
+                </div>
+                <div class="row">
+                    <span>Paid Amount:</span>
+                    <span class="bold">₹${amountReceived.toFixed(2)}</span>
+                </div>
+                <div class="row bold">
+                    <span>BALANCE:</span>
+                    <span>₹${balanceDue.toFixed(2)}</span>
+                </div>
+                ${amountReceived > totalAmount ? `
+                <div class="row" style="color: #059669;">
+                    <span>Change Returned:</span>
+                    <span class="bold">₹${(amountReceived - totalAmount).toFixed(2)}</span>
+                </div>
+                ` : ''}
+                <div class="row" style="font-size: 9px; margin-top: 4px; opacity: 0.8;">
+                    <span>Payment Mode:</span>
+                    <span>${paymentMode}</span>
+                </div>
             </div>
 
             <div class="gst-summary-title">GST SUMMARY</div>
@@ -212,6 +259,13 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
 
             <div class="dashed" style="margin-top: 8px;"></div>
             <div class="footer">
+                ${settings?.bankDetails?.accountNumber ? `
+                    <div style="font-weight: 900; margin-bottom: 2px;">BANK DETAILS</div>
+                    <div>${settings.bankDetails.bankName}</div>
+                    <div>A/c: ${settings.bankDetails.accountNumber}</div>
+                    <div>IFSC: ${settings.bankDetails.ifsc}</div>
+                    <div class="dashed"></div>
+                ` : ''}
                 Thank You! Visit Again.
             </div>
         </body>
@@ -225,7 +279,7 @@ const generateDetailedHTML = (bill, settings, colors) => {
     const bank = settings?.bankDetails || {};
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
-    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const customerName = bill.customerName || customer.fullName || customer.name || '';
     const isInter = bill.taxType === 'inter';
     const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
     const { showLogo = true, showHsn = true, showQrcode = true } = settings?.invoice || {};
@@ -233,6 +287,13 @@ const generateDetailedHTML = (bill, settings, colors) => {
     const subtotal = Number(bill.totals?.subtotal || 0);
     const tax = Number(bill.totals?.tax || 0);
     const total = Number(bill.totals?.total || 0);
+    const loyaltyDiscount = Number(bill.totals?.loyaltyPointsDiscount || 0);
+    const paidAmount = Number(bill.amountReceived || 0);
+    const balance = Math.max(0, total - paidAmount);
+
+    let status = 'Not Paid';
+    if (paidAmount >= total) status = 'Paid Fully';
+    else if (paidAmount > 0) status = 'Partially Paid';
 
     const itemsHTML = items.map((item, idx) => {
         const qty = parseFloat(item.quantity || 0);
@@ -274,7 +335,7 @@ const generateDetailedHTML = (bill, settings, colors) => {
             .col:last-child { border-right: none; }
             .bold { font-weight: bold; }
             .text-center { text-align: center; }
-            .bg-gray { background: #e2e2e*2; }
+            .bg-gray { background: #e2e2e2; }
             table { width: 100%; border-collapse: collapse; }
             .checkbox { width: 10px; height: 10px; border: 1px solid #000; display: inline-block; margin-left: 5px; vertical-align: middle; }
             .checked { background: #000; }
@@ -407,8 +468,34 @@ const generateDetailedHTML = (bill, settings, colors) => {
                     <div style="display: flex; justify-content: space-between; padding: 2px 5px; border-bottom: 1px solid #000;">
                         <span>Total Tax Amount:</span><span>${tax.toFixed(2)}</span>
                     </div>
-                    <div class="bg-gray bold" style="display: flex; justify-content: space-between; padding: 5px;">
-                        <span>Total Amount after Tax:</span><span>${total.toFixed(2)}</span>
+                    ${loyaltyDiscount > 0 ? `
+                    <div style="display: flex; justify-content: space-between; padding: 2px 5px; border-bottom: 1px solid #000; color: #1d4ed8;">
+                        <span>Loyalty Points Discount:</span><span>-₹${loyaltyDiscount.toFixed(2)}</span>
+                    </div>
+                    ` : ''}
+                    <div class="bg-gray bold" style="display: flex; justify-content: space-between; padding: 8px; border: 1px solid #000; margin-top: 5px;">
+                        <span>GRAND TOTAL:</span><span>₹${total.toFixed(2)}</span>
+                    </div>
+
+                    <div style="margin-top: 10px; border: 1px solid #000; padding: 5px; background: #f9fafb;">
+                        <div class="bold" style="text-align: center; border-bottom: 1px solid #000; margin-bottom: 5px; font-size: 10px; padding-bottom: 2px;">PAYMENT INFORMATION</div>
+                        <div style="display: flex; justify-content: space-between; padding: 2px 0;">
+                            <span>Status:</span><span class="bold" style="color: ${paidAmount >= total ? '#16a34a' : paidAmount > 0 ? '#ca8a04' : '#ef4444'};">${status.toUpperCase()}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 2px 0;">
+                            <span>Paid Amount:</span><span class="bold">₹${paidAmount.toFixed(2)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 2px 0; color: ${balance > 0 ? '#ef4444' : '#1e293b'};">
+                            <span class="bold">Balance:</span><span class="bold">₹${balance.toFixed(2)}</span>
+                        </div>
+                        ${paidAmount > total ? `
+                        <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #16a34a;">
+                            <span>Change Returned:</span><span class="bold">₹${(paidAmount - total).toFixed(2)}</span>
+                        </div>
+                        ` : ''}
+                        <div style="display: flex; justify-content: space-between; padding: 2px 0; border-top: 1px dashed #ccc; margin-top: 2px; font-size: 9px;">
+                            <span>Payment Mode:</span><span>${bill.paymentMode || bill.paymentType || 'Cash'}</span>
+                        </div>
                     </div>
                     <div class="text-center" style="font-size: 8px; padding: 2px;">GST on Reverse Charge: No</div>
                 </div>
@@ -434,10 +521,11 @@ const generateClassicHTML = (bill, settings, colors) => {
     const storeAddress = store.address || {};
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
-    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const customerName = bill.customerName || customer.fullName || customer.name || '';
     const isInter = bill.taxType === 'inter';
     const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
     const currency = settings?.defaults?.currency || '₹';
+    const bank = settings?.bankDetails || {};
     const { showLogo = true } = settings?.invoice || {};
 
     const itemsHTML = items.map((item, idx) => {
@@ -510,6 +598,14 @@ const generateClassicHTML = (bill, settings, colors) => {
                 <div style="flex: 1.5; padding: 20px; border-right: 1px solid #e2e8f0;">
                     <div style="font-weight: bold; font-size: 12px; margin-bottom: 10px;">Terms & Notes</div>
                     <div style="font-size: 11px; line-height: 1.6; color: #64748b;">
+                        ${bank.accountNumber ? `
+                            <div style="margin-bottom: 8px;">
+                                <div style="font-weight: bold; color: #1e293b;">Bank Details:</div>
+                                <div>A/c Name: ${bank.accountName || '-'}</div>
+                                <div>Bank: ${bank.bankName || '-'} | A/c: ${bank.accountNumber || '-'}</div>
+                                <div>IFSC: ${bank.ifsc || '-'}</div>
+                            </div>
+                        ` : ''}
                         1. Goods once sold will be not taken back.<br/>
                         2. Interest @18% pa will be charged if not paid within due date.<br/>
                         Thank you for your business!
@@ -537,13 +633,40 @@ const generateClassicHTML = (bill, settings, colors) => {
                             <span>Discount:</span><span class="bold">-${currency}${Number(bill.totals.discount).toFixed(2)}</span>
                         </div>
                         ` : ''}
+                        ${Number(bill.totals.loyaltyPointsRedeemed || 0) > 0 || Number(bill.totals.loyaltyPointsDiscount || 0) > 0 ? `
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; color: #fff; font-size: 11px; opacity: 0.9;">
+                            <span>Loyalty Saved:</span><span class="bold">-${currency}${Number(bill.totals.loyaltyPointsDiscount || 0).toFixed(2)}</span>
+                        </div>
+                        ` : ''}
                         <div style="display: flex; justify-content: space-between; color: #64748b; font-size: 10px;">
                             <span>Round Off:</span><span>${bill.totals.roundOff.toFixed(2)}</span>
                         </div>
                     </div>
                     <div class="grand-total">
-                        <span style="font-size: 12px; opacity: 0.9;">TOTAL DUE</span>
+                        <span style="font-size: 14px; letter-spacing: 1px;">TOTAL</span>
                         <span>${currency}${Number(bill.totals.total).toFixed(2)}</span>
+                    </div>
+
+                    <div style="margin-top: 10px; padding: 12px; background: rgba(255,255,255,0.1); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.3);">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                            <span style="opacity: 0.8; font-size: 10px; text-transform: uppercase;">Payment Status</span>
+                            <span style="font-weight: 900; font-size: 12px;">${(Number(bill.amountReceived || 0) >= Number(bill.totals.total) ? 'PAID FULLY' :
+            Number(bill.amountReceived || 0) > 0 ? 'PARTIALLY PAID' : 'NOT PAID')}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="opacity: 0.8;">Paid Amount:</span><span class="bold">${currency}${Number(bill.amountReceived || 0).toFixed(2)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; color: ${Math.max(0, Number(bill.totals.total) - Number(bill.amountReceived || 0)) > 0 ? '#fee2e2' : '#fff'};">
+                            <span style="opacity: 0.8; font-weight: bold;">Balance:</span><span class="bold">${currency}${Math.max(0, Number(bill.totals.total) - Number(bill.amountReceived || 0)).toFixed(2)}</span>
+                        </div>
+                        ${(Number(bill.amountReceived || 0) > Number(bill.totals.total)) ? `
+                        <div style="display: flex; justify-content: space-between; color: #dcfce7;">
+                            <span style="opacity: 0.8;">Change Given:</span><span class="bold">${currency}${Math.round(Number(bill.amountReceived || 0) - Number(bill.totals.total)).toFixed(2)}</span>
+                        </div>
+                        ` : ''}
+                        <div style="display: flex; justify-content: space-between; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 10px; opacity: 0.8;">
+                            <span>Mode: ${bill.paymentMode || 'Cash'}</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -558,9 +681,11 @@ const generateMinimalHTML = (bill, settings, colors) => {
     const storeAddress = store.address || {};
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
-    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const customerName = bill.customerName || customer.fullName || customer.name || '';
+    const isInter = bill.taxType === 'inter';
     const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
     const currency = settings?.defaults?.currency || '₹';
+    const bank = settings?.bankDetails || {};
     const { showLogo = true } = settings?.invoice || {};
 
     const itemsHTML = items.map((item) => {
@@ -669,9 +794,36 @@ const generateMinimalHTML = (bill, settings, colors) => {
                             <span>Discount</span><span>-${currency}${Number(bill.totals.discount).toFixed(2)}</span>
                         </div>
                     ` : ''}
+                    ${Number(bill.totals.loyaltyPointsRedeemed || 0) > 0 || Number(bill.totals.loyaltyPointsDiscount || 0) > 0 ? `
+                        <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #115e59; font-weight: bold;">
+                            <span>Loyalty Deduction</span><span>-${currency}${Number(bill.totals.loyaltyPointsDiscount || 0).toFixed(2)}</span>
+                        </div>
+                    ` : ''}
                     <div class="total-banner">
                         <span style="font-weight: bold; letter-spacing: 1px;">TOTAL</span>
                         <span style="font-size: 24px; font-weight: 900;">${currency}${Number(bill.totals.total).toFixed(2)}</span>
+                    </div>
+                    <div style="margin-top: 15px; padding: 15px; border: 1.5px solid #e5e7eb; border-radius: 12px; background: #fdfdfd;">
+                        <div style="font-size: 10px; font-weight: 800; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">Payment Summary</div>
+                        <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
+                            <span style="color: #6b7280;">Amount Paid:</span><span style="font-weight: 700; color: #111827;">${currency}${Number(bill.amountReceived || 0).toFixed(2)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
+                            <span style="color: #6b7280;">Payment Status:</span>
+                            <span style="font-weight: 900; padding: 2px 8px; border-radius: 6px; font-size: 11px; background: ${Number(bill.amountReceived || 0) >= Number(bill.totals.total) ? '#dcfce7' : '#fee2e2'}; color: ${Number(bill.amountReceived || 0) >= Number(bill.totals.total) ? '#166534' : '#991b1b'};">
+                                ${Number(bill.amountReceived || 0) >= Number(bill.totals.total) ? 'PAID FULLY' :
+            Number(bill.amountReceived || 0) > 0 ? 'PARTIALLY PAID' : 'NOT PAID'}
+                            </span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 14px; color: ${Math.max(0, Number(bill.totals.total) - Number(bill.amountReceived || 0)) > 0 ? '#ef4444' : '#111827'}; border-top: 1px dashed #eee; pt: 8px; mt: 8px;">
+                            <span style="font-weight: 600;">Balance:</span><span style="font-weight: 900;">${currency}${Math.max(0, Number(bill.totals.total) - Number(bill.amountReceived || 0)).toFixed(2)}</span>
+                        </div>
+                        ${(Number(bill.amountReceived || 0) > Number(bill.totals.total)) ? `
+                        <div style="display: flex; justify-content: space-between; font-size: 13px; color: #16a34a; border-top: 1px dashed #eee; pt: 8px; mt: 8px;">
+                            <span>Change Returned:</span><span style="font-weight: 700;">${currency}${(Number(bill.amountReceived || 0) - Number(bill.totals.total)).toFixed(2)}</span>
+                        </div>
+                        ` : ''}
+                        <div style="margin-top: 10px; font-size: 10px; color: #9ca3af; text-align: right;">Mode: ${bill.paymentMode || 'Cash'}</div>
                     </div>
                 </div>
             </div>
@@ -686,10 +838,11 @@ const generateCompactHTML = (bill, settings, colors) => {
     const storeAddress = store.address || {};
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
-    const customerName = bill.customerName || customer.fullName || customer.name || 'Walk-in Customer';
+    const customerName = bill.customerName || customer.fullName || customer.name || '';
     const isInter = bill.taxType === 'inter';
     const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
     const currency = settings?.defaults?.currency || '₹';
+    const bank = settings?.bankDetails || {};
     const { showLogo = true } = settings?.invoice || {};
 
     const itemsHTML = items.map((item, idx) => {
@@ -767,8 +920,16 @@ const generateCompactHTML = (bill, settings, colors) => {
                     <div style="font-size: 11px; line-height: 1.6;">1. Goods once sold will be not taken back.<br/>2. Pay securely via UPI.</div>
                 </div>
                 <div style="flex: 1;">
+                    ${Number(bill.totals.loyaltyPointsDiscount || 0) > 0 ? `
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; color: ${colors.primary}; font-weight: bold; font-size: 11px;">
+                        <span>Loyalty Deduction:</span><span>-${currency}${Number(bill.totals.loyaltyPointsDiscount || 0).toFixed(2)}</span>
+                    </div>
+                    ` : ''}
                     <div class="grand-total-row">
-                        <span style="font-size: 12px;">TOTAL</span>
+                        <span style="font-size: 14px;">
+                            ${Number(bill.amountReceived || 0) >= Number(bill.totals.total) ? 'PAID FULLY' :
+            Number(bill.amountReceived || 0) > 0 ? 'PARTIALLY PAID' : 'NOT PAID'}
+                        </span>
                         <span>${currency}${Number(bill.totals.total).toFixed(2)}</span>
                     </div>
                     <div style="padding: 15px; font-size: 11px;">
@@ -783,10 +944,22 @@ const generateCompactHTML = (bill, settings, colors) => {
                             <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                                 <span>CGST:</span><span>${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between;">
+                            <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${colors.primary}; padding-bottom: 8px; margin-bottom: 8px;">
                                 <span>SGST:</span><span>${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span>
                             </div>
                         `}
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px; color: ${colors.primary}; font-weight: bold;">
+                            <span>Amount Paid:</span><span>${currency}${Number(bill.amountReceived || 0).toFixed(2)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; color: ${Math.max(0, Number(bill.totals.total) - Number(bill.amountReceived || 0)) > 0 ? '#ef4444' : '#1e293b'}; font-weight: 900;">
+                            <span>Balance:</span><span>${currency}${Math.max(0, Number(bill.totals.total) - Number(bill.amountReceived || 0)).toFixed(2)}</span>
+                        </div>
+                        ${(Number(bill.amountReceived || 0) > Number(bill.totals.total)) ? `
+                        <div style="display: flex; justify-content: space-between; color: #16a34a; font-weight: 900;">
+                            <span>Change Returned:</span><span>${currency}${(Number(bill.amountReceived || 0) - Number(bill.totals.total)).toFixed(2)}</span>
+                        </div>
+                        ` : ''}
+                        <div style="font-size: 9px; opacity: 0.6; text-align: right; margin-top: 5px;">Mode: ${bill.paymentMode || 'Cash'}</div>
                     </div>
                 </div>
             </div>
@@ -798,7 +971,17 @@ const generateCompactHTML = (bill, settings, colors) => {
 
 export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
     const paperSize = settings?.invoice?.paperSize || '80mm';
-    if (paperSize === '80mm' || paperSize === '58mm') {
+    // For customer/bw mode, we always use thermal
+    if (mode === 'customer' || mode === 'bw') {
+        return generateThermalReceiptHTML(bill, settings, mode);
+    }
+
+    // For invoice mode, use thermal template ONLY if paper size is thermal-sized AND no other template is specified
+    // or if the template itself is set to 'Thermal'
+    const isThermalSize = paperSize === '80mm' || paperSize === '58mm';
+    const isThermalTemplate = settings?.invoice?.template === 'Thermal';
+
+    if (isThermalTemplate || (isThermalSize && mode !== 'invoice')) {
         return generateThermalReceiptHTML(bill, settings, mode);
     }
 
@@ -1069,12 +1252,12 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
         // customer/bw = Bill Receipt (Thermal)
         // invoice = System Invoice (A4/A5)
         if (mode === 'customer' || mode === 'bw') {
-            format = settings?.invoice?.billPaperSize || '80mm';
+            format = '80mm';
         } else {
             // Default to Invoice Size, unless template is explicitly 'Thermal' (legacy check)
             const template = settings?.invoice?.template || 'Classic';
             if (template === 'Thermal') {
-                format = settings?.invoice?.billPaperSize || '80mm';
+                format = '80mm';
             } else {
                 format = settings?.invoice?.invoicePaperSize || 'A4';
             }
@@ -1089,7 +1272,6 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
         const html = generateReceiptHTML(bill, settings, mode);
         const paperSize = format; // settings.invoice.paperSize is now synced
 
-        // Define width based on paper size
         // Define width based on paper size
         let width = 302; // Default for 80mm
         let height = undefined; // Default auto/page height 

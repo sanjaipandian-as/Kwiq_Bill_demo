@@ -12,7 +12,7 @@ export const generateBillHTML = (billData, storeSettings) => {
     const storePhone = storeSettings?.phone || '';
     const storeGST = storeSettings?.gst || '';
 
-    const customerName = billData.customer?.name || 'Walk-in Customer';
+    const customerName = billData.customer?.name || '';
     const customerPhone = billData.customer?.phone || '';
 
     const dateStr = new Date().toLocaleDateString('en-IN', {

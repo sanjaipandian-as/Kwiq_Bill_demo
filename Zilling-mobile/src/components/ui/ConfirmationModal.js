@@ -110,9 +110,9 @@ const styles = StyleSheet.create({
     },
     message: {
         fontSize: 14,
-        color: '#64748b',
-        textAlign: 'left', // Changed from center to left for better multi-line readability
-        width: '100%',     // Ensure it takes full width for proper alignment
+        color: '#444',
+        textAlign: 'left',
+        width: '100%',
         lineHeight: 22,
         marginBottom: 28,
         fontWeight: '600',
@@ -130,13 +130,13 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#fff',
-        borderWidth: 1.5,
-        borderColor: '#e2e8f0'
+        borderWidth: 2,
+        borderColor: '#000'
     },
     cancelButtonText: {
         fontSize: 13,
         fontWeight: '800',
-        color: '#64748b',
+        color: '#000',
         letterSpacing: 0.5
     },
     confirmButton: {

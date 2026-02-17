@@ -117,8 +117,6 @@ export const SettingsProvider = ({ children, user }) => {
             if (dirty === 'true') setIsSettingsDirty(true);
         } catch (error) {
             console.error('Failed to load settings', error);
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -190,16 +188,22 @@ export const SettingsProvider = ({ children, user }) => {
     };
 
     useEffect(() => {
-        loadSettings();
-        loadSyncTime();
-        checkQueueStatus();
+        const initializeSettings = async () => {
+            setLoading(true);
+            await loadSettings();
+            await loadSyncTime();
+            await checkQueueStatus();
 
-        const initAutoSync = async () => {
-            setTimeout(() => {
-                syncAllData(false);
-            }, 5000);
+            // Initial Sync: Blocking if user is logged in
+            if (user && user.id) {
+                console.log('[SettingsContext] Initializing blocking sync...');
+                await syncAllData(false);
+            }
+
+            setLoading(false);
         };
-        initAutoSync();
+
+        initializeSettings();
 
         const intervalId = setInterval(() => {
             console.log('[AutoSync] Triggering periodic sync...');
@@ -207,7 +211,7 @@ export const SettingsProvider = ({ children, user }) => {
         }, 1 * 60 * 1000);
 
         return () => clearInterval(intervalId);
-    }, []);
+    }, [user]);
 
     const ensurePortableSettings = async (s) => {
         if (s.store?.logo && s.store.logo.startsWith('file://')) {

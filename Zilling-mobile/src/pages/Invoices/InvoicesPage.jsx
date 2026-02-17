@@ -25,9 +25,17 @@ import {
   Share2,
   Plus,
   X,
-  Trash,
+  Trash2,
   Recycle,
-  Eye
+  Eye,
+  Calendar,
+  CalendarDays,
+  ChevronDown,
+  Filter,
+  Globe,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  LayoutGrid
 } from 'lucide-react-native';
 
 import { Button } from '../../components/ui/Button';
@@ -50,6 +58,15 @@ export default function InvoicesPage() {
   const { settings } = useSettings(); // Get settings for print/share
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
+
+  // Date Filter State - GST Analytics Style
+  const [period, setPeriod] = useState('All Time');
+  const [selectedCustomDate, setSelectedCustomDate] = useState(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+
+  // Calendar State
+  const [currentCalView, setCurrentCalView] = useState(new Date());
 
   const [isEditModalVisible, setEditModalVisible] = useState(false);
   const [isDetailModalVisible, setDetailModalVisible] = useState(false);
@@ -184,6 +201,39 @@ export default function InvoicesPage() {
     });
   };
 
+  // Date Filter Functions - GST Analytics Style
+  const changePeriod = (p) => {
+    setPeriod(p);
+    setIsFilterOpen(false);
+  };
+
+  const handleCustomDateSelect = (date) => {
+    setSelectedCustomDate(date);
+    setPeriod('Custom');
+    setIsCalendarOpen(false);
+  };
+
+  const getPeriodLabel = () => {
+    if (period === 'Custom' && selectedCustomDate) {
+      const d = new Date(selectedCustomDate);
+      return `${d.getDate()} ${d.toLocaleString('default', { month: 'short' })} ${d.getFullYear()}`;
+    }
+    return period;
+  };
+
+  // Calendar Helpers
+  const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+  const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
+
+  const calendarHeader = currentCalView.toLocaleString('default', { month: 'long', year: 'numeric' });
+  const daysArr = Array.from({ length: getDaysInMonth(currentCalView.getFullYear(), currentCalView.getMonth()) }, (_, i) => i + 1);
+  const startPadding = Array.from({ length: getFirstDayOfMonth(currentCalView.getFullYear(), currentCalView.getMonth()) });
+
+  const shiftMonth = (offset) => {
+    const newDate = new Date(currentCalView.getFullYear(), currentCalView.getMonth() + offset, 1);
+    setCurrentCalView(newDate);
+  };
+
   const handleAddPress = () => {
     setEditingInvoice({
       id: `NEW-${Date.now()}`,
@@ -202,7 +252,7 @@ export default function InvoicesPage() {
       if (invoice.customerId) {
         const res = db.getAllSync('SELECT * FROM customers WHERE id = ?', [invoice.customerId]);
         if (res && res.length > 0) fullCustomer = res[0];
-      } else if (invoice.customerName && invoice.customerName !== 'Walk-in Customer') {
+      } else if (invoice.customerName && invoice.customerName !== 'Guest') {
         // Fallback by name
         const res = db.getAllSync('SELECT * FROM customers WHERE name = ?', [invoice.customerName]);
         if (res && res.length > 0) fullCustomer = res[0];
@@ -230,7 +280,7 @@ export default function InvoicesPage() {
       // Ensure we have a clean string for the name
       const finalName = editingInvoice.customerName && editingInvoice.customerName.trim() !== ''
         ? editingInvoice.customerName
-        : 'Walk-in Customer';
+        : 'Guest';
 
       if (isNew) {
         await addTransaction({
@@ -256,7 +306,7 @@ export default function InvoicesPage() {
     }
   };
 
-  // ... filters ...
+  // Date filtering logic - GST Analytics Style
   const filteredInvoices = transactions.filter(inv => {
     const invId = inv.id || '';
     const weeklyNo = inv.weekly_sequence?.toString() || '';
@@ -265,22 +315,55 @@ export default function InvoicesPage() {
       weeklyNo.includes(searchTerm) ||
       customer.toLowerCase().includes(searchTerm.toLowerCase());
     const status = inv.status ? (inv.status.charAt(0) + inv.status.slice(1).toLowerCase()) : 'Pending';
-    const matchesFilter = activeFilter === 'All' || status === activeFilter;
-    return matchesSearch && matchesFilter;
+    const matchesStatusFilter = activeFilter === 'All' || status === activeFilter;
+
+    // Date filtering - GST Analytics Style
+    let matchesDateFilter = true;
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const invDate = new Date(inv.date);
+
+    if (period === 'Today') {
+      matchesDateFilter = invDate >= startOfToday;
+    } else if (period === 'Yesterday') {
+      const yesterday = new Date(startOfToday);
+      yesterday.setDate(yesterday.getDate() - 1);
+      matchesDateFilter = invDate >= yesterday && invDate < startOfToday;
+    } else if (period === 'This Week') {
+      const startOfWeek = new Date(startOfToday);
+      startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay());
+      matchesDateFilter = invDate >= startOfWeek;
+    } else if (period === 'This Month') {
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      matchesDateFilter = invDate >= startOfMonth;
+    } else if (period === 'This Year') {
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+      matchesDateFilter = invDate >= startOfYear;
+    } else if (period === 'All Time') {
+      matchesDateFilter = true;
+    } else if (period === 'Custom' && selectedCustomDate) {
+      const targetDate = new Date(selectedCustomDate);
+      targetDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(targetDate);
+      endDate.setDate(targetDate.getDate() + 1);
+      matchesDateFilter = invDate >= targetDate && invDate < endDate;
+    }
+
+    return matchesSearch && matchesStatusFilter && matchesDateFilter;
   });
 
   const getStatusStyle = (status) => {
     switch (status?.toUpperCase()) {
-      case 'PAID': return { bg: '#ffffff', border: '#10b981', text: '#10b981', icon: CheckCircle2, label: 'Paid' };
-      case 'UNPAID': return { bg: '#ffffff', border: '#ef4444', text: '#ef4444', icon: Clock, label: 'Unpaid' };
-      default: return { bg: '#ffffff', border: '#000000', text: '#000000', icon: FileText, label: status || 'Unknown' };
+      case 'PAID': return { bg: '#dcfce7', border: '#dcfce7', text: '#15803d', icon: CheckCircle2, label: 'PAID' };
+      case 'UNPAID': return { bg: '#fee2e2', border: '#fee2e2', text: '#b91c1c', icon: Clock, label: 'UNPAID' };
+      default: return { bg: '#f1f5f9', border: '#f1f5f9', text: '#475569', icon: FileText, label: (status || 'Unknown').toUpperCase() };
     }
   };
 
   const stats = [
     { label: 'Total Revenue', value: `₹${transactions.reduce((sum, t) => sum + (t.total || 0), 0).toLocaleString()}`, icon: TrendingUp, color: '#000000', bg: '#f8fafc' },
     { label: 'Unpaid', value: `₹${transactions.filter(t => t.status !== 'PAID').reduce((sum, t) => sum + (t.balance || 0), 0).toLocaleString()}`, icon: Clock, color: '#ef4444', bg: '#fffafa' },
-    { label: 'Paid', value: `₹${transactions.filter(t => t.status === 'PAID').reduce((sum, t) => sum + (t.total || 0), 0).toLocaleString()}`, icon: CheckCircle2, color: '#10b981', bg: '#f0fdf4' },
+    { label: 'Paid', value: `₹${transactions.filter(t => t.status === 'PAID').reduce((sum, t) => sum + (t.total || 0), 0).toLocaleString()}`, icon: CheckCircle2, color: '#15803d', bg: '#dcfce7' },
   ];
 
   const handlePrint = async (invoice) => {
@@ -291,7 +374,7 @@ export default function InvoicesPage() {
         id: invoice.id,
         weekly_sequence: invoice.weekly_sequence,
         items: invoice.items || [], // IMPORTANT
-        customerName: invoice.customerName || 'Walk-in Customer',
+        customerName: invoice.customerName || 'Guest',
         date: invoice.date,
         total: invoice.total,
         subtotal: invoice.subtotal || 0,
@@ -322,7 +405,7 @@ export default function InvoicesPage() {
       >
         <View style={styles.cardHeaderRow}>
           <View>
-            <Text style={styles.customerName} numberOfLines={1}>{item.customerName || 'Walk-in Customer'}</Text>
+            <Text style={styles.customerName} numberOfLines={1}>{item.customerName || 'Guest'}</Text>
             <Text style={styles.invoiceMeta}>
               #{item.invoiceNumber || item.id?.toString().slice(-6).toUpperCase() || 'TEMP'}  •  {new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
             </Text>
@@ -378,9 +461,18 @@ export default function InvoicesPage() {
                 </Pressable>
                 <Text style={styles.title}>Invoices</Text>
               </View>
-              <View style={styles.headerActions}>
+            <View style={styles.headerActions}>
+                <Pressable
+                  style={[styles.iconBtnDark, period === 'Custom' && styles.iconBtnDarkActive]}
+                  onPress={() => setIsCalendarOpen(true)}
+                >
+                  <Calendar size={18} color={period === 'Custom' ? '#fff' : '#0f172a'} />
+                </Pressable>
+                <Pressable style={styles.iconBtnDark} onPress={() => setIsFilterOpen(true)}>
+                  <Filter size={18} color="#0f172a" />
+                </Pressable>
                 <Pressable style={styles.iconBtnDark} onPress={handleAddPress}>
-                  <Plus size={24} color="#0f172a" />
+                  <Plus size={20} color="#0f172a" />
                 </Pressable>
               </View>
             </View>
@@ -398,6 +490,7 @@ export default function InvoicesPage() {
               </View>
             </View>
 
+            {/* Status Filter Row */}
             <View style={styles.filterRow}>
               {['All', 'Paid', 'Unpaid'].map(status => {
                 const isActive = activeFilter === status;
@@ -484,10 +577,10 @@ export default function InvoicesPage() {
                 </View>
                 <View style={styles.customerCard}>
                   <View style={styles.customerAvatar}>
-                    <Text style={styles.avatarText}>{(selectedInvoice.customerName || 'W').charAt(0).toUpperCase()}</Text>
+                    <Text style={styles.avatarText}>{(selectedInvoice.customerName || 'N').charAt(0).toUpperCase()}</Text>
                   </View>
                   <View style={styles.customerInfo}>
-                    <Text style={styles.customerNameMain}>{selectedInvoice.customerName || 'Walk-in Customer'}</Text>
+                    <Text style={styles.customerNameMain}>{selectedInvoice.customerName || 'Guest'}</Text>
                     {selectedInvoice.fullCustomer ? (
                       <View style={styles.customerMeta}>
                         <Text style={styles.customerSubText}>{selectedInvoice.fullCustomer.phone}</Text>
@@ -673,6 +766,109 @@ export default function InvoicesPage() {
         cancelLabel={confirmModal.cancelLabel}
         onConfirm={confirmModal.onConfirm}
       />
+
+      {/* Filter Drawer - GST Analytics Style */}
+      <Modal
+        visible={isFilterOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsFilterOpen(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setIsFilterOpen(false)}>
+          <View style={styles.filterModal}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filter Invoices</Text>
+              <Pressable onPress={() => setIsFilterOpen(false)} style={styles.modalCloseBtn}>
+                <X size={18} color="#64748b" />
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.modalScroll}>
+              {[
+                { id: 'Today', label: 'Today', icon: Clock },
+                { id: 'Yesterday', label: 'Yesterday', icon: Clock },
+                { id: 'This Week', label: 'This Week', icon: Calendar },
+                { id: 'This Month', label: 'This Month', icon: Calendar },
+                { id: 'This Year', label: 'This Year', icon: Calendar },
+                { id: 'All Time', label: 'All Time', icon: Globe },
+              ].map(item => (
+                <Pressable
+                  key={item.id}
+                  style={[styles.filterItem, period === item.id && styles.activeFilterItem]}
+                  onPress={() => changePeriod(item.id)}
+                >
+                  <View style={styles.filterItemLeft}>
+                    <item.icon size={18} color={period === item.id ? '#000' : '#94a3b8'} />
+                    <Text style={[styles.filterItemLabel, period === item.id && styles.activeFilterItemLabel]}>{item.label}</Text>
+                  </View>
+                  <ChevronRight size={16} color="#cbd5e1" />
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Premium Calendar Picker Modal - GST Analytics Style */}
+      <Modal
+        visible={isCalendarOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsCalendarOpen(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setIsCalendarOpen(false)}>
+          <View style={styles.premiumCal}>
+            <View style={styles.calTop}>
+              <View style={styles.calNav}>
+                <Pressable onPress={() => shiftMonth(-1)} style={styles.calNavBtn}>
+                  <ChevronLeftIcon size={20} color="#000" />
+                </Pressable>
+                <Text style={styles.calMonthLabel}>{calendarHeader}</Text>
+                <Pressable onPress={() => shiftMonth(1)} style={styles.calNavBtn}>
+                  <ChevronRightIcon size={20} color="#000" />
+                </Pressable>
+              </View>
+              <Pressable onPress={() => setIsCalendarOpen(false)} style={styles.calClose}>
+                <X size={20} color="#94a3b8" />
+              </Pressable>
+            </View>
+
+            <View style={styles.calWeekRow}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                <Text key={i} style={styles.calWeekText}>{d}</Text>
+              ))}
+            </View>
+
+            <View style={styles.calGrid}>
+              {startPadding.map((_, i) => (
+                <View key={`p-${i}`} style={styles.calDayCell} />
+              ))}
+              {daysArr.map(day => {
+                const isSelected = selectedCustomDate &&
+                  selectedCustomDate.getDate() === day &&
+                  selectedCustomDate.getMonth() === currentCalView.getMonth() &&
+                  selectedCustomDate.getFullYear() === currentCalView.getFullYear();
+                return (
+                  <Pressable
+                    key={day}
+                    style={[styles.calDayCell, isSelected && styles.calDayActive]}
+                    onPress={() => handleCustomDateSelect(new Date(currentCalView.getFullYear(), currentCalView.getMonth(), day))}
+                  >
+                    <Text style={[styles.calDayText, isSelected && styles.calDayTextActive]}>{day}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable
+              style={styles.calTodayBtn}
+              onPress={() => handleCustomDateSelect(new Date())}
+            >
+              <Text style={styles.calTodayText}>Go to Today</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -708,22 +904,25 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)'
   },
   title: { fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
-  headerActions: { flexDirection: 'row', gap: 12 },
+  headerActions: { flexDirection: 'row', gap: 8 },
   iconBtnDark: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4
+    shadowRadius: 4,
+    elevation: 2
+  },
+  iconBtnDarkActive: {
+    backgroundColor: '#000',
   },
 
-  searchContainer: { marginBottom: 20 },
+  searchContainer: { marginBottom: 20, paddingHorizontal: 24, marginTop: 20 },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -732,7 +931,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     height: 52,
     borderWidth: 1,
-    borderColor: '#e2e8f0'
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   searchInputCustom: {
     flex: 1,
@@ -743,7 +947,14 @@ const styles = StyleSheet.create({
     height: '100%'
   },
 
-  filterRow: { flexDirection: 'row', gap: 8 },
+  // Status Filter Row
+  filterRow: { 
+    flexDirection: 'row', 
+    gap: 8,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
   filterBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -751,24 +962,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   filterBtnInactive: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderColor: 'rgba(255,255,255,0.1)'
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0'
   },
   filterBtnActive: {
-    backgroundColor: '#fff',
-    borderColor: '#fff'
+    backgroundColor: '#000',
+    borderColor: '#000'
   },
   filterText: { fontSize: 13, fontWeight: '700' },
-  filterTextInactive: { color: 'rgba(255,255,255,0.5)' },
-  filterTextActive: { color: '#0f172a' },
+  filterTextInactive: { color: '#64748b' },
+  filterTextActive: { color: '#fff' },
 
   recycleBtn: {
     marginLeft: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderColor: 'rgba(239, 68, 68, 0.25)',
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
     paddingHorizontal: 12
   },
   recycleText: {
@@ -828,9 +1039,9 @@ const styles = StyleSheet.create({
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 50,
     gap: 6,
     borderWidth: 1,
   },
@@ -839,7 +1050,12 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
-  statusText: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
+  },
 
   cardActions: {
     flexDirection: 'row',
@@ -985,5 +1201,223 @@ const styles = StyleSheet.create({
   modalFooter: { padding: 24, borderTopWidth: 1, borderTopColor: '#f1f5f9', flexDirection: 'row', gap: 16 },
   cancelBtn: { flex: 1, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#f1f5f9' },
   saveBtn: { flex: 2, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#0f172a' },
-  savetxt: { color: '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 0.5 }
+  savetxt: { color: '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 0.5 },
+
+
+  dateFilterScroll: {
+    paddingHorizontal: 22,
+    gap: 8,
+  },
+  dateFilterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  dateFilterChipActive: {
+    backgroundColor: '#fff',
+    borderColor: '#fff',
+  },
+  calendarChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dateFilterChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.8)',
+  },
+  dateFilterChipTextActive: {
+    color: '#000',
+  },
+
+  // Date Picker Modal Styles
+  datePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  datePickerModal: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  datePickerTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  datePickerContent: {
+    padding: 24,
+  },
+  datePickerSection: {
+    marginBottom: 24,
+  },
+  datePickerLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  yearMonthBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    marginRight: 8,
+  },
+  yearMonthBtnActive: {
+    backgroundColor: '#000',
+  },
+  yearMonthBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  yearMonthBtnTextActive: {
+    color: '#fff',
+  },
+  monthGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  monthBtn: {
+    width: '23%',
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+  },
+  monthBtnActive: {
+    backgroundColor: '#000',
+  },
+  monthBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  monthBtnTextActive: {
+    color: '#fff',
+  },
+  dayGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  dayBtn: {
+    width: '13%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayBtnActive: {
+    backgroundColor: '#000',
+  },
+  dayBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  dayBtnTextActive: {
+    color: '#fff',
+  },
+  selectedDateDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  selectedDateText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  datePickerFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  datePickerCancelBtn: {
+    flex: 1,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: '#f1f5f9',
+  },
+  datePickerCancelText: {
+    color: '#64748b',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  datePickerConfirmBtn: {
+    flex: 2,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: '#000',
+  },
+  // Modal Styles - GST Analytics Style
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  filterModal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, maxHeight: '80%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  modalTitle: { fontSize: 18, fontWeight: '900', color: '#000' },
+  modalCloseBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
+  modalScroll: { marginBottom: 10 },
+  filterItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderColor: '#f8fafc' },
+  activeFilterItem: { backgroundColor: '#f8fafc', paddingHorizontal: 12, borderRadius: 16, borderColor: 'transparent' },
+  filterItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  filterItemLabel: { fontSize: 15, fontWeight: '700', color: '#475569' },
+  activeFilterItemLabel: { color: '#000', fontWeight: '900' },
+
+  // Premium Calendar Styles - GST Analytics Style
+  premiumCal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
+  calTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
+  calNav: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  calNavBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', borderRadius: 8 },
+  calMonthLabel: { fontSize: 17, fontWeight: '900', color: '#000' },
+  calClose: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
+
+  calWeekRow: { flexDirection: 'row', marginBottom: 15 },
+  calWeekText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '900', color: '#cbd5e1' },
+
+  calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calDayCell: { width: 45, height: 45, margin: 2, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
+  calDayActive: { backgroundColor: '#000' },
+  calDayText: { fontSize: 14, fontWeight: '700', color: '#475569' },
+  calDayTextActive: { color: '#fff', fontWeight: '900' },
+
+  calTodayBtn: { marginTop: 25, height: 50, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+  calTodayText: { fontSize: 14, fontWeight: '800', color: '#000' }
 });

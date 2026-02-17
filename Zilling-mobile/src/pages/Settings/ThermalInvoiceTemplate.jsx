@@ -13,7 +13,7 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
     const invoice = data || {
         invoiceNo: '1',
         date: '14/2/2026',
-        customer: { name: 'Walk-in' },
+        customer: { name: '' },
         paymentMode: 'Cash',
         items: [
             { name: 'Sugar 1kg', quantity: 1, price: 50, total: 50 }
@@ -41,7 +41,7 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
                 <Text style={styles.tpText}>Date: {invoice.date}</Text>
             </View>
             <View style={styles.tpRow}>
-                <Text style={styles.tpText}>Cust: {invoice.customer?.name || 'Walk-in'}</Text>
+                <Text style={styles.tpText}>Cust: {invoice.customer?.name || ''}</Text>
                 <Text style={styles.tpText}>Mode: {invoice.paymentMode}</Text>
             </View>
 

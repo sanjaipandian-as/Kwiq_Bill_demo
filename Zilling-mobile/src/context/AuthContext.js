@@ -15,10 +15,27 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
+        const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+        const currentUser = await GoogleSignin.getCurrentUser();
+
         // Keeps login/session data in AsyncStorage
         const savedUser = await AsyncStorage.getItem('user');
-        if (savedUser) {
+
+        // Only restore session if both local user exists AND Google session is active
+        if (savedUser && currentUser) {
           setUser(JSON.parse(savedUser));
+        } else if (savedUser && !currentUser) {
+          // Attempt silent sign-in if we have a saved user but no active session object
+          try {
+            const user = await GoogleSignin.signInSilently();
+            if (user) {
+              setUser(JSON.parse(savedUser));
+            } else {
+              await logout(); // Clear everything if session is truly gone
+            }
+          } catch (e) {
+            await logout();
+          }
         }
       } catch (error) {
         console.log('Auth init error:', error);
@@ -59,13 +76,12 @@ export const AuthProvider = ({ children }) => {
         // Alert removed to keep sync UI smooth
       }
 
-      // 3. Save locally
+      // 3. Save locally - ONLY TOKEN for now, we save USER after sync
       if (backendToken && backendToken !== idToken) {
         await AsyncStorage.setItem('token', backendToken);
       } else {
         await AsyncStorage.removeItem('token');
       }
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
 
       // 4. RESTORE: Fetch Snapshot & Settings from Drive (Before setting user state)
       try {
@@ -77,27 +93,29 @@ export const AuthProvider = ({ children }) => {
       // 6. AUTO-SYNC: Sync Down Events (Apply deltas)
       try {
         console.log('Starting Initial Sync Down...');
-        if (onProgress) onProgress('Syncing recent transactions...', 0.6);
+        if (onProgress) onProgress('Syncing transactions...', 0.65);
 
         const { SyncService } = require('../services/OneWaySyncService');
 
-        // Custom progress handler for the sync service
-        const syncProgressHandler = (msg) => {
-          if (onProgress) onProgress(msg, 0.7);
+        // Custom progress handler for the sync service - pass through granular progress
+        const syncProgressHandler = (msg, progress) => {
+          if (onProgress) onProgress(msg, progress || 0.75);
         };
 
         await SyncService.syncDown(syncProgressHandler);
 
-        if (onProgress) onProgress('Updating cloud backup...', 0.9);
+        if (onProgress) onProgress('Updating cloud backup...', 0.95);
         await saveUserDetailsToDrive(userData);
       } catch (syncError) {
         console.log('Initial Sync Down failed:', syncError);
       }
 
-      // 5. Update State
-      if (onProgress) onProgress('Finalizing...', 1.0);
-      await new Promise(r => setTimeout(r, 500)); // Small delay for UX
+      // 5. Update State & Persist ONLY after 100% completion
+      if (onProgress) onProgress('Finishing up...', 1.0);
+      await new Promise(r => setTimeout(r, 800)); // Delay for UX
 
+      // Critical: Don't set user in storage or state until sync is complete
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
 
       return userData;

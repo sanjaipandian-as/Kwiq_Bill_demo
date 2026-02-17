@@ -90,6 +90,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
         ...initialState,
         ...product,
         costPrice: product.cost_price !== undefined ? String(product.cost_price) : (product.costPrice || ''),
+        minStock: product.min_stock !== undefined ? String(product.min_stock) : (product.minStock || ''),
         barcode: product.sku || product.barcode || initialState.barcode,
         variants: loadedVariants,
         variant: product.variant || '',

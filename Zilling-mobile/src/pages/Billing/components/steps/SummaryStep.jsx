@@ -6,6 +6,17 @@ import { Card } from '../../../../components/ui/Card';
 import { printReceipt, shareReceiptPDF } from '../../../../utils/printUtils';
 
 const SummaryStep = ({ bill, onReset }) => {
+    // Guard against undefined bill
+    if (!bill) {
+        return (
+            <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+                <View style={styles.successHeader}>
+                    <Text style={styles.successTitle}>No Bill Data</Text>
+                </View>
+            </ScrollView>
+        );
+    }
+
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <View style={styles.successHeader}>
@@ -13,7 +24,7 @@ const SummaryStep = ({ bill, onReset }) => {
                     <CheckCircle2 size={40} color="#fff" />
                 </View>
                 <Text style={styles.successTitle}>Transaction Successful</Text>
-                <Text style={styles.billId}>Invoice #{bill.id}</Text>
+                <Text style={styles.billId}>Invoice #{bill.id || 'N/A'}</Text>
             </View>
 
             <Card style={styles.infoCard}>
@@ -23,7 +34,7 @@ const SummaryStep = ({ bill, onReset }) => {
                     </View>
                     <View style={styles.itemInfo}>
                         <Text style={styles.label}>Customer</Text>
-                        <Text style={styles.value}>{bill.customer ? (bill.customer.name || bill.customer.fullName) : 'Walk-in Customer'}</Text>
+                        <Text style={styles.value}>{bill?.customer ? (bill.customer.name || bill.customer.fullName) : 'Guest'}</Text>
                     </View>
                 </View>
 
@@ -33,7 +44,7 @@ const SummaryStep = ({ bill, onReset }) => {
                     </View>
                     <View style={styles.itemInfo}>
                         <Text style={styles.label}>Payment Method</Text>
-                        <Text style={styles.value}>{bill.paymentMode || 'Cash'}</Text>
+                        <Text style={styles.value}>{bill?.paymentMode || 'Cash'}</Text>
                     </View>
                 </View>
 
@@ -43,7 +54,7 @@ const SummaryStep = ({ bill, onReset }) => {
                     </View>
                     <View style={styles.itemInfo}>
                         <Text style={styles.label}>Items</Text>
-                        <Text style={styles.value}>{bill.cart?.length || 0} items</Text>
+                        <Text style={styles.value}>{bill?.cart?.length || 0} items</Text>
                     </View>
                 </View>
             </Card>
@@ -51,12 +62,12 @@ const SummaryStep = ({ bill, onReset }) => {
             <View style={styles.totalsSection}>
                 <View style={styles.totalRow}>
                     <Text style={styles.totalLabel}>Grand Total</Text>
-                    <Text style={styles.totalValue}>₹{(bill.totals?.total || 0).toFixed(2)}</Text>
+                    <Text style={styles.totalValue}>₹{(bill?.totals?.total || 0).toFixed(2)}</Text>
                 </View>
                 {bill.amountReceived > 0 && (
                     <View style={styles.totalRow}>
                         <Text style={styles.changeLabel}>Change Returned</Text>
-                        <Text style={styles.changeValue}>₹{Math.max(0, bill.amountReceived - (bill.totals?.total || 0)).toFixed(2)}</Text>
+                        <Text style={styles.changeValue}>₹{Math.max(0, (bill?.amountReceived || 0) - (bill?.totals?.total || 0)).toFixed(2)}</Text>
                     </View>
                 )}
             </View>

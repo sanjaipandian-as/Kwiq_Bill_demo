@@ -1,8 +1,17 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 
-const MinimalInvoiceTemplate = ({ data, taxType = 'intra' }) => {
+const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra' }) => {
     // Default dummy data if not provided (matching the image style)
+    const store = settings?.store || {
+        name: 'kaviraja',
+        address: { street: 'D. NO: 7, Kulandaivelpuram, 1st street, Vellakottai, Aruppukottai, virudhunagar', state: 'Tamil Nadu', pincode: '626101' },
+        email: 'mkvr2006@gmail.com',
+        gstin: '123456789'
+    };
+
+    const bank = settings?.bankDetails || {};
+
     const invoiceData = data || {
         invoiceNo: '#6981e46389ed8bc3c8a24d4f',
         date: '2/3/2026',
@@ -26,12 +35,11 @@ const MinimalInvoiceTemplate = ({ data, taxType = 'intra' }) => {
                     <Text style={styles.invoiceNo}>{invoiceData.invoiceNo}</Text>
                 </View>
                 <View style={{ width: '60%', alignItems: 'flex-end' }}>
-                    <Text style={styles.storeName} numberOfLines={1} adjustsFontSizeToFit>kaviraja</Text>
-                    <Text style={styles.storeAddress}>D. NO: 7, Kulandaivelpuram, 1st street,</Text>
-                    <Text style={styles.storeAddress}>Vellakottai, Aruppukottai, virudhunagar, Tamil</Text>
-                    <Text style={styles.storeAddress}>Nadu, 626101</Text>
-                    <Text style={styles.storeAddress}>mkvr2006@gmail.com</Text>
-                    <Text style={styles.storeAddress}>GSTIN: 123456789</Text>
+                    <Text style={styles.storeName} numberOfLines={1} adjustsFontSizeToFit>{store.name}</Text>
+                    <Text style={styles.storeAddress}>{store.address?.street}</Text>
+                    <Text style={styles.storeAddress}>{store.address?.city} {store.address?.state} {store.address?.pincode}</Text>
+                    <Text style={styles.storeAddress}>{store.email}</Text>
+                    <Text style={styles.storeAddress}>GSTIN: {store.gstin}</Text>
                 </View>
             </View>
 
@@ -41,7 +49,7 @@ const MinimalInvoiceTemplate = ({ data, taxType = 'intra' }) => {
                 <View style={styles.metaRow}>
                     <View style={{ flex: 1 }}>
                         <Text style={styles.label}>BILL TO</Text>
-                        <Text style={styles.billToName}>{invoiceData.billTo}</Text>
+                        <Text style={styles.billToName}>{invoiceData.billTo || invoiceData.customerName}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
                         <View style={styles.dateRow}>
@@ -50,7 +58,7 @@ const MinimalInvoiceTemplate = ({ data, taxType = 'intra' }) => {
                         </View>
                         <View style={styles.dateRow}>
                             <Text style={styles.label}>DUE DATE</Text>
-                            <Text style={styles.dateValue}>{invoiceData.dueDate}</Text>
+                            <Text style={styles.dateValue}>{invoiceData.dueDate || invoiceData.date}</Text>
                         </View>
                     </View>
                 </View>
@@ -67,13 +75,13 @@ const MinimalInvoiceTemplate = ({ data, taxType = 'intra' }) => {
                     </View>
 
                     {/* Rows */}
-                    {invoiceData.items.map((item, index) => (
+                    {(invoiceData.items || invoiceData.cart || []).map((item, index) => (
                         <View key={index} style={styles.tableRow}>
-                            <Text style={[styles.td, { flex: 2, textAlign: 'left', paddingLeft: 4 }]}>{item.desc}</Text>
-                            <Text style={[styles.td, styles.colCenter, { width: 40 }]}>{item.qty}</Text>
+                            <Text style={[styles.td, { flex: 2, textAlign: 'left', paddingLeft: 4 }]}>{item.desc || item.name}</Text>
+                            <Text style={[styles.td, styles.colCenter, { width: 40 }]}>{item.qty || item.quantity}</Text>
                             <Text style={[styles.td, styles.colRight, { width: 70 }]}>{item.price}</Text>
-                            <Text style={[styles.td, styles.colRight, { width: 40 }]}>{item.tax}</Text>
-                            <Text style={[styles.td, { width: 80, textAlign: 'right', fontWeight: 'bold', paddingRight: 4 }]}>{item.amount}</Text>
+                            <Text style={[styles.td, styles.colRight, { width: 40 }]}>{item.tax || item.taxRate + '%'}</Text>
+                            <Text style={[styles.td, { width: 80, textAlign: 'right', fontWeight: 'bold', paddingRight: 4 }]}>{item.amount || item.total}</Text>
                         </View>
                     ))}
                     {/* Filler Row for visuals */}
@@ -84,13 +92,20 @@ const MinimalInvoiceTemplate = ({ data, taxType = 'intra' }) => {
                 <View style={styles.footer}>
                     {/* Left: Notes */}
                     <View style={styles.notesContainer}>
+                        {bank.accountNumber && (
+                            <View style={{ marginBottom: 12 }}>
+                                <Text style={styles.notesTitle}>BANK DETAILS</Text>
+                                <Text style={styles.notesText}>{bank.bankName} | {bank.accountName}</Text>
+                                <Text style={styles.notesText}>A/c: {bank.accountNumber} | IFSC: {bank.ifsc}</Text>
+                                <View style={{ height: 1, backgroundColor: '#b2dfdb', marginVertical: 6 }} />
+                            </View>
+                        )}
                         <Text style={styles.notesTitle}>NOTES</Text>
-                        <Text style={styles.notesText}>Thank you for your business!</Text>
+                        <Text style={styles.notesText}>{settings?.invoice?.footerNote || 'Thank you for your business!'}</Text>
                         <View style={{ height: 10 }} />
                         <Text style={styles.termsTitle}>Terms:</Text>
                         <Text style={styles.termsText}>
-                            1. Goods once sold will not be taken back. 2. Interest
-                            @18% pa will be charged if not paid within due date.
+                            {settings?.invoice?.termsAndConditions || '1. Goods once sold will not be taken back. 2. Interest @18% pa will be charged if not paid within due date.'}
                         </Text>
                     </View>
 
@@ -106,18 +121,18 @@ const MinimalInvoiceTemplate = ({ data, taxType = 'intra' }) => {
                             {taxType === 'intra' ? (
                                 <>
                                     <View style={styles.taxRow}>
-                                        <Text style={styles.taxLabel}>CGST (2.5%)</Text>
-                                        <Text style={styles.taxValue}>₹{parseFloat(invoiceData.taxAmount) / 2}</Text>
+                                        <Text style={styles.taxLabel}>CGST</Text>
+                                        <Text style={styles.taxValue}>₹{parseFloat(invoiceData.taxAmount || invoiceData.tax || 0) / 2}</Text>
                                     </View>
                                     <View style={styles.taxRow}>
-                                        <Text style={styles.taxLabel}>SGST (2.5%)</Text>
-                                        <Text style={styles.taxValue}>₹{parseFloat(invoiceData.taxAmount) / 2}</Text>
+                                        <Text style={styles.taxLabel}>SGST</Text>
+                                        <Text style={styles.taxValue}>₹{parseFloat(invoiceData.taxAmount || invoiceData.tax || 0) / 2}</Text>
                                     </View>
                                 </>
                             ) : (
                                 <View style={styles.taxRow}>
-                                    <Text style={styles.taxLabel}>IGST (5%)</Text>
-                                    <Text style={styles.taxValue}>₹{invoiceData.taxAmount}</Text>
+                                    <Text style={styles.taxLabel}>IGST</Text>
+                                    <Text style={styles.taxValue}>₹{invoiceData.taxAmount || invoiceData.tax || 0}</Text>
                                 </View>
                             )}
                         </View>

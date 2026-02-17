@@ -90,6 +90,57 @@ export const getAccessToken = async () => {
 };
 
 /**
+ * DEBUG: Check if Store Branding (Logo) exists in Drive
+ */
+export const checkStoreBrandingStatus = async (user) => {
+  if (!user || !user.id) return { error: 'No user ID' };
+  try {
+    const accessToken = await getAccessToken();
+    const folderName = `KwiqBilling-${user.id}`;
+
+    // 1. Find folder
+    const folderQuery = `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const folderRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(folderQuery)}&fields=files(id)`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const folderData = await folderRes.json();
+    const folderId = folderData.files?.[0]?.id;
+
+    if (!folderId) return { folderExists: false, logoExists: false };
+
+    // 2. Find logo
+    const logoQuery = `name='store_logo.jpg' and '${folderId}' in parents and trashed=false`;
+    const logoRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(logoQuery)}&fields=files(id, modifiedTime, size)`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const logoData = await logoRes.json();
+    const logoFile = logoData.files?.[0];
+
+    // 3. Find settings.json
+    const settingsQuery = `name='settings.json' and '${folderId}' in parents and trashed=false`;
+    const settingsRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(settingsQuery)}&fields=files(id, modifiedTime)`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const settingsData = await settingsRes.json();
+
+    return {
+      folderExists: true,
+      folderId,
+      logoExists: !!logoFile,
+      logoId: logoFile?.id,
+      logoModified: logoFile?.modifiedTime,
+      logoSize: logoFile?.size,
+      settingsExists: !!settingsData.files?.[0],
+      settingsId: settingsData.files?.[0]?.id,
+      settingsModified: settingsData.files?.[0]?.modifiedTime
+    };
+  } catch (error) {
+    console.error('[Debug] Branding Check Error:', error);
+    return { error: error.message };
+  }
+};
+
+/**
  * Helper: Find or Create Folder
  */
 export const getOrCreateFolder = async (accessToken, folderName, parentId = null) => {
@@ -412,17 +463,26 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
     const folderId = searchData.files[0].id;
     console.log('[Restore] Found backup folder ID:', folderId);
 
-    // 1. List ALL files in the folder once to avoid multiple search API calls
+    // 1. Search for specific snapshot files we need to restore
+    // Optimization: query for specific filenames to avoid pagination issues when there are many event files.
     if (onProgress) onProgress('Connecting to backup engine...', 0.42);
-    const listQuery = `'${folderId}' in parents and trashed=false`;
+    const targetFiles = ['settings.json', 'products.json', 'customers.json', 'expenses.json', 'invoices.json', 'user details.json', 'store_logo.jpg'];
+    const namesQuery = targetFiles.map(name => `name='${name}'`).join(' or ');
+    const listQuery = `(${namesQuery}) and '${folderId}' in parents and trashed=false`;
+
+    console.log('[Restore] Querying for snapshots:', listQuery);
+
     const listRes = await fetchWithTimeout(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQuery)}&fields=files(id,name)`,
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQuery)}&fields=files(id,name)&pageSize=100`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     const listData = await listRes.json();
     const filesMap = {};
     if (listData.files) {
-      listData.files.forEach(f => { filesMap[f.name] = f.id; });
+      listData.files.forEach(f => {
+        filesMap[f.name] = f.id;
+      });
+      console.log('[Restore] Files found in cloud:', Object.keys(filesMap).join(', '));
     }
 
     // Helper to download JSON file using the map
@@ -435,7 +495,33 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
             `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
             { headers: { Authorization: `Bearer ${accessToken}` } }
           );
-          return await contentRes.json();
+
+          if (!contentRes.ok) throw new Error(`HTTP ${contentRes.status}`);
+
+          const text = await contentRes.text();
+          if (!text || text.trim() === "") return null;
+
+          let cleanText = text.trim();
+          if (cleanText.toLowerCase().includes('content-type:')) {
+            const parts = cleanText.split(/\r?\n\r?\n/);
+            if (parts.length > 1) {
+              for (let part of parts) {
+                const trimmed = part.trim();
+                if (trimmed.toLowerCase().includes('content-type:')) continue;
+                if (trimmed.length > 0) {
+                  cleanText = trimmed;
+                  break;
+                }
+              }
+            }
+          }
+
+          try {
+            return JSON.parse(cleanText);
+          } catch (e) {
+            console.error(`[Restore] JSON Parse Error for ${baseName}:`, e.message);
+            return null;
+          }
         }
       } catch (e) {
         console.log(`[Restore] Error fetching ${baseName}:`, e);
@@ -467,12 +553,13 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
 
     // Parallel Fetch All Data using the optimized map
     if (onProgress) onProgress('Downloading store snapshots... (Est. time: 3s)', 0.45);
-    const [settings, products, customers, expenses, invoices] = await Promise.all([
+    const [settings, products, customers, expenses, invoices, userDetailsFile] = await Promise.all([
       fetchFileFromMap('settings.json'),
       fetchFileFromMap('products.json'),
       fetchFileFromMap('customers.json'),
       fetchFileFromMap('expenses.json'),
-      fetchFileFromMap('invoices.json')
+      fetchFileFromMap('invoices.json'),
+      fetchFileFromMap('user details.json')
     ]);
 
     // Restore Logo if available
@@ -484,54 +571,50 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
     }
 
     // 1. Restore Settings
-    if (settings && Array.isArray(settings) && settings.length > 0) {
+    if ((settings && Array.isArray(settings) && settings.length > 0) || userDetailsFile) {
       if (onProgress) onProgress('Syncing store preferences...', 0.48);
       try {
         const localSaved = await AsyncStorage.getItem('app_settings');
         const localSettings = localSaved ? JSON.parse(localSaved) : {};
-        const driveSettings = settings[0];
 
-        // LOGO PRIORITY: 
-        // 1. Freshly downloaded local URI (best performance)
-        // 2. Portable base64 from settings.json (backup)
-        // 3. Keep existing if nothing else found
-        let finalLogo = localLogoUri;
-        if (!finalLogo && driveSettings.store?.logo && driveSettings.store.logo.startsWith('data:image')) {
-          finalLogo = driveSettings.store.logo;
-          console.log('[Restore] Using base64 logo from settings.json as fallback.');
-        }
+        // Settings from settings.json take priority, fallback to user details.json
+        const driveSettings = (settings && Array.isArray(settings) && settings.length > 0) ? settings[0] : (userDetailsFile || {});
+
+        // Deep extraction of bank details from multiple sources
+        const driveBank = driveSettings.bankDetails || userDetailsFile?.bankDetails || {};
 
         // Deep merge drive settings with local
         const merged = {
           ...localSettings,
           ...driveSettings,
           store: {
-            ...localSettings.store,
+            ...(localSettings.store || {}),
             ...(driveSettings.store || {}),
             // FORCE localLogoUri if we have it, otherwise fallback to base64 from JSON
-            logo: localLogoUri || (driveSettings.store?.logo && driveSettings.store.logo.startsWith('data:image') ? driveSettings.store.logo : null)
+            logo: localLogoUri || (driveSettings.store?.logo && driveSettings.store.logo.startsWith('data:image') ? driveSettings.store.logo : (localSettings.store?.logo || null))
           },
-          tax: { ...localSettings.tax, ...(driveSettings.tax || {}) },
-          invoice: { ...localSettings.invoice, ...(driveSettings.invoice || {}) },
-          defaults: { ...localSettings.defaults, ...(driveSettings.defaults || {}) }
+          tax: { ...(localSettings.tax || {}), ...(driveSettings.tax || {}) },
+          invoice: { ...(localSettings.invoice || {}), ...(driveSettings.invoice || {}) },
+          defaults: { ...(localSettings.defaults || {}), ...(driveSettings.defaults || {}) },
+          bankDetails: {
+            accountName: '', accountNumber: '', ifsc: '', bankName: '', branch: '', // Default structure
+            ...(localSettings.bankDetails || {}),
+            ...driveBank
+          }
         };
 
-        // FINAL SANITY CHECK: If localLogoUri exists but merge somehow missed it, force it.
+        // Final Logo Sanity Check
         if (localLogoUri) {
           merged.store.logo = localLogoUri;
         }
 
         await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
-        console.log('[Restore] Settings merged and restored. Logo source:', localLogoUri ? 'Local File' : (merged.store.logo ? 'Base64' : 'None'));
+        console.log('[Restore] Settings merged and restored. Bank details found:', !!driveBank.accountNumber);
       } catch (e) {
-        console.warn('[Restore] Settings merge failed, forcing overwrite:', e);
-        // If merge fails, still try to inject logo
-        const toSave = settings[0];
-        const finalLogo = localLogoUri || (toSave.store?.logo?.startsWith('data:image') ? toSave.store.logo : null);
-        if (toSave.store) {
-          toSave.store.logo = finalLogo;
-        }
-        await AsyncStorage.setItem('app_settings', JSON.stringify(toSave));
+        console.warn('[Restore] Settings merge failed, fixing state:', e.message);
+        // Minimum viable settings restore
+        const fallback = (settings && settings[0]) || userDetailsFile || {};
+        await AsyncStorage.setItem('app_settings', JSON.stringify(fallback));
       }
     }
 
@@ -541,9 +624,24 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       await db.withTransactionAsync(async () => {
         for (const p of products) {
           await db.runAsync(
-            `INSERT OR REPLACE INTO products (id, name, sku, category, price, stock, unit, tax_rate, variants, variant, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [p.id, p.name, p.sku, p.category, p.price, p.stock, p.unit, p.tax_rate, p.variants, p.variant, p.created_at, p.updated_at]
+            `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              p.id,
+              p.name,
+              p.sku,
+              p.category,
+              p.price || 0,
+              p.cost_price || p.costPrice || 0,
+              p.stock || 0,
+              p.min_stock || p.minStock || 0,
+              p.unit || 'pc',
+              p.tax_rate || 0,
+              (typeof p.variants === 'string' ? p.variants : JSON.stringify(p.variants || [])),
+              p.variant,
+              p.created_at,
+              p.updated_at
+            ]
           );
         }
       });
@@ -556,9 +654,13 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       await db.withTransactionAsync(async () => {
         for (const c of customers) {
           await db.runAsync(
-            `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, amountPaid, whatsappOptIn, smsOptIn)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [c.id, c.name, c.phone, c.email, c.type, c.gstin, c.address, c.source, c.tags, c.loyaltyPoints, c.notes, c.created_at, c.updated_at, c.amountPaid, c.whatsappOptIn, c.smsOptIn]
+            `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, amountPaid, whatsappOptIn, smsOptIn, outstanding)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              c.id, c.name, c.phone, c.email, c.type, c.gstin, c.address, c.source, c.tags,
+              c.loyaltyPoints || 0, c.notes, c.created_at, c.updated_at, c.amountPaid || 0,
+              c.whatsappOptIn ? 1 : 0, c.smsOptIn ? 1 : 0, c.outstanding || 0
+            ]
           );
         }
       });
@@ -571,9 +673,9 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       await db.withTransactionAsync(async () => {
         for (const e of expenses) {
           await db.runAsync(
-            `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, tags, receipt_url, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [e.id, e.title, e.amount, e.category, e.date, e.payment_method, e.tags, e.receipt_url, e.created_at, e.updated_at]
+            `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, tags, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [e.id, e.title, e.amount, e.category, e.date, e.payment_method, (typeof e.tags === 'string' ? e.tags : JSON.stringify(e.tags || [])), e.created_at, e.updated_at]
           );
         }
       });
@@ -586,9 +688,21 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       await db.withTransactionAsync(async () => {
         for (const i of invoices) {
           await db.runAsync(
-            `INSERT OR REPLACE INTO invoices (id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [i.id, i.customer_id, i.customer_name, i.date, i.type, i.items, i.subtotal, i.tax, i.discount, i.total, i.status, i.payments, i.created_at, i.updated_at]
+            `INSERT OR REPLACE INTO invoices (
+                id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, 
+                grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, taxType, weekly_sequence,
+                loyalty_points_redeemed, loyalty_points_earned, loyalty_points_discount, is_deleted, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              i.id, i.customer_id, i.customer_name, i.date, i.type,
+              (typeof i.items === 'string' ? i.items : JSON.stringify(i.items || [])),
+              i.subtotal || 0, i.tax || 0, i.discount || 0, i.total || 0, i.status || 'Paid',
+              (typeof i.payments === 'string' ? i.payments : JSON.stringify(i.payments || [])),
+              i.grossTotal || 0, i.itemDiscount || 0, i.additionalCharges || 0, i.roundOff || 0, i.amountReceived || 0,
+              i.internalNotes || '', i.taxType || 'intra', i.weekly_sequence || 1,
+              i.loyalty_points_redeemed || 0, i.loyalty_points_earned || 0, i.loyalty_points_discount || 0,
+              i.is_deleted ? 1 : 0, i.created_at, i.updated_at
+            ]
           );
         }
       });
@@ -678,6 +792,7 @@ export const syncSettingsToDrive = async (user, settings) => {
     const userDetails = {
       store: settings.store,
       user: settings.user,
+      bankDetails: settings.bankDetails,
       onboardingCompletedAt: settings.onboardingCompletedAt
     };
     await uploadFileToFolder(accessToken, folderId, 'user details.json', JSON.stringify(userDetails, null, 2));
@@ -731,10 +846,10 @@ export const saveUserDetailsToDrive = async (userDetails) => {
       `--${boundary}\r\n` +
       `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
       `${JSON.stringify(metadata)}\r\n` +
-      `--${boundary}\r\n` +
+      `\r\n--${boundary}\r\n` +
       `Content-Type: application/json\r\n\r\n` +
       `${JSON.stringify(userDetails)}\r\n` +
-      `--${boundary}--`;
+      `\r\n--${boundary}--`;
 
     const url = existingFile
       ? `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`

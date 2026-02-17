@@ -48,15 +48,16 @@ export const ExpenseProvider = ({ children }) => {
             const paymentMethod = data.paymentMethod || 'Cash';
             // Capture the receipt URI from the modal
             const receiptUrl = data.receiptUrl || '';
+            const tags = JSON.stringify(data.tags || []);
             const createdAt = new Date().toISOString();
 
             db.runSync(
-                `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, created_at) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [id, title, amount, category, date, paymentMethod, receiptUrl, createdAt]
+                `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, title, amount, category, date, paymentMethod, receiptUrl, tags, createdAt]
             );
 
-            const newExpense = { ...data, id, title, amount, category, date, paymentMethod, receiptUrl, createdAt };
+            const newExpense = { ...data, id, title, amount, category, date, paymentMethod, receiptUrl, tags, createdAt };
             setExpenses(prev => [newExpense, ...prev]);
 
             triggerAutoSave();
@@ -86,14 +87,15 @@ export const ExpenseProvider = ({ children }) => {
             const date = data.date || new Date().toISOString();
             const paymentMethod = data.paymentMethod || 'Cash';
             const receiptUrl = data.receiptUrl || '';
+            const tags = JSON.stringify(data.tags || []);
             const updatedAt = new Date().toISOString();
 
             db.runSync(
-                `UPDATE expenses SET title = ?, amount = ?, category = ?, date = ?, payment_method = ?, receipt_url = ?, updated_at = ? WHERE id = ?`,
-                [title, amount, category, date, paymentMethod, receiptUrl, updatedAt, id]
+                `UPDATE expenses SET title = ?, amount = ?, category = ?, date = ?, payment_method = ?, receipt_url = ?, tags = ?, updated_at = ? WHERE id = ?`,
+                [title, amount, category, date, paymentMethod, receiptUrl, tags, updatedAt, id]
             );
 
-            setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...data, amount, receiptUrl, updatedAt } : e));
+            setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...data, amount, receiptUrl, tags, updatedAt } : e));
             triggerAutoSave();
 
             // [Sync]

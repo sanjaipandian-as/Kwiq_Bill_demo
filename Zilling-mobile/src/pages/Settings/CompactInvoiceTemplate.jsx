@@ -60,12 +60,12 @@ const CompactInvoiceTemplate = ({ settings, data }) => {
             <View style={styles.compactAddressRow}>
                 <View style={styles.compactAddressBlock}>
                     <Text style={styles.compactLabel}>BILL TO</Text>
-                    <Text style={styles.compactCustomerName}>{invoice.customer?.name || 'Walk-in'}</Text>
+                    <Text style={styles.compactCustomerName}>{invoice.customer?.name || ''}</Text>
                     <Text style={styles.compactStoreDetails}>{invoice.customer?.address || '-'}</Text>
                 </View>
                 <View style={[styles.compactAddressBlock, { paddingLeft: 10 }]}>
                     <Text style={styles.compactLabel}>SHIP TO</Text>
-                    <Text style={styles.compactCustomerName}>{invoice.customer?.name || 'Walk-in'}</Text>
+                    <Text style={styles.compactCustomerName}>{invoice.customer?.name || ''}</Text>
                     <Text style={styles.compactStoreDetails}>{invoice.customer?.address || '-'}</Text>
                 </View>
             </View>

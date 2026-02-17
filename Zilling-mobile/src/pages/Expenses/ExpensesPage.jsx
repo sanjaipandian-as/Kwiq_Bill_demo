@@ -31,7 +31,8 @@ import {
   TrendingUp,
   Wallet,
   PieChart,
-  ArrowUpRight
+  ArrowUpRight,
+  Cloud
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useExpenses } from '../../context/ExpenseContext';
@@ -255,7 +256,10 @@ export default function ExpensesPage() {
           </Pressable>
           <View>
             <Text style={styles.headerTitle}>Expenses</Text>
-            <Text style={styles.headerSubtitle}>Manage Business Spends</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Cloud size={12} color="#10b981" fill="#10b98120" />
+              <Text style={[styles.headerSubtitle, { color: '#10b981', marginTop: 0 }]}>Cloud Synced</Text>
+            </View>
           </View>
         </View>
         <View style={styles.headerRight}>
