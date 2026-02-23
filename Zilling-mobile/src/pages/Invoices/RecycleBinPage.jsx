@@ -27,7 +27,7 @@ import { useToast } from '../../context/ToastContext';
 
 export default function RecycleBinPage() {
     const navigation = useNavigation();
-    const { fetchDeletedTransactions, restoreTransaction, permanentlyDeleteTransaction } = useTransactions();
+    const { fetchDeletedTransactions, restoreTransaction, permanentlyDeleteTransaction, restoreAllInvoices, emptyRecycleBin } = useTransactions();
     const { showToast } = useToast();
     const [deletedInvoices, setDeletedInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -103,6 +103,48 @@ export default function RecycleBinPage() {
         });
     };
 
+    const handleRestoreAll = () => {
+        if (deletedInvoices.length === 0) return;
+        setConfirmModal({
+            isOpen: true,
+            title: "RESTORE ALL",
+            message: `Are you sure you want to restore all ${deletedInvoices.length} invoices?`,
+            variant: 'info',
+            confirmLabel: 'RESTORE ALL',
+            cancelLabel: 'CANCEL',
+            onConfirm: async () => {
+                try {
+                    await restoreAllInvoices();
+                    showToast("All invoices restored", "success");
+                    loadDeleted();
+                } catch (err) {
+                    showToast("Restoration failed", "error");
+                }
+            }
+        });
+    };
+
+    const handleEmptyBin = () => {
+        if (deletedInvoices.length === 0) return;
+        setConfirmModal({
+            isOpen: true,
+            title: "EMPTY RECYCLE BIN",
+            message: "WARNING: This will permanently delete all items in the trash. This action cannot be undone.",
+            variant: 'danger',
+            confirmLabel: 'EMPTY BIN',
+            cancelLabel: 'CANCEL',
+            onConfirm: async () => {
+                try {
+                    await emptyRecycleBin();
+                    showToast("Recycle bin cleared", "success");
+                    loadDeleted();
+                } catch (err) {
+                    showToast("Failed to empty bin", "error");
+                }
+            }
+        });
+    };
+
     const filteredInvoices = deletedInvoices.filter(inv => {
         const invId = inv.id || '';
         const weeklyNo = inv.weekly_sequence?.toString() || '';
@@ -118,7 +160,7 @@ export default function RecycleBinPage() {
                 <View style={styles.cardHeader}>
                     <View>
                         <Text style={styles.invoiceId}>{item.invoiceNumber || item.id?.toString().slice(-6).toUpperCase() || 'INV-TEMP'}</Text>
-                        <Text style={styles.customerName} numberOfLines={1}>{item.customer_name || item.customerName || 'Walk-in Customer'}</Text>
+                        <Text style={styles.customerName} numberOfLines={1}>{item.customer_name || item.customerName || 'Guest'}</Text>
                         <Text style={styles.dateText}>{new Date(item.date).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
                     </View>
                     <View>
@@ -161,6 +203,21 @@ export default function RecycleBinPage() {
                         <Text style={styles.title}>Recycle Bin</Text>
                         <Text style={styles.subtitle}>{deletedInvoices.length} items in trash</Text>
                     </View>
+                </View>
+
+                <View style={styles.actionHeader}>
+                    {deletedInvoices.length > 0 && (
+                        <>
+                            <TouchableOpacity onPress={handleRestoreAll} style={styles.pillBtn}>
+                                <RotateCcw size={14} color="#000" />
+                                <Text style={styles.pillText}>Restore All</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={handleEmptyBin} style={[styles.pillBtn, styles.pillDanger]}>
+                                <Trash2 size={14} color="#ef4444" />
+                                <Text style={[styles.pillText, { color: '#ef4444' }]}>Empty Bin</Text>
+                            </TouchableOpacity>
+                        </>
+                    )}
                 </View>
 
                 {/* Search */}
@@ -246,6 +303,31 @@ const styles = StyleSheet.create({
         color: '#666',
         fontWeight: '600',
         marginTop: 2
+    },
+    actionHeader: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 16,
+    },
+    pillBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f3f4f6',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: '#e5e7eb'
+    },
+    pillDanger: {
+        backgroundColor: '#fef2f2',
+        borderColor: '#fee2e2'
+    },
+    pillText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#000'
     },
 
     // Search

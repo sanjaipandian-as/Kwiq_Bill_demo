@@ -208,7 +208,7 @@ export default function GSTPage() {
                 return {
                     "Invoice Date": formattedDate,
                     "Invoice Number": t.id?.substring(0, 8) || "N/A",
-                    "Customer Name": t.customerName || "Walk-in",
+                    "Customer Name": t.customerName || "Guest",
                     "GSTIN": t.customerGstin || "",
                     "State": t.taxType === 'inter' ? 'Inter-State' : 'State',
                     "Taxable Value": parseFloat(t.subtotal || 0).toFixed(2),

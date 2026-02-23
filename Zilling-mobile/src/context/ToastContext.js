@@ -7,24 +7,28 @@ import {
     TouchableOpacity,
     Platform,
     PanResponder,
-    Dimensions
+    Dimensions,
+    StatusBar
 } from 'react-native';
-import { CheckCircle2, AlertCircle, Info, X, AlertTriangle } from 'lucide-react-native';
+import { CheckCircle2, AlertCircle, Info, X, AlertTriangle, BellRing } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const ToastContext = createContext();
 
 export const useToast = () => useContext(ToastContext);
 
+const { width } = Dimensions.get('window');
+
 export const ToastProvider = ({ children }) => {
     const [toasts, setToasts] = useState([]);
     const toastIdRef = useRef(0);
 
-    const showToast = useCallback((message, type = 'success', duration = 4000) => {
+    const showToast = useCallback((message, type = 'success', duration = 3500) => {
         const id = toastIdRef.current++;
-        // Limit to 3 toasts at a time to prevent clutter
         setToasts((prev) => {
             const current = [...prev, { id, message, type, duration }];
-            if (current.length > 3) return current.slice(current.length - 3);
+            // Max 2 toasts to keep it clean
+            if (current.length > 2) return current.slice(current.length - 2);
             return current;
         });
     }, []);
@@ -51,33 +55,30 @@ export const ToastProvider = ({ children }) => {
 
 const ToastItem = ({ toast, onRemove }) => {
     const { message, type, duration } = toast;
-    const translateY = useRef(new Animated.Value(-100)).current;
+    const translateY = useRef(new Animated.Value(-120)).current;
     const opacity = useRef(new Animated.Value(0)).current;
     const scale = useRef(new Animated.Value(0.9)).current;
+    const progressWidth = useRef(new Animated.Value(100)).current;
 
-    // Timer ref to clear it if user interacts
     const timerRef = useRef(null);
 
-    // PanResponder for swipe dismissal
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => true,
-            onMoveShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 5,
             onPanResponderMove: (_, gestureState) => {
-                // Determine drag direction (mostly vertical)
                 if (gestureState.dy < 0) {
                     translateY.setValue(gestureState.dy);
                 }
             },
             onPanResponderRelease: (_, gestureState) => {
-                if (gestureState.dy < -50) {
-                    // Swiped up enough - dismiss
+                if (gestureState.dy < -40) {
                     animateOut();
                 } else {
-                    // Snap back
                     Animated.spring(translateY, {
                         toValue: 0,
                         useNativeDriver: true,
+                        friction: 8
                     }).start();
                 }
             }
@@ -88,45 +89,51 @@ const ToastItem = ({ toast, onRemove }) => {
         Animated.parallel([
             Animated.timing(opacity, {
                 toValue: 0,
-                duration: 300,
+                duration: 250,
                 useNativeDriver: true,
             }),
             Animated.timing(translateY, {
-                toValue: -50,
-                duration: 300,
+                toValue: -100,
+                duration: 250,
                 useNativeDriver: true,
             }),
             Animated.timing(scale, {
-                toValue: 0.8,
-                duration: 300,
+                toValue: 0.9,
+                duration: 250,
                 useNativeDriver: true,
             })
         ]).start(() => onRemove());
     };
 
     useEffect(() => {
-        // Entrance Animation
+        // Entrance
         Animated.parallel([
             Animated.timing(opacity, {
                 toValue: 1,
-                duration: 300,
+                duration: 400,
                 useNativeDriver: true,
             }),
             Animated.spring(translateY, {
                 toValue: 0,
-                friction: 6,
-                tension: 50,
+                friction: 7,
+                tension: 40,
                 useNativeDriver: true,
             }),
             Animated.spring(scale, {
                 toValue: 1,
-                friction: 6,
-                tension: 50,
+                friction: 7,
+                tension: 40,
                 useNativeDriver: true,
             })
         ]).start();
 
-        // Auto Dismiss Timer
+        // Progress line animation
+        Animated.timing(progressWidth, {
+            toValue: 0,
+            duration: duration,
+            useNativeDriver: false,
+        }).start();
+
         if (duration > 0) {
             timerRef.current = setTimeout(() => {
                 animateOut();
@@ -138,68 +145,103 @@ const ToastItem = ({ toast, onRemove }) => {
         };
     }, []);
 
-    const getToastConfig = () => {
+    const getIcon = () => {
         switch (type) {
-            case 'error': return {
-                icon: AlertCircle,
-                bg: '#FEF2F2',
-                border: '#FECACA',
-                text: '#DC2626',
-                title: 'Error'
-            };
-            case 'warning': return {
-                icon: AlertTriangle,
-                bg: '#FFFBEB',
-                border: '#FDE68A',
-                text: '#D97706',
-                title: 'Warning'
-            };
-            case 'info': return {
-                icon: Info,
-                bg: '#EFF6FF',
-                border: '#BFDBFE',
-                text: '#2563EB',
-                title: 'Info'
-            };
-            case 'success':
-            default: return {
-                icon: CheckCircle2,
-                bg: '#F0FDF4',
-                border: '#BBF7D0',
-                text: '#16A34A',
-                title: 'Success'
-            };
+            case 'error': return <AlertCircle size={20} color="#fff" strokeWidth={2.5} />;
+            case 'warning': return <AlertTriangle size={20} color="#fff" strokeWidth={2.5} />;
+            case 'info': return <Info size={20} color="#fff" strokeWidth={2.5} />;
+            case 'success': return <CheckCircle2 size={20} color="#fff" strokeWidth={2.5} />;
+            case 'stock': return <AlertTriangle size={20} color="#000" strokeWidth={2.5} />;
+            default: return <BellRing size={20} color="#fff" strokeWidth={2.5} />;
         }
     };
 
-    const config = getToastConfig();
-    const Icon = config.icon;
+    const getStatusColor = () => {
+        // Subtle status pill color
+        switch (type) {
+            case 'error': return '#ef4444';
+            case 'warning': return '#f59e0b';
+            case 'success': return '#10b981';
+            case 'stock': return '#000000';
+            default: return '#3b82f6';
+        }
+    };
+
+    const isStockType = type === 'stock';
 
     return (
         <Animated.View
             style={[
-                styles.toastContainer,
+                styles.toastWrapper,
                 { opacity, transform: [{ translateY }, { scale }] }
             ]}
             {...panResponder.panHandlers}
         >
-            <View style={[styles.card, { borderLeftColor: config.text }]}>
-                <View style={[styles.iconBox, { backgroundColor: config.bg }]}>
-                    <Icon size={22} color={config.text} strokeWidth={2.5} />
-                </View>
+            <View style={[styles.blurContainer, isStockType && { borderColor: 'rgba(0, 0, 0, 0.1)' }]}>
+                {isStockType ? (
+                    <View style={[styles.content, { backgroundColor: '#FFFFFF' }]}>
+                        <View style={[styles.iconContainer, { backgroundColor: 'rgba(0, 0, 0, 0.05)' }]}>
+                            {getIcon()}
+                            <View style={[styles.statusDot, { backgroundColor: '#000000', borderColor: '#fff' }]} />
+                        </View>
 
-                <View style={styles.contentBox}>
-                    <Text style={[styles.title, { color: config.text }]}>{config.title}</Text>
-                    <Text style={styles.message}>{message}</Text>
-                </View>
+                        <View style={styles.textContainer}>
+                            <Text style={[styles.messageText, { color: '#000000' }]}>{message}</Text>
+                        </View>
 
-                <TouchableOpacity
-                    onPress={animateOut}
-                    style={styles.closeButton}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        <TouchableOpacity onPress={animateOut} style={[styles.closeBtn, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
+                            <X size={16} color="#000" strokeWidth={3} />
+                        </TouchableOpacity>
+
+                        <View style={[styles.progressBackground, { backgroundColor: 'rgba(0,0,0,0.1)' }]}>
+                            <Animated.View
+                                style={[
+                                    styles.progressBar,
+                                    { backgroundColor: '#000000' },
+                                    {
+                                        width: progressWidth.interpolate({
+                                            inputRange: [0, 100],
+                                            outputRange: ['0%', '100%']
+                                        })
+                                    }
+                                ]}
+                            />
+                        </View>
+                    </View>
+                ) : (
+                <LinearGradient
+                    colors={['rgba(24, 24, 27, 0.95)', 'rgba(9, 9, 11, 0.98)']}
+                    style={styles.content}
                 >
-                    <X size={18} color="#94a3b8" />
-                </TouchableOpacity>
+                    <View style={styles.iconContainer}>
+                        {getIcon()}
+                        <View style={[styles.statusDot, { backgroundColor: getStatusColor() }]} />
+                    </View>
+
+                    <View style={styles.textContainer}>
+                        <Text style={styles.messageText}>{message}</Text>
+                    </View>
+
+                    <TouchableOpacity onPress={animateOut} style={styles.closeBtn}>
+                        <X size={16} color="rgba(255,255,255,0.4)" strokeWidth={3} />
+                    </TouchableOpacity>
+
+                    {/* Duration Progress Bar */}
+                    <View style={styles.progressBackground}>
+                        <Animated.View
+                            style={[
+                                styles.progressBar,
+                                {
+                                    width: progressWidth.interpolate({
+                                        inputRange: [0, 100],
+                                        outputRange: ['0%', '100%']
+                                    })
+                                }
+                            ]}
+                        />
+                    </View>
+                </LinearGradient>
+                )}
             </View>
         </Animated.View>
     );
@@ -208,63 +250,87 @@ const ToastItem = ({ toast, onRemove }) => {
 const styles = StyleSheet.create({
     container: {
         position: 'absolute',
-        top: Platform.OS === 'ios' ? 60 : 50,
+        top: Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 24) + 10,
         left: 0,
         right: 0,
         alignItems: 'center',
-        zIndex: 99999,
-        paddingHorizontal: 16,
+        zIndex: 999999,
+        paddingHorizontal: 20,
     },
-    toastContainer: {
+    toastWrapper: {
         width: '100%',
-        maxWidth: 400,
-        marginBottom: 12,
-        shadowColor: '#64748b',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.15,
-        shadowRadius: 15,
-        elevation: 10,
+        maxWidth: 420,
+        marginBottom: 10,
     },
-    card: {
+    blurContainer: {
+        borderRadius: 24,
+        overflow: 'hidden',
+        borderWidth: 1.5,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.4,
+        shadowRadius: 16,
+        elevation: 15,
+    },
+    content: {
         flexDirection: 'row',
-        alignItems: 'flex-start', // Top align for multi-line
-        backgroundColor: '#ffffff',
-        borderRadius: 16,
-        padding: 14,
-        borderWidth: 1,
-        borderColor: '#f1f5f9',
-        borderLeftWidth: 4,
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        minHeight: 64,
     },
-    iconBox: {
-        width: 38,
-        height: 38,
-        borderRadius: 12,
+    iconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 14,
+        backgroundColor: 'rgba(255, 255, 255, 0.08)',
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: 12,
+        marginRight: 14,
     },
-    contentBox: {
+    statusDot: {
+        position: 'absolute',
+        bottom: -2,
+        right: -2,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        borderWidth: 2,
+        borderColor: '#000',
+    },
+    textContainer: {
         flex: 1,
-        justifyContent: 'center',
-        paddingVertical: 1, // Visual centering adjust
+        marginRight: 10,
     },
-    title: {
-        fontSize: 13,
-        fontWeight: '800',
-        marginBottom: 2,
-        letterSpacing: 0.3,
-        textTransform: 'uppercase',
-    },
-    message: {
-        fontSize: 14,
-        color: '#334155',
-        fontWeight: '600',
+    messageText: {
+        color: '#FFFFFF',
+        fontSize: 15,
+        fontWeight: '700',
+        letterSpacing: -0.2,
         lineHeight: 20,
     },
-    closeButton: {
-        padding: 4,
-        marginLeft: 8,
-        marginTop: 2,
+    closeBtn: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    progressBackground: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 3,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    progressBar: {
+        height: '100%',
+        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+        borderTopRightRadius: 2,
+        borderBottomRightRadius: 2,
     }
 });
 

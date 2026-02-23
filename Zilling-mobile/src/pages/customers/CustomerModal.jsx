@@ -53,7 +53,7 @@ const STATE_OPTIONS = [
     "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal"
 ];
 
-const SOURCE_OPTIONS = ['Walk-in', 'WhatsApp', 'Instagram', 'Referral', 'Other'];
+const SOURCE_OPTIONS = ['Direct', 'WhatsApp', 'Instagram', 'Referral', 'Other'];
 
 export default function CustomerModal({ isOpen, onClose, customer, onSave, onDelete, initialTab = 'details' }) {
     const { transactions } = useTransactions();
@@ -90,7 +90,7 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
         customerType: 'Individual',
         gstin: '',
         address: { street: '', area: '', city: '', pincode: '', state: '' },
-        source: 'Walk-in',
+        source: 'Direct',
         tags: [],
         loyaltyPoints: 0,
         notes: '',
@@ -143,7 +143,7 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 customerType: customer.type || customer.customerType || 'Individual',
                 gstin: customer.gstin || '',
                 address: parsedAddress,
-                source: customer.source || 'Walk-in',
+                source: customer.source || 'Direct',
                 tags: parsedTags,
                 loyaltyPoints: customer.loyaltyPoints || 0,
                 notes: customer.notes || '',
@@ -157,7 +157,7 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 customerType: 'Individual',
                 gstin: '',
                 address: { street: '', area: '', city: '', pincode: '', state: '' },
-                source: 'Walk-in',
+                source: 'Direct',
                 tags: [],
                 loyaltyPoints: 0,
                 notes: '',

@@ -265,6 +265,7 @@ const BillingSidebar = ({
                     customer={customer}
                     billId={billId}
                     paymentMode={paymentMode}
+                    amountReceived={amountReceived}
                     remarks={remarks}
                 />
             </View>
@@ -482,16 +483,16 @@ const styles = StyleSheet.create({
     },
 });
 
-const BillLivePreview = ({ items, totals, settings, template, taxType, customer, billId, paymentMode, remarks }) => {
+const BillLivePreview = ({ items, totals, settings, template, taxType, customer, billId, paymentMode, amountReceived, remarks }) => {
     const store = settings?.store || {};
     const showHsn = settings?.invoice?.showHsn !== false;
     const showTaxBreakup = settings?.invoice?.showTaxBreakup === true;
     const isInter = taxType === 'inter';
 
     // Styles for "Thermal" look
-    const textStyle = { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontSize: 10, color: '#000' };
+    const textStyle = { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontSize: 9, color: '#000' };
     const boldStyle = { ...textStyle, fontWeight: 'bold' };
-    const dividerStyle = { borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginVertical: 8 };
+    const dividerStyle = { borderBottomWidth: 1, borderBottomColor: '#ccc', borderStyle: 'dashed', marginVertical: 6 };
 
     const isInclusive = settings?.tax?.defaultType === 'Inclusive' || settings?.tax?.priceMode === 'Inclusive';
 
@@ -529,7 +530,18 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
     });
 
     return (
-        <View style={{ backgroundColor: '#fff', borderRadius: 4, padding: 16, shadowColor: '#000', shadowOpacity: 0.1, elevation: 4 }}>
+        <View style={{
+            padding: 8,
+            backgroundColor: '#fff',
+            width: 280,
+            alignSelf: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 4,
+            elevation: 3,
+            marginBottom: 10
+        }}>
             {/* Header */}
             <View style={{ alignItems: 'center', marginBottom: 12 }}>
                 {store.logo ? (
@@ -559,7 +571,7 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
                 <Text style={textStyle}>Date: {new Date().toLocaleDateString()}</Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={textStyle}>Cust: {customer ? customer.name.split(' ')[0] : 'Walk-in'}</Text>
+                <Text style={textStyle}>Cust: {customer ? customer.name.split(' ')[0] : 'Guest'}</Text>
                 <Text style={textStyle}>Mode: {paymentMode}</Text>
             </View>
 
@@ -632,6 +644,17 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
                 {totals.roundOff !== 0 && (
                     <Text style={{ ...textStyle, fontSize: 9 }}>Round Off: {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}</Text>
                 )}
+
+                <View style={{ marginTop: 8, width: '100%', borderTopWidth: 1, borderTopColor: '#000', borderStyle: 'dotted', paddingTop: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={textStyle}>Paid Amount:</Text>
+                        <Text style={boldStyle}>₹{parseFloat(amountReceived || 0).toFixed(2)}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={textStyle}>Balance:</Text>
+                        <Text style={boldStyle}>₹{Math.max(0, totals.total - parseFloat(amountReceived || 0)).toFixed(2)}</Text>
+                    </View>
+                </View>
             </View>
 
             {remarks && remarks.trim() !== '' && (

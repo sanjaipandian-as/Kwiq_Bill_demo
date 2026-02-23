@@ -23,6 +23,7 @@ import BottomFunctionBar from './components/BottomFunctionBar';
 import { DiscountModal, RemarksModal, AdditionalChargesModal, LoyaltyPointsModal } from './components/ActionModals';
 import CustomerSearchModal from './components/CustomerSearchModal';
 import CustomerCaptureModal from './components/CustomerCaptureModal';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 
 
@@ -30,7 +31,6 @@ import CustomerCaptureModal from './components/CustomerCaptureModal';
 import ProductStep from './components/steps/ProductStep';
 import CustomerStep from './components/steps/CustomerStep';
 import PaymentStep from './components/steps/PaymentStep';
-import SummaryStep from './components/steps/SummaryStep';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -120,10 +120,14 @@ export default function BillingPage({ navigation, route }) {
     remarks: false,
     additionalCharges: false,
     loyaltyPoints: false,
-
+    stockLimit: false,
     customerSearch: false,
-    customerCapture: false
+    customerCapture: false,
+    clearCartConfirm: false
   });
+
+  // Stock limit message state
+  const [stockLimitMessage, setStockLimitMessage] = useState('');
 
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'sidebar' (on mobile)
   const [customerSearchValue, setCustomerSearchValue] = useState('');
@@ -161,6 +165,7 @@ export default function BillingPage({ navigation, route }) {
 
             queue.forEach(product => {
               // Logic from addItemToCart, simplified for bulk
+              if (!product || !product.id) return; // Skip invalid products
               const cartItemId = product.id;
               // Check if exists
               const existingIndex = newCart.findIndex(i => i.id === cartItemId);
@@ -428,7 +433,8 @@ export default function BillingPage({ navigation, route }) {
     if (productInDb) {
       const availableStock = parseFloat(productInDb.stock || 0);
       if (sNewQty > availableStock) {
-        Alert.alert("Stock Limit", `Stock quantity only ${availableStock}. You can't add above this.`);
+        setStockLimitMessage(`Stock quantity only ${availableStock}. You can't add above this.`);
+        setModals(m => ({ ...m, stockLimit: true }));
         return;
       }
     }
@@ -454,6 +460,10 @@ export default function BillingPage({ navigation, route }) {
   // Or better, I'll add a temporary "Add Test Item" button in the header.
 
   const addItemToCart = (product, variant = null) => {
+    if (!product || !product.id) {
+      console.warn('addItemToCart called with invalid product:', product);
+      return;
+    }
     // If variant is an object (new structure), extract name and price
     const variantObj = (variant && typeof variant === 'object') ? variant : null;
     const variantName = variantObj ? (variantObj.name || (variantObj.options && variantObj.options[0])) : (typeof variant === 'string' ? variant : null);
@@ -467,7 +477,7 @@ export default function BillingPage({ navigation, route }) {
     // STOCK CHECK BEFORE ADDING
     const currentStock = parseFloat(product.stock || 0);
     if (currentStock <= 0) {
-      Alert.alert("Stock Limit", "Stock is empty! Cannot add this item.");
+      showToast(`${product.name} is out of stock!`, 'error');
       return;
     }
 
@@ -475,7 +485,7 @@ export default function BillingPage({ navigation, route }) {
 
     if (exists) {
       if (exists.quantity + 1 > currentStock) {
-        Alert.alert("Stock Limit", `Stock quantity only ${currentStock}. You can't add above this.`);
+        showToast(`Only ${currentStock} units available`, 'stock');
         return;
       }
       updateQuantity(cartItemId, exists.quantity + 1);
@@ -522,7 +532,7 @@ export default function BillingPage({ navigation, route }) {
   };
 
   const handleAddProduct = (product = null) => {
-    if (!product) return;
+    if (!product || !product.id) return;
 
     // 1. Check for multiple products with same name (Siblings)
     const siblings = products.filter(p => p.name.trim().toLowerCase() === product.name.trim().toLowerCase());
@@ -603,14 +613,7 @@ export default function BillingPage({ navigation, route }) {
         break;
       case 'F4':
         if (currentBill.cart.length > 0) {
-          Alert.alert(
-            "Clear Cart",
-            "Are you sure you want to remove all items from the cart?",
-            [
-              { text: "Cancel", style: "cancel" },
-              { text: "Clear All", style: "destructive", onPress: () => updateCurrentBill({ cart: [] }) }
-            ]
-          );
+          setModals(m => ({ ...m, clearCartConfirm: true }));
         }
         break;
       case 'F6': // Change Unit
@@ -741,6 +744,18 @@ export default function BillingPage({ navigation, route }) {
   const handleSavePrint = async (format = '80mm') => {
     if (currentBill.cart.length === 0) {
       showToast("Cart is empty!", "error");
+      return;
+    }
+
+    if (!currentBill.customer) {
+      Alert.alert("Customer Required", "Please select or add a customer with a name and mobile number to complete the bill.");
+      setModals(m => ({ ...m, customerSearch: true }));
+      return;
+    }
+
+    if (!currentBill.customer.name || !currentBill.customer.phone) {
+      Alert.alert("Missing Details", "Customer name and mobile number are mandatory for billing.");
+      setModals(m => ({ ...m, customerSearch: true }));
       return;
     }
 
@@ -1169,6 +1184,39 @@ export default function BillingPage({ navigation, route }) {
           }}
         />
 
+        <ConfirmationModal
+          isOpen={modals.clearCartConfirm}
+          onClose={() => setModals(m => ({ ...m, clearCartConfirm: false }))}
+          onConfirm={() => {
+            updateCurrentBill({ cart: [] });
+            showToast("Cart Cleared", "info");
+          }}
+          title="Clear Cart"
+          message="Are you sure you want to remove all items from the cart? This cannot be undone."
+          variant="danger"
+          confirmLabel="CLEAR ALL"
+        />
+
+        {/* Stock Limit Modal - Black & White Design */}
+        {modals.stockLimit && (
+          <View style={styles.stockLimitOverlay}>
+            <View style={styles.stockLimitModal}>
+              <View style={styles.stockLimitHeader}>
+                <Text style={styles.stockLimitTitle}>Stock Limit</Text>
+              </View>
+              <View style={styles.stockLimitBody}>
+                <Text style={styles.stockLimitMessage}>{stockLimitMessage}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.stockLimitButton}
+                onPress={() => setModals(m => ({ ...m, stockLimit: false }))}
+              >
+                <Text style={styles.stockLimitButtonText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
       </KeyboardAvoidingView >
     </View >
   );
@@ -1340,5 +1388,66 @@ const styles = StyleSheet.create({
   productName: { fontSize: 14, color: '#64748b', marginBottom: 16 },
   variantGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   variantBtn: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#f1f5f9', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  variantBtnText: { fontSize: 14, fontWeight: '600', color: '#334155' }
+  variantBtnText: { fontSize: 14, fontWeight: '600', color: '#334155' },
+
+  // Stock Limit Modal - Black & White Design
+  stockLimitOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  stockLimitModal: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    width: '85%',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.3,
+    shadowRadius: 30,
+    elevation: 20,
+  },
+  stockLimitHeader: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  stockLimitTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#000000',
+    letterSpacing: -0.5,
+  },
+  stockLimitBody: {
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  stockLimitMessage: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#334155',
+    lineHeight: 24,
+  },
+  stockLimitButton: {
+    backgroundColor: '#000000',
+    marginHorizontal: 24,
+    marginBottom: 24,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  stockLimitButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
 });

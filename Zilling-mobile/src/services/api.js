@@ -2,11 +2,11 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const PRODUCTION_URL = 'https://zilling-backend.onrender.com';
+const PRODUCTION_URL = 'https://kwiq-bill.onrender.com';
 const LOCAL_URL = 'http://10.203.95.84:5001';
 
 // Toggle this to true when deploying the APK
-const IS_PRODUCTION = false;
+const IS_PRODUCTION = true;
 
 const BASE_URL = IS_PRODUCTION ? PRODUCTION_URL : LOCAL_URL;
 

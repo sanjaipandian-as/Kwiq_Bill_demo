@@ -188,7 +188,7 @@ export const SyncService = {
             updateStatus(`${filesToProcess.length} new events found.`);
 
             // Optimization: Fetch event contents in parallel batches
-            const BATCH_SIZE = 150;
+            const BATCH_SIZE = 50; // Increased from 10 to significantly speed up sync
             let processedCount = 0;
             let failures = 0;
 
@@ -197,19 +197,29 @@ export const SyncService = {
             for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
                 const batch = filesToProcess.slice(i, i + BATCH_SIZE);
 
+                // Calculate granular progress for this segment (mapping from ~0.7 to 0.9 range)
+                const segmentProgress = i / filesToProcess.length;
+                const overallProgress = 0.65 + (segmentProgress * 0.25); // Range 0.65 to 0.9
+
+                // Re-fetch token once per batch to ensure it's fresh and avoid redundant calls in the inner loop
+                const currentToken = await getAccessToken();
+                if (!currentToken) throw new Error("Token expired or missing");
+
                 // Estimate time remaining
                 if (i > 0) {
                     const elapsed = Date.now() - startTime;
                     const msPerEvent = elapsed / i;
                     const remaining = filesToProcess.length - i;
                     const estMs = remaining * msPerEvent;
-                    const estMin = Math.ceil(estMs / (60 * 1000));
-                    const estSec = Math.ceil((estMs % (60 * 1000)) / 1000);
-
+                    const estMin = Math.floor(estMs / 60000);
+                    const estSec = Math.round((estMs % 60000) / 1000);
                     let timeStr = estMin > 0 ? `${estMin}m ${estSec}s` : `${estSec}s`;
-                    updateStatus(`Syncing... (Est. time: ${timeStr})`);
+                    const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
+                    const totalBatches = Math.ceil(filesToProcess.length / BATCH_SIZE);
+                    const msg = `Syncing batch ${currentBatch} of ${totalBatches}... (Est. time: ${timeStr})`;
+                    if (updateStatus) updateStatus(msg, overallProgress);
                 } else {
-                    updateStatus(`Starting data download...`);
+                    if (updateStatus) updateStatus(`Starting data download...`, 0.65);
                 }
 
                 const envelopes = await Promise.all(batch.map(async (file) => {
@@ -217,10 +227,50 @@ export const SyncService = {
                     while (attempts < 3) {
                         try {
                             const contentRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-                                headers: { Authorization: `Bearer ${accessToken}` }
+                                headers: { Authorization: `Bearer ${currentToken}` }
                             });
-                            if (!contentRes.ok) throw new Error(`HTTP ${contentRes.status}`);
-                            return await contentRes.json();
+
+                            if (!contentRes.ok) {
+                                const errorText = await contentRes.text();
+                                throw new Error(`HTTP ${contentRes.status}: ${errorText.substring(0, 50)}`);
+                            }
+
+                            const text = await contentRes.text();
+                            if (!text || text.trim() === "") {
+                                console.warn(`[Sync] Empty content for ${file.name}`);
+                                return null;
+                            }
+
+                            // Robust Cleaning: Strip MIME headers if they were accidentally saved in the file content
+                            let cleanText = text.trim();
+                            if (cleanText.toLowerCase().includes('content-type:')) {
+                                console.log(`[Sync] Found MIME headers in ${file.name}, attempts to extract body...`);
+                                // Headers end with double newline. The body follows the headers.
+                                const parts = cleanText.split(/\r?\n\r?\n/);
+                                if (parts.length > 1) {
+                                    // The part after headers is usually the body. 
+                                    // Find the first part that is NOT a header.
+                                    for (let part of parts) {
+                                        const trimmed = part.trim();
+                                        if (trimmed.toLowerCase().includes('content-type:')) continue;
+                                        if (trimmed.length > 0) {
+                                            cleanText = trimmed;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            try {
+                                return JSON.parse(cleanText);
+                            } catch (jsonError) {
+                                if (cleanText.startsWith('U2FsdGVkX1')) {
+                                    // Silently skip legacy encrypted events
+                                    return null;
+                                }
+                                console.error(`[Sync] JSON Parse Error for ${file.name}. Content starts with: "${cleanText.substring(0, 100)}"`);
+                                throw jsonError;
+                            }
                         } catch (e) {
                             attempts++;
                             console.warn(`[Sync] Download attempt ${attempts} failed for ${file.name}: ${e.message}`);
@@ -229,7 +279,7 @@ export const SyncService = {
                                 return null;
                             }
                             // Exponential backoff
-                            await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempts - 1)));
+                            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempts - 1)));
                         }
                     }
                     return null;
@@ -238,10 +288,8 @@ export const SyncService = {
                 // Apply batch sequentially to ensure order
                 for (let j = 0; j < envelopes.length; j++) {
                     const envelope = envelopes[j];
-                    const file = batch[j];
-
                     if (!envelope) {
-                        failures++; // Download failed
+                        failures++;
                         continue;
                     }
 
@@ -254,7 +302,7 @@ export const SyncService = {
                         processedCount++;
                     } catch (applyError) {
                         console.error(`[Sync] Failed to apply event ${envelope.eventId}:`, applyError.message);
-                        failures++; // Apply failed
+                        failures++;
                     }
                 }
 
@@ -309,15 +357,20 @@ export const SyncService = {
                     const itemsStr = JSON.stringify(payload.items);
                     const paymentsStr = JSON.stringify(payload.payments || []);
 
+                    // Normalize customer name from payload (handle both camelCase and snake_case)
+                    const customerName = payload.customer_name || payload.customerName || 'Guest';
+                    const customerId = payload.customer_id || payload.customerId || '';
+
                     db.runSync(
                         `INSERT INTO invoices (
                             id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, 
-                            created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes,
+                            is_deleted
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             payload.id,
-                            payload.customer_id,
-                            payload.customer_name,
+                            customerId,
+                            customerName,
                             payload.date,
                             payload.type,
                             itemsStr,
@@ -335,7 +388,8 @@ export const SyncService = {
                             payload.additionalCharges || 0,
                             payload.roundOff || 0,
                             payload.amountReceived || 0,
-                            payload.internalNotes || ''
+                            payload.internalNotes || '',
+                            payload.is_deleted || 0
                         ]
                     );
 
@@ -450,11 +504,12 @@ export const SyncService = {
                 const exists = db.getAllSync(`SELECT id FROM expenses WHERE id = ?`, [payload.id]);
                 if (exists.length === 0) {
                     db.runSync(
-                        `INSERT INTO expenses (id, title, amount, category, date, payment_method, tags, created_at, updated_at)
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        `INSERT INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             payload.id, payload.title, payload.amount, payload.category, payload.date,
-                            payload.payment_method, JSON.stringify(payload.tags),
+                            payload.payment_method, payload.receiptUrl || payload.receipt_url || '',
+                            JSON.stringify(payload.tags || []),
                             payload.created_at, payload.updated_at
                         ]
                     );
@@ -526,19 +581,26 @@ export const SyncService = {
                     `UPDATE invoices SET 
                         customer_id = ?, customer_name = ?, date = ?, type = ?, items = ?, subtotal = ?, tax = ?, discount = ?, 
                         total = ?, status = ?, payments = ?, updated_at = ?, taxType = ?, grossTotal = ?, itemDiscount = ?, 
-                        additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?
+                        additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?, is_deleted = ?
                      WHERE id = ?`,
                     [
-                        payload.customer_id || payload.customerId, payload.customer_name || payload.customerName,
+                        payload.customer_id || payload.customerId || '', 
+                        payload.customer_name || payload.customerName || 'Guest',
                         payload.date, payload.type, itemsStr, payload.subtotal, payload.tax, payload.discount,
                         payload.total, payload.status, paymentsStr, payload.updated_at, payload.taxType,
                         payload.grossTotal, payload.itemDiscount, payload.additionalCharges, payload.roundOff,
-                        payload.amountReceived, payload.internalNotes, payload.id
+                        payload.amountReceived, payload.internalNotes, payload.is_deleted !== undefined ? payload.is_deleted : 0,
+                        payload.id
                     ]
                 );
 
             } else if (type === EventTypes.INVOICE_STATUS_UPDATED) {
-                db.runSync(`UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?`, [payload.status, payload.updated_at, payload.id]);
+                if (payload.is_deleted !== undefined) {
+                    db.runSync(`UPDATE invoices SET is_deleted = ?, updated_at = ? WHERE id = ?`, [payload.is_deleted, payload.updated_at, payload.id]);
+                }
+                if (payload.status) {
+                    db.runSync(`UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?`, [payload.status, payload.updated_at, payload.id]);
+                }
 
             } else if (type === EventTypes.PRODUCT_STOCK_ADJUSTED) {
                 if (payload.minStock !== undefined) {

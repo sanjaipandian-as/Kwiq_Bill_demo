@@ -12,6 +12,11 @@
       "env": {
         "NPM_FLAGS": "--force"
       }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   },
   "submit": {

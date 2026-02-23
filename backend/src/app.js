@@ -19,7 +19,7 @@ const app = express();
 // Middleware
 // Middleware
 app.use(cors({
-    origin: [/http:\/\/localhost:\d+/, 'http://localhost:5173', 'http://localhost:5000', 'https://zilling.netlify.app', 'https://billing-software-o1qb.onrender.com', /^https:\/\/.*\.vercel\.app$/],
+    origin: [/http:\/\/localhost:\d+/, 'http://localhost:5173', 'http://localhost:5000', 'https://zilling.netlify.app', 'https://billing-software-o1qb.onrender.com', 'https://kwiq-bill.onrender.com', /^https:\/\/.*\.vercel\.app$/],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
     optionsSuccessStatus: 200

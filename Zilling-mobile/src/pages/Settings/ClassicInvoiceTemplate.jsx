@@ -78,7 +78,7 @@ const ClassicInvoiceTemplate = ({ settings, data }) => {
                 </View>
                 <View style={{ flex: 1, paddingLeft: 10, alignItems: 'flex-start' }}>
                     <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>BILL TO</Text>
-                    <Text style={styles.a4NameBold}>{invoice.customer?.name || 'Walk-in Customer'}</Text>
+                    <Text style={styles.a4NameBold}>{invoice.customer?.name || ''}</Text>
                     <Text style={styles.a4AddressText}>{invoice.customer?.address || '-'}</Text>
                 </View>
             </View>
@@ -133,6 +133,14 @@ const ClassicInvoiceTemplate = ({ settings, data }) => {
             {/* Footer Notes */}
             <View style={{ marginTop: 20 }}>
                 <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>Remarks / Payment Instructions:</Text>
+                {settings?.bankDetails?.accountNumber ? (
+                    <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
+                        <Text style={[styles.a4Notes, { fontWeight: '700', color: '#1e293b' }]}>Bank Details:</Text>
+                        <Text style={styles.a4Notes}>A/c Name: {settings.bankDetails.accountName}</Text>
+                        <Text style={styles.a4Notes}>Bank: {settings.bankDetails.bankName} | A/c: {settings.bankDetails.accountNumber}</Text>
+                        <Text style={styles.a4Notes}>IFSC: {settings.bankDetails.ifsc}</Text>
+                    </View>
+                ) : null}
                 <Text style={styles.a4Notes}>Thank you for your business!</Text>
                 <Text style={styles.a4Notes}>Make all checks payable to {store.name}</Text>
             </View>

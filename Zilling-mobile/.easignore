@@ -1,0 +1,10 @@
+Back-End
+backend
+server
+dist
+build
+web-build
+*.log
+*.zip
+*.tar.gz
+*.tar

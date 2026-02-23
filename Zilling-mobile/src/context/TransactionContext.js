@@ -15,15 +15,29 @@ export const TransactionProvider = ({ children }) => {
     useEffect(() => {
         const loadTransactions = async () => {
             try {
-                const data = db.getAllSync('SELECT * FROM invoices WHERE is_deleted = 0 ORDER BY date DESC');
+                const data = db.getAllSync(`
+                    SELECT i.*, c.name as c_name 
+                    FROM invoices i 
+                    LEFT JOIN customers c ON i.customer_id = c.id 
+                    WHERE i.is_deleted = 0 
+                    ORDER BY i.date DESC
+                `);
                 // Parse items and payments JSON strings and normalize keys
-                const parsedData = data.map(tx => ({
-                    ...tx,
-                    customerName: tx.customer_name || tx.customerName || 'Walk-in Customer',
-                    customerId: tx.customer_id || tx.customerId || '',
-                    items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
-                    payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
-                }));
+                const parsedData = data.map(tx => {
+                    // Get customer name with multiple fallbacks
+                    let custName = tx.c_name || tx.customer_name || tx.customerName;
+                    // If customer name is empty, null, or just whitespace, try to get it from items
+                    if (!custName || custName.trim() === '') {
+                        custName = 'Guest';
+                    }
+                    return {
+                        ...tx,
+                        customerName: custName,
+                        customerId: tx.customer_id || tx.customerId || '',
+                        items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
+                        payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
+                    };
+                });
                 setTransactions(parsedData || []);
             } catch (err) {
                 console.error('Failed to load transactions:', err);
@@ -38,15 +52,29 @@ export const TransactionProvider = ({ children }) => {
     const fetchTransactions = async () => {
         setLoading(true);
         try {
-            const data = db.getAllSync('SELECT * FROM invoices WHERE is_deleted = 0 ORDER BY date DESC');
+            const data = db.getAllSync(`
+                SELECT i.*, c.name as c_name 
+                FROM invoices i 
+                LEFT JOIN customers c ON i.customer_id = c.id 
+                WHERE i.is_deleted = 0 
+                ORDER BY i.date DESC
+            `);
             // Parse items and payments JSON strings and normalize keys
-            const parsedData = data.map(tx => ({
-                ...tx,
-                customerName: tx.customer_name || tx.customerName || 'Walk-in Customer',
-                customerId: tx.customer_id || tx.customerId || '',
-                items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
-                payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
-            }));
+            const parsedData = data.map(tx => {
+                // Get customer name with multiple fallbacks
+                let custName = tx.c_name || tx.customer_name || tx.customerName;
+                // If customer name is empty, null, or just whitespace, default to Guest
+                if (!custName || custName.trim() === '') {
+                    custName = 'Guest';
+                }
+                return {
+                    ...tx,
+                    customerName: custName,
+                    customerId: tx.customer_id || tx.customerId || '',
+                    items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
+                    payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
+                };
+            });
             setTransactions(parsedData || []);
         } finally {
             setLoading(false);
@@ -55,12 +83,27 @@ export const TransactionProvider = ({ children }) => {
 
     const fetchDeletedTransactions = async () => {
         try {
-            const data = db.getAllSync('SELECT * FROM invoices WHERE is_deleted = 1 ORDER BY date DESC');
-            return data.map(tx => ({
-                ...tx,
-                items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
-                payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
-            }));
+            const data = db.getAllSync(`
+                SELECT i.*, c.name as c_name 
+                FROM invoices i 
+                LEFT JOIN customers c ON i.customer_id = c.id 
+                WHERE i.is_deleted = 1 
+                ORDER BY i.date DESC
+            `);
+            return data.map(tx => {
+                // Get customer name with multiple fallbacks
+                let custName = tx.c_name || tx.customer_name || tx.customerName;
+                // If customer name is empty, null, or just whitespace, default to Guest
+                if (!custName || custName.trim() === '') {
+                    custName = 'Guest';
+                }
+                return {
+                    ...tx,
+                    customerName: custName,
+                    items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
+                    payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
+                };
+            });
         } catch (err) {
             console.error('Fetch deleted error:', err);
             return [];
@@ -112,7 +155,7 @@ export const TransactionProvider = ({ children }) => {
                 [
                     id,
                     data.customerId || '',
-                    data.customerName || 'Walk-in Customer',
+                    data.customerName || 'Guest',
                     date,
                     data.type || 'Sales',
                     itemsJson,
@@ -139,7 +182,7 @@ export const TransactionProvider = ({ children }) => {
                 ]
             );
 
-            const newTx = { ...data, id, date, items: data.items || [], payments: data.payments || [], weekly_sequence: weeklySequence };
+            const newTx = { ...data, id, date, items: data.items || [], payments: data.payments || [], weekly_sequence: weeklySequence, is_deleted: 0 };
             setTransactions(prev => [newTx, ...prev]);
 
             // [AutoSave]
@@ -305,7 +348,7 @@ export const TransactionProvider = ({ children }) => {
                  WHERE id = ?`,
                 [
                     String(data.customerId || ''),
-                    String(data.customerName || 'Walk-in Customer'),
+                    String(data.customerName || 'Guest'),
                     String(date),
                     String(data.type || 'Sales'),
                     String(itemsJson),
@@ -339,7 +382,7 @@ export const TransactionProvider = ({ children }) => {
             // [Sync]
             try {
                 const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-                const updatedTx = { ...data, items: data.items, payments: data.payments, date, id, updated_at: new Date().toISOString() };
+                const updatedTx = { ...data, items: data.items, payments: data.payments, date, id, updated_at: new Date().toISOString(), is_deleted: data.is_deleted || 0 };
                 SyncService.createAndUploadEvent(EventTypes.INVOICE_UPDATED, updatedTx);
             } catch (e) {
                 console.log('Sync Update Transaction Error:', e);
@@ -460,6 +503,34 @@ export const TransactionProvider = ({ children }) => {
             deleteTransaction,
             restoreTransaction,
             permanentlyDeleteTransaction,
+            emptyRecycleBin: async () => {
+                try {
+                    const deleted = db.getAllSync('SELECT id FROM invoices WHERE is_deleted = 1');
+                    db.runSync('DELETE FROM invoices WHERE is_deleted = 1');
+                    // Sync each deletion
+                    const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                    for (const row of deleted) {
+                        try {
+                            SyncService.createAndUploadEvent(EventTypes.INVOICE_DELETED, { id: row.id });
+                        } catch (e) { }
+                    }
+                    triggerAutoSave();
+                } catch (err) {
+                    console.error('Empty Bin Error:', err);
+                    throw err;
+                }
+            },
+            restoreAllInvoices: async () => {
+                try {
+                    const deleted = db.getAllSync('SELECT * FROM invoices WHERE is_deleted = 1');
+                    for (const row of deleted) {
+                        await restoreTransaction(row.id);
+                    }
+                } catch (err) {
+                    console.error('Restore All Error:', err);
+                    throw err;
+                }
+            },
             updateTransaction: editTransaction,
             updateTransactionStatus,
             clearAllTransactions,

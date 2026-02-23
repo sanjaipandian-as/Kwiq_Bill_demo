@@ -142,10 +142,21 @@ export const initializeDB = () => {
         category TEXT,
         date TEXT,
         payment_method TEXT,
+        receipt_url TEXT,
         tags JSON,
         created_at TEXT,
         updated_at TEXT
       );
+    `);
+
+    // Migration: receipt_url for expenses
+    const expInfo = db.getAllSync(`PRAGMA table_info(expenses)`);
+    const expCols = expInfo.map(c => c.name);
+    if (!expCols.includes('receipt_url')) {
+      db.execSync(`ALTER TABLE expenses ADD COLUMN receipt_url TEXT;`);
+    }
+
+    db.execSync(`
 
       CREATE TABLE IF NOT EXISTS settings (
         id TEXT PRIMARY KEY,
