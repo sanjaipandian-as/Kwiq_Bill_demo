@@ -18,7 +18,7 @@ export const BulkActionsToolbar = ({
             <View style={styles.header}>
                 <View style={styles.selectionCount}>
                     <TouchableOpacity onPress={onClearSelection} style={styles.closeBtn}>
-                        <X size={20} color="#fff" />
+                        <X size={20} color="#0f172a" />
                     </TouchableOpacity>
                     <Text style={styles.countText}>{selectedCount} selected</Text>
                 </View>
@@ -34,7 +34,7 @@ export const BulkActionsToolbar = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity onPress={onMarkRecurring} style={styles.actionBtn}>
-                    <RefreshCw size={18} color="#fff" />
+                    <RefreshCw size={18} color="#0f172a" />
                     <Text style={styles.actionText}>Recurring</Text>
                 </TouchableOpacity>
 
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
         bottom: 0,
         left: 0,
         right: 0,
-        backgroundColor: '#0f172a',
+        backgroundColor: '#fff',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         paddingTop: 16,
@@ -71,8 +71,10 @@ const styles = StyleSheet.create({
         elevation: 10,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#e2e8f0',
     },
     header: {
         flexDirection: 'row',
@@ -89,7 +91,7 @@ const styles = StyleSheet.create({
         padding: 4,
     },
     countText: {
-        color: '#fff',
+        color: '#0f172a',
         fontSize: 16,
         fontWeight: '700',
     },
@@ -104,35 +106,38 @@ const styles = StyleSheet.create({
     actionBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#334155',
+        backgroundColor: '#f1f5f9',
         paddingVertical: 8,
         paddingHorizontal: 16,
         borderRadius: 12,
         gap: 8,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
     },
     deleteBtn: {
-        backgroundColor: '#ef4444',
+        backgroundColor: '#fef2f2',
+        borderColor: '#fecaca',
     },
     actionText: {
-        color: '#fff',
+        color: '#0f172a',
         fontSize: 14,
         fontWeight: '600',
     },
     divider: {
         width: 1,
         height: 24,
-        backgroundColor: '#475569',
+        backgroundColor: '#e2e8f0',
         marginHorizontal: 4,
     },
     label: {
-        color: '#94a3b8',
+        color: '#64748b',
         fontSize: 12,
         fontWeight: '600',
     },
     catBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#2563eb',
+        backgroundColor: '#0f172a',
         paddingVertical: 8,
         paddingHorizontal: 12,
         borderRadius: 12,
@@ -141,6 +146,6 @@ const styles = StyleSheet.create({
     catText: {
         color: '#fff',
         fontSize: 13,
-        fontWeight: '500',
+        fontWeight: '600',
     },
 });

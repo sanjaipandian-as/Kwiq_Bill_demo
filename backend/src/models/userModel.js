@@ -27,10 +27,9 @@ const userSchema = mongoose.Schema(
             unique: true,
             sparse: true, // Allows multiple null values
         },
-        googleId: {
-            type: String,
-            unique: true,
-            sparse: true, // Allows multiple null values
+        trialExpiresAt: {
+            type: Date,
+            required: false,
         },
     },
     {

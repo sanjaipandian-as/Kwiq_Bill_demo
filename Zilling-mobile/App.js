@@ -29,21 +29,25 @@ const AuthenticatedApp = () => {
   const { useAuth } = require('./src/context/AuthContext');
   const { user } = useAuth();
 
+  const TrialGuard = require('./src/components/TrialGuard').default;
+
   // Keying by user.id forces a complete unmount/remount of all these providers
   // whenever the user changes (Login/Logout).
   // This ensures no in-memory state (products, customers, etc.) leaks between sessions.
   return (
-    <SettingsProvider key={user?.id || 'guest'} user={user}>
-      <CustomerProvider>
-        <ProductProvider>
-          <ExpenseProvider>
-            <TransactionProvider>
-              <AppNavigator />
-            </TransactionProvider>
-          </ExpenseProvider>
-        </ProductProvider>
-      </CustomerProvider>
-    </SettingsProvider>
+    <TrialGuard>
+      <SettingsProvider key={user?.id || 'guest'} user={user}>
+        <CustomerProvider>
+          <ProductProvider>
+            <ExpenseProvider>
+              <TransactionProvider>
+                <AppNavigator />
+              </TransactionProvider>
+            </ExpenseProvider>
+          </ProductProvider>
+        </CustomerProvider>
+      </SettingsProvider>
+    </TrialGuard>
   );
 };
 

@@ -12,23 +12,23 @@ const {
     uploadReceipt,
 } = require('../controllers/expenseController');
 const { protect } = require('../middleware/authMiddleware');
+const { checkTrial } = require('../middleware/trialMiddleware');
 const { upload } = require('../config/cloudinary');
 
 // Main routes
-router.route('/').get(protect, getExpenses).post(protect, createExpense);
-router.route('/:id').put(protect, updateExpense).delete(protect, deleteExpense);
-router.post('/:id/restore', protect, restoreExpense);
+router.route('/').get(protect, checkTrial, getExpenses).post(protect, checkTrial, createExpense);
+router.route('/:id').put(protect, checkTrial, updateExpense).delete(protect, checkTrial, deleteExpense);
+router.post('/:id/restore', protect, checkTrial, restoreExpense);
 
 // Bulk operations
-router.post('/bulk-update', protect, bulkUpdateExpenses);
-router.post('/bulk-delete', protect, bulkDeleteExpenses);
+router.post('/bulk-update', protect, checkTrial, bulkUpdateExpenses);
+router.post('/bulk-delete', protect, checkTrial, bulkDeleteExpenses);
 
 // CSV export
-router.get('/export/csv', protect, exportExpensesToCSV);
+router.get('/export/csv', protect, checkTrial, exportExpensesToCSV);
 
-// Receipt upload
 // Receipt upload with error handling
-router.post('/:id/receipt', protect, (req, res, next) => {
+router.post('/:id/receipt', protect, checkTrial, (req, res, next) => {
     upload.single('receipt')(req, res, (err) => {
         if (err) {
             console.error('Upload Error:', err);

@@ -23,7 +23,24 @@ export const AuthProvider = ({ children }) => {
 
         // Only restore session if both local user exists AND Google session is active
         if (savedUser && currentUser) {
-          setUser(JSON.parse(savedUser));
+          const userData = JSON.parse(savedUser);
+          setUser(userData);
+
+          // Proactively refresh user data from backend to check trial status
+          try {
+            const latestUser = await services.auth.getCurrentUser();
+            if (latestUser) {
+              const updatedUser = {
+                ...userData,
+                backendId: latestUser.id,
+                trialExpiresAt: latestUser.trialExpiresAt,
+              };
+              await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+              setUser(updatedUser);
+            }
+          } catch (profileError) {
+            console.log('Failed to refresh user profile on init:', profileError.message);
+          }
         } else if (savedUser && !currentUser) {
           // Attempt silent sign-in if we have a saved user but no active session object
           try {
@@ -65,9 +82,10 @@ export const AuthProvider = ({ children }) => {
         const authResponse = await services.auth.googleLogin(idToken);
         if (authResponse && authResponse.token) {
           backendToken = authResponse.token;
-          // Update userData with backend ID if available
-          if (authResponse.user && authResponse.user.id) {
-            userData.backendId = authResponse.user.id;
+          // Update userData with backend ID and trial info if available
+          if (authResponse.user) {
+            if (authResponse.user.id) userData.backendId = authResponse.user.id;
+            if (authResponse.user.trialExpiresAt) userData.trialExpiresAt = authResponse.user.trialExpiresAt;
           }
           console.log('Successfully exchanged Google token for backend JWT');
         }

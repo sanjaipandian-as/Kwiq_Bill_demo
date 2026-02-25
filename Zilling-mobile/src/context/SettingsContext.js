@@ -71,7 +71,7 @@ export const SettingsProvider = ({ children, user }) => {
         defaults: {
             language: 'en',
             currency: 'INR',
-            autoSave: false
+            autoSave: true
         },
         user: {
             fullName: '',
@@ -195,9 +195,14 @@ export const SettingsProvider = ({ children, user }) => {
             await checkQueueStatus();
 
             // Initial Sync: Blocking if user is logged in
+            // This ensures the user stays on the loading screen until data is fetched
             if (user && user.id) {
                 console.log('[SettingsContext] Initializing blocking sync...');
-                await syncAllData(false);
+                try {
+                    await syncAllData(false);
+                } catch (e) {
+                    console.warn('[SettingsContext] Initial sync failed, allowing access:', e.message);
+                }
             }
 
             setLoading(false);
@@ -213,7 +218,55 @@ export const SettingsProvider = ({ children, user }) => {
         return () => clearInterval(intervalId);
     }, [user]);
 
+    const uploadLogoToCloud = async (logoData) => {
+        if (!logoData || logoData.startsWith('http')) return logoData;
+
+        try {
+            const { services } = require('../services/api');
+            let fileObject;
+
+            if (logoData.startsWith('data:image')) {
+                // Base64 from ImagePicker
+                const parts = logoData.split(',');
+                const mime = parts[0].match(/:(.*?);/)[1];
+                const extension = mime.split('/')[1];
+
+                // We'll use a specific name for the logo
+                fileObject = {
+                    uri: logoData,
+                    name: `store_logo.${extension}`,
+                    type: mime,
+                };
+            } else if (logoData.startsWith('file://')) {
+                const fileName = logoData.split('/').pop();
+                const ext = fileName.split('.').pop().toLowerCase();
+                fileObject = {
+                    uri: logoData,
+                    name: fileName,
+                    type: ext === 'png' ? 'image/png' : 'image/jpeg',
+                };
+            } else {
+                return logoData;
+            }
+
+            const response = await services.settings.uploadLogo(fileObject);
+            const cloudUrl = response?.data?.logoUrl || '';
+            if (cloudUrl) {
+                console.log(`[Logo] ✅ Uploaded to Cloudinary: ${cloudUrl}`);
+            }
+            return cloudUrl || logoData;
+        } catch (err) {
+            console.warn(`[Logo] ⚠️ Cloudinary upload failed: ${err.message}`);
+            return logoData;
+        }
+    };
+
     const ensurePortableSettings = async (s) => {
+        // If logo is already a Cloudinary/Remote URL, it's portable!
+        if (s.store?.logo && s.store.logo.startsWith('http')) {
+            return s;
+        }
+
         if (s.store?.logo && s.store.logo.startsWith('file://')) {
             try {
                 const base64 = await FileSystem.readAsStringAsync(s.store.logo, { encoding: 'base64' });
@@ -241,7 +294,21 @@ export const SettingsProvider = ({ children, user }) => {
             AsyncStorage.setItem('app_settings', JSON.stringify(newSettings));
 
             (async () => {
-                const portable = await ensurePortableSettings(newSettings);
+                // Background logo upload if it's the store section and logo changed
+                let finalSettings = newSettings;
+                if (section === 'store' && updates.logo && !updates.logo.startsWith('http')) {
+                    const cloudLogo = await uploadLogoToCloud(updates.logo);
+                    if (cloudLogo !== updates.logo) {
+                        finalSettings = {
+                            ...newSettings,
+                            store: { ...newSettings.store, logo: cloudLogo }
+                        };
+                        setSettings(finalSettings);
+                        AsyncStorage.setItem('app_settings', JSON.stringify(finalSettings));
+                    }
+                }
+
+                const portable = await ensurePortableSettings(finalSettings);
                 const onboardingData = {
                     user: portable.user,
                     store: portable.store,
@@ -261,7 +328,7 @@ export const SettingsProvider = ({ children, user }) => {
 
                 if (user && user.id) {
                     const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                    syncSettingsToDrive(user, portable) // Use portable version here
+                    syncSettingsToDrive(user, portable)
                         .then(success => console.log('Background: Drive Sync (Settings Update)', success ? 'Success' : 'Failed'))
                         .catch(err => console.error('Background: Drive Sync Error:', err));
                 }
@@ -282,20 +349,32 @@ export const SettingsProvider = ({ children, user }) => {
             setSettings(updated);
             await AsyncStorage.setItem('app_settings', JSON.stringify(updated));
 
-            // 2. Fire-and-forget Cloud Sync (Keep tracking status via isUploading)
+            // 2. Fire-and-forget Cloud Sync
             (async () => {
                 try {
+                    let finalToSync = updated;
+
+                    // Check if logo needs Cloudinary upload
+                    const logoData = updated.store?.logo;
+                    if (logoData && !logoData.startsWith('http')) {
+                        setIsLogoUploading(true);
+                        const cloudUrl = await uploadLogoToCloud(logoData);
+                        if (cloudUrl && cloudUrl !== logoData) {
+                            finalToSync = {
+                                ...updated,
+                                store: { ...updated.store, logo: cloudUrl }
+                            };
+                            // Update local state and storage with the permanent URL
+                            setSettings(finalToSync);
+                            await AsyncStorage.setItem('app_settings', JSON.stringify(finalToSync));
+                        }
+                        setIsLogoUploading(false);
+                    }
+
                     if (user && user.id) {
                         const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                        const isNewLogo = updated.store?.logo && (
-                            updated.store.logo.startsWith('file://') ||
-                            updated.store.logo.startsWith('data:image')
-                        );
-                        if (isNewLogo) setIsLogoUploading(true);
-                        const portable = await ensurePortableSettings(updated);
-                        await syncSettingsToDrive(user, portable); // Use portable version here
-                        setIsLogoUploading(false);
-
+                        const portable = await ensurePortableSettings(finalToSync);
+                        await syncSettingsToDrive(user, portable);
                         await services.settings.updateSettings(portable);
                         console.log('[SettingsContext] Cloud sync completed.');
                     }

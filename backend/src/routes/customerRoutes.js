@@ -10,14 +10,15 @@ const {
     searchDuplicates,
 } = require('../controllers/customerController');
 const { protect } = require('../middleware/authMiddleware');
+const { checkTrial } = require('../middleware/trialMiddleware');
 
-router.route('/').get(protect, getCustomers).post(protect, createCustomer);
-router.route('/search-duplicates').get(protect, searchDuplicates);
-router.route('/:id/restore').post(protect, restoreCustomer);
+router.route('/').get(protect, checkTrial, getCustomers).post(protect, checkTrial, createCustomer);
+router.route('/search-duplicates').get(protect, checkTrial, searchDuplicates);
+router.route('/:id/restore').post(protect, checkTrial, restoreCustomer);
 router
     .route('/:id')
-    .get(protect, getCustomerById)
-    .put(protect, updateCustomer)
-    .delete(protect, deleteCustomer);
+    .get(protect, checkTrial, getCustomerById)
+    .put(protect, checkTrial, updateCustomer)
+    .delete(protect, checkTrial, deleteCustomer);
 
 module.exports = router;

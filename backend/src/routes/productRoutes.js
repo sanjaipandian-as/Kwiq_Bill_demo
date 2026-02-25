@@ -11,19 +11,20 @@ const {
     getProductStats
 } = require('../controllers/productController');
 const { protect } = require('../middleware/authMiddleware');
+const { checkTrial } = require('../middleware/trialMiddleware');
 
 // Temp route to fix indexes - Ensure this is placed BEFORE /:id
 router.get('/fix-indexes', fixIndexes);
 
-router.route('/').get(protect, getProducts).post(protect, createProduct);
+router.route('/').get(protect, checkTrial, getProducts).post(protect, checkTrial, createProduct);
 
-router.get('/:id/stats', protect, getProductStats);
-router.post('/:id/restore', protect, restoreProduct);
+router.get('/:id/stats', protect, checkTrial, getProductStats);
+router.post('/:id/restore', protect, checkTrial, restoreProduct);
 
 router
     .route('/:id')
-    .get(protect, getProductById)
-    .put(protect, updateProduct)
-    .delete(protect, deleteProduct);
+    .get(protect, checkTrial, getProductById)
+    .put(protect, checkTrial, updateProduct)
+    .delete(protect, checkTrial, deleteProduct);
 
 module.exports = router;

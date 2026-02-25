@@ -584,32 +584,38 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
         const driveBank = driveSettings.bankDetails || userDetailsFile?.bankDetails || {};
 
         // Deep merge drive settings with local
+        // LOGO PRIORITIZATION: 
+        // 1. Remote Cloudinary URL (from settings.json)
+        // 2. Local File restored from Drive (store_logo.jpg)
+        // 3. Legacy Base64
+        let finalLogo = localLogoUri;
+        const driveLogo = driveSettings.store?.logo;
+        if (driveLogo && driveLogo.startsWith('http')) {
+          finalLogo = driveLogo;
+        } else if (driveLogo && driveLogo.startsWith('data:image') && !localLogoUri) {
+          finalLogo = driveLogo;
+        }
+
         const merged = {
           ...localSettings,
           ...driveSettings,
           store: {
             ...(localSettings.store || {}),
             ...(driveSettings.store || {}),
-            // FORCE localLogoUri if we have it, otherwise fallback to base64 from JSON
-            logo: localLogoUri || (driveSettings.store?.logo && driveSettings.store.logo.startsWith('data:image') ? driveSettings.store.logo : (localSettings.store?.logo || null))
+            logo: finalLogo
           },
           tax: { ...(localSettings.tax || {}), ...(driveSettings.tax || {}) },
           invoice: { ...(localSettings.invoice || {}), ...(driveSettings.invoice || {}) },
           defaults: { ...(localSettings.defaults || {}), ...(driveSettings.defaults || {}) },
           bankDetails: {
-            accountName: '', accountNumber: '', ifsc: '', bankName: '', branch: '', // Default structure
+            accountName: '', accountNumber: '', ifsc: '', bankName: '', branch: '',
             ...(localSettings.bankDetails || {}),
             ...driveBank
           }
         };
 
-        // Final Logo Sanity Check
-        if (localLogoUri) {
-          merged.store.logo = localLogoUri;
-        }
-
         await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
-        console.log('[Restore] Settings merged and restored. Bank details found:', !!driveBank.accountNumber);
+        console.log('[Restore] Settings merged and restored. Logo:', finalLogo?.substring(0, 30));
       } catch (e) {
         console.warn('[Restore] Settings merge failed, fixing state:', e.message);
         // Minimum viable settings restore

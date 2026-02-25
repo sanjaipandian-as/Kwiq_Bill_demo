@@ -443,6 +443,14 @@ export default function BillingPage({ navigation, route }) {
     updateCurrentBill({ cart: newCart });
   };
 
+  const updatePrice = (id, newPrice) => {
+    if (parseFloat(newPrice) < 0 || isNaN(parseFloat(newPrice))) return;
+    const sNewPrice = parseFloat(newPrice);
+
+    const newCart = currentBill.cart.map(i => i.id === id ? { ...i, price: sNewPrice, total: i.quantity * sNewPrice - (i.discount || 0) } : i);
+    updateCurrentBill({ cart: newCart });
+  };
+
   const removeItem = (id) => {
     const newCart = currentBill.cart.filter(item => item.id !== id);
     updateCurrentBill({ cart: newCart });
@@ -999,6 +1007,7 @@ export default function BillingPage({ navigation, route }) {
               products={products}
               cart={currentBill.cart}
               updateQuantity={updateQuantity}
+              updatePrice={updatePrice}
               removeItem={removeItem}
               selectedItemId={selectedItemId}
               onRowClick={setSelectedItemId}

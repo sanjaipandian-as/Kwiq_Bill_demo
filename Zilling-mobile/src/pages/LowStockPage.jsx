@@ -15,6 +15,7 @@ const LowStockPage = ({ navigation }) => {
     const lowStockItems = useMemo(() => {
         return products.filter(item => {
             const minStock = parseFloat(item.min_stock) || parseFloat(item.minStock) || 0;
+            const stock = parseFloat(item.stock) || 0;
             return minStock > 0 && stock <= minStock;
         }).sort((a, b) => (parseFloat(a.stock) || 0) - (parseFloat(b.stock) || 0));
     }, [products]);

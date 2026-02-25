@@ -9,12 +9,13 @@ const {
     getCustomerMetrics
 } = require('../controllers/reportController');
 const { protect } = require('../middleware/authMiddleware');
+const { checkTrial } = require('../middleware/trialMiddleware');
 
-router.get('/dashboard', protect, getDashboardStats);
-router.get('/financials', protect, getFinancials);
-router.get('/sales-trend', protect, getSalesTrend);
-router.get('/payment-methods', protect, getPaymentMethods);
-router.get('/top-products', protect, getTopProducts);
-router.get('/customers', protect, getCustomerMetrics);
+router.get('/dashboard', protect, checkTrial, getDashboardStats);
+router.get('/financials', protect, checkTrial, getFinancials);
+router.get('/sales-trend', protect, checkTrial, getSalesTrend);
+router.get('/payment-methods', protect, checkTrial, getPaymentMethods);
+router.get('/top-products', protect, checkTrial, getTopProducts);
+router.get('/customers', protect, checkTrial, getCustomerMetrics);
 
 module.exports = router;

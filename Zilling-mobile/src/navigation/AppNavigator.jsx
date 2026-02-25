@@ -18,7 +18,7 @@ import RecycleBinPage from '../pages/Invoices/RecycleBinPage';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import ShopDetails from '../pages/Settings/ShopDetails';
-import { View, ActivityIndicator } from 'react-native';
+import LoadingScreen from '../components/ui/LoadingScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -45,11 +45,7 @@ export default function AppNavigator() {
   };
 
   if (isLoading || settingsLoading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }}>
-        <ActivityIndicator size="large" color="#2563eb" />
-      </View>
-    );
+    return <LoadingScreen message={isLoading ? "Securely Signing In..." : "Aligning Your Data..."} />;
   }
 
   const profileComplete = isProfileComplete();

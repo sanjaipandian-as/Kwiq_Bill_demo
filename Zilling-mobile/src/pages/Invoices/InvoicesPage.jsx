@@ -240,7 +240,9 @@ export default function InvoicesPage() {
       customerName: '',
       total: 0,
       status: 'PAID',
-      date: new Date().toISOString()
+      date: new Date().toISOString(),
+      internalNotes: '',
+      customerId: ''
     });
     setEditModalVisible(true);
   };
@@ -264,10 +266,14 @@ export default function InvoicesPage() {
   };
 
   const handleEditPress = (invoice) => {
-    // If coming from details modal, close it first or keep it? 
-    // Usually editing replaces details.
     setDetailModalVisible(false);
-    setEditingInvoice({ ...invoice });
+    setEditingInvoice({
+      ...invoice,
+      total: invoice.total || 0,
+      customerName: invoice.customerName || '',
+      internalNotes: invoice.internalNotes || '',
+      date: invoice.date || new Date().toISOString()
+    });
     setEditModalVisible(true);
   };
 
@@ -461,7 +467,7 @@ export default function InvoicesPage() {
                 </Pressable>
                 <Text style={styles.title}>Invoices</Text>
               </View>
-            <View style={styles.headerActions}>
+              <View style={styles.headerActions}>
                 <Pressable
                   style={[styles.iconBtnDark, period === 'Custom' && styles.iconBtnDarkActive]}
                   onPress={() => setIsCalendarOpen(true)}
@@ -531,8 +537,17 @@ export default function InvoicesPage() {
           <View style={styles.modalContent}>
             <View style={styles.modalIndicator} />
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Invoice Summary</Text>
-              <Pressable onPress={() => setDetailModalVisible(false)}><X size={24} color="#000" /></Pressable>
+              <View style={styles.headerTextSection}>
+                <Text style={styles.modalTitle}>Invoice Summary</Text>
+                <Text style={styles.modalSubtitle}>Full transaction breakdown</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDetailModalVisible(false)}
+                style={styles.closeIconButton}
+                activeOpacity={0.7}
+              >
+                <X size={18} color="#000" strokeWidth={3} />
+              </TouchableOpacity>
             </View>
 
             {selectedInvoice && (
@@ -691,64 +706,139 @@ export default function InvoicesPage() {
 
       <Modal visible={isEditModalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { height: '85%' }]}>
             <View style={styles.modalIndicator} />
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Modify Invoice</Text>
-              <Pressable onPress={() => setEditModalVisible(false)}><X size={24} color="#000" /></Pressable>
+              <View style={styles.headerTextSection}>
+                <Text style={styles.modalTitle}>
+                  {editingInvoice?.id?.toString().startsWith('NEW-') ? "New Invoice" : "Edit Invoice"}
+                </Text>
+                <Text style={styles.modalSubtitle}>Fill transaction details</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setEditModalVisible(false)}
+                style={styles.closeIconButton}
+                activeOpacity={0.7}
+              >
+                <X size={18} color="#000" strokeWidth={3} />
+              </TouchableOpacity>
             </View>
 
             {editingInvoice && (
               <>
-                <ScrollView style={styles.editForm} showsVerticalScrollIndicator={false}>
-                  <Text style={styles.inputLabel}>Customer Name</Text>
-                  <Input
-                    value={editingInvoice.customerName}
-                    onChangeText={(val) => setEditingInvoice({ ...editingInvoice, customerName: val })}
-                    style={{ marginBottom: 20 }}
-                    placeholder="e.g. John Doe"
-                  />
+                <ScrollView
+                  style={styles.editForm}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: 40 }}
+                >
+                  {/* Quick Tip for New Invoice */}
+                  {editingInvoice?.id?.toString().startsWith('NEW-') && (
+                    <TouchableOpacity
+                      style={styles.billingTip}
+                      onPress={() => {
+                        setEditModalVisible(false);
+                        navigation.navigate('Billing');
+                      }}
+                    >
+                      <LayoutGrid size={18} color="#000" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.tipTitle}>Use Billing Terminal instead?</Text>
+                        <Text style={styles.tipSub}>Select products, apply tax, and print receipts automatically.</Text>
+                      </View>
+                      <ChevronRight size={16} color="#94a3b8" />
+                    </TouchableOpacity>
+                  )}
 
-                  <Text style={styles.inputLabel}>Total Amount (₹)</Text>
-                  <Input
-                    keyboardType="numeric"
-                    value={editingInvoice.total?.toString()}
-                    onChangeText={(val) => setEditingInvoice({ ...editingInvoice, total: parseFloat(val) || 0 })}
-                    style={{ marginBottom: 20 }}
-                  />
-
-                  <Text style={styles.inputLabel}>Payment Status</Text>
-                  <View style={styles.statusSelector}>
-                    {['PAID', 'UNPAID'].map(status => (
-                      <TouchableOpacity
-                        key={status}
-                        style={[
-                          styles.statusOption,
-                          editingInvoice.status === status && styles.statusOptionActive
-                        ]}
-                        onPress={() => setEditingInvoice({ ...editingInvoice, status })}
-                      >
-                        <Text style={[
-                          styles.statusOptionText,
-                          editingInvoice.status === status && styles.statusOptionTextActive
-                        ]}>
-                          {status === 'PAID' ? 'PAID' : 'UNPAID'}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.groupLabel}>ENTITY DETAILS</Text>
+                    <View style={styles.inputBox}>
+                      <Text style={styles.fieldLabel}>Customer Name</Text>
+                      <Input
+                        value={editingInvoice.customerName}
+                        onChangeText={(val) => setEditingInvoice({ ...editingInvoice, customerName: val })}
+                        placeholder="e.g. John Doe / Walk-in Customer"
+                        style={styles.premiumInput}
+                      />
+                    </View>
                   </View>
-                  <View style={{ height: 30 }} />
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.groupLabel}>FINANCIALS</Text>
+                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                      <View style={[styles.inputBox, { flex: 1 }]}>
+                        <Text style={styles.fieldLabel}>Date</Text>
+                        <TouchableOpacity
+                          style={styles.datePickerTrigger}
+                          onPress={() => setIsCalendarOpen(true)}
+                        >
+                          <Calendar size={18} color="#000" />
+                          <Text style={styles.dateText}>
+                            {new Date(editingInvoice.date).toLocaleDateString('en-GB')}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={[styles.inputBox, { flex: 1 }]}>
+                        <Text style={styles.fieldLabel}>Total Amount (₹)</Text>
+                        <Input
+                          keyboardType="numeric"
+                          value={editingInvoice.total?.toString()}
+                          onChangeText={(val) => setEditingInvoice({ ...editingInvoice, total: parseFloat(val) || 0 })}
+                          placeholder="0.00"
+                          style={styles.premiumInput}
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.groupLabel}>TRANSACTION STATUS</Text>
+                    <View style={styles.statusSelector}>
+                      {['PAID', 'UNPAID'].map(status => (
+                        <TouchableOpacity
+                          key={status}
+                          style={[
+                            styles.statusOption,
+                            editingInvoice.status === status && styles.statusOptionActive
+                          ]}
+                          onPress={() => setEditingInvoice({ ...editingInvoice, status })}
+                        >
+                          <Text style={[
+                            styles.statusOptionText,
+                            editingInvoice.status === status && styles.statusOptionTextActive
+                          ]}>
+                            {status === 'PAID' ? 'PAID' : 'DUE / UNPAID'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.groupLabel}>ADDITIONAL INFORMATION</Text>
+                    <View style={styles.inputBox}>
+                      <Text style={styles.fieldLabel}>Internal Remarks</Text>
+                      <Input
+                        value={editingInvoice.internalNotes}
+                        onChangeText={(val) => setEditingInvoice({ ...editingInvoice, internalNotes: val })}
+                        placeholder="Notes for internal record..."
+                        multiline
+                        style={[styles.premiumInput, { height: 80, textAlignVertical: 'top' }]}
+                      />
+                    </View>
+                  </View>
                 </ScrollView>
 
-                <View style={styles.modalFooter}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditModalVisible(false)}>
-                    <Text style={{ color: '#000', fontWeight: '800' }}>DISCARD</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.saveBtn} onPress={handleSaveEdit}>
-                    <Text style={styles.savetxt}>
-                      {editingInvoice?.id?.toString().startsWith('NEW-') ? "CREATE INVOICE" : "UPDATE INVOICE"}
-                    </Text>
-                  </TouchableOpacity>
+                <View style={styles.footerContainer}>
+                  <View style={styles.modalFooter}>
+                    <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditModalVisible(false)}>
+                      <Text style={{ color: '#000', fontWeight: '800' }}>DISCARD</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.saveBtn} onPress={handleSaveEdit}>
+                      <Text style={styles.savetxt}>
+                        {editingInvoice?.id?.toString().startsWith('NEW-') ? "CREATE INVOICE" : "SAVE CHANGES"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </>
             )}
@@ -852,7 +942,15 @@ export default function InvoicesPage() {
                   <Pressable
                     key={day}
                     style={[styles.calDayCell, isSelected && styles.calDayActive]}
-                    onPress={() => handleCustomDateSelect(new Date(currentCalView.getFullYear(), currentCalView.getMonth(), day))}
+                    onPress={() => {
+                      const d = new Date(currentCalView.getFullYear(), currentCalView.getMonth(), day);
+                      if (isEditModalVisible && editingInvoice) {
+                        setEditingInvoice({ ...editingInvoice, date: d.toISOString() });
+                        setIsCalendarOpen(false);
+                      } else {
+                        handleCustomDateSelect(d);
+                      }
+                    }}
                   >
                     <Text style={[styles.calDayText, isSelected && styles.calDayTextActive]}>{day}</Text>
                   </Pressable>
@@ -862,7 +960,15 @@ export default function InvoicesPage() {
 
             <Pressable
               style={styles.calTodayBtn}
-              onPress={() => handleCustomDateSelect(new Date())}
+              onPress={() => {
+                const d = new Date();
+                if (isEditModalVisible && editingInvoice) {
+                  setEditingInvoice({ ...editingInvoice, date: d.toISOString() });
+                  setIsCalendarOpen(false);
+                } else {
+                  handleCustomDateSelect(d);
+                }
+              }}
             >
               <Text style={styles.calTodayText}>Go to Today</Text>
             </Pressable>
@@ -948,8 +1054,8 @@ const styles = StyleSheet.create({
   },
 
   // Status Filter Row
-  filterRow: { 
-    flexDirection: 'row', 
+  filterRow: {
+    flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 24,
     paddingTop: 16,
@@ -1100,11 +1206,11 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: 'white',
-    borderTopLeftRadius: 36, // Softer roundness
-    borderTopRightRadius: 36,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     width: '100%',
     maxHeight: '92%',
-    paddingTop: 10,
+    paddingTop: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -10 },
     shadowOpacity: 0.1,
@@ -1112,24 +1218,42 @@ const styles = StyleSheet.create({
     elevation: 20
   },
   modalIndicator: {
-    width: 48,
-    height: 5,
-    backgroundColor: '#e2e8f0',
+    width: 36,
+    height: 4,
+    backgroundColor: '#cbd5e1',
     borderRadius: 10,
     alignSelf: 'center',
-    marginBottom: 8
+    marginVertical: 12
   },
 
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 28,
     paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9'
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#f8fafc'
   },
-  modalTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
+  headerTextSection: { flex: 1 },
+  modalTitle: { fontSize: 20, fontWeight: '900', color: '#000', letterSpacing: -0.8 },
+  modalSubtitle: { fontSize: 13, color: '#94a3b8', fontWeight: '600', marginTop: 1 },
+  closeIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    marginLeft: 15
+  },
 
   detailScroll: { paddingHorizontal: 24 },
 
@@ -1419,5 +1543,51 @@ const styles = StyleSheet.create({
   calDayTextActive: { color: '#fff', fontWeight: '900' },
 
   calTodayBtn: { marginTop: 25, height: 50, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
-  calTodayText: { fontSize: 14, fontWeight: '800', color: '#000' }
+  calTodayText: { fontSize: 14, fontWeight: '800', color: '#000' },
+
+  // New Edit Form Styles
+  billingTip: {
+    backgroundColor: '#f1f5f9',
+    padding: 16,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  tipTitle: { fontSize: 14, fontWeight: '900', color: '#000' },
+  tipSub: { fontSize: 11, color: '#64748b', fontWeight: '500', marginTop: 2 },
+  inputGroup: { marginBottom: 24 },
+  groupLabel: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5, marginBottom: 12, marginLeft: 4 },
+  inputBox: { marginBottom: 16 },
+  fieldLabel: { fontSize: 12, fontWeight: '700', color: '#0f172a', marginBottom: 8, marginLeft: 2 },
+  premiumInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    height: 52,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    color: '#000',
+    fontWeight: '600'
+  },
+  datePickerTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    height: 52,
+    paddingHorizontal: 16,
+  },
+  dateText: { fontSize: 15, fontWeight: '700', color: '#000' },
+  footerContainer: {
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    backgroundColor: '#fff',
+  }
 });

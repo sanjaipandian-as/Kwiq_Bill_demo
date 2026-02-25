@@ -12,12 +12,19 @@ export const ExpenseProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // Normalize SQLite row → camelCase JS object
+    const normalizeExpense = (row) => ({
+        ...row,
+        receiptUrl: row.receipt_url || row.receiptUrl || '',
+        paymentMethod: row.payment_method || row.paymentMethod || 'Cash',
+    });
+
     // Initial load from SQLite
     useEffect(() => {
         const loadExpenses = async () => {
             try {
                 const data = db.getAllSync('SELECT * FROM expenses ORDER BY date DESC');
-                setExpenses(data || []);
+                setExpenses((data || []).map(normalizeExpense));
             } catch (err) {
                 console.error('Failed to load expenses:', err);
                 setError('Failed to load expenses');
@@ -32,9 +39,29 @@ export const ExpenseProvider = ({ children }) => {
         setLoading(true);
         try {
             const data = db.getAllSync('SELECT * FROM expenses ORDER BY date DESC');
-            setExpenses(data || []);
+            setExpenses((data || []).map(normalizeExpense));
         } finally {
             setLoading(false);
+        }
+    };
+
+    // ─── Receipt Upload Helper ───
+    const uploadReceiptToCloud = async (expenseId, localUri) => {
+        if (!localUri || !localUri.startsWith('file://')) return localUri;
+        try {
+            const { services } = require('../services/api');
+            const fileName = localUri.split('/').pop();
+            const ext = (fileName.split('.').pop() || 'jpg').toLowerCase();
+            const fileObject = {
+                uri: localUri,
+                name: fileName,
+                type: ext === 'pdf' ? 'application/pdf' : 'image/jpeg',
+            };
+            const res = await services.expenses.uploadReceipt(expenseId, fileObject);
+            return res.data?.receiptUrl || localUri;
+        } catch (err) {
+            console.warn('[Sync] Cloudinary upload failed:', err.message);
+            return localUri;
         }
     };
 
@@ -46,31 +73,36 @@ export const ExpenseProvider = ({ children }) => {
             const category = data.category || 'General';
             const date = data.date || new Date().toISOString();
             const paymentMethod = data.paymentMethod || 'Cash';
-            // Capture the receipt URI from the modal
-            const receiptUrl = data.receiptUrl || '';
+            const localUri = data.receiptUrl || data.receiptFile || data.receipt_url || '';
             const tags = JSON.stringify(data.tags || []);
             const createdAt = new Date().toISOString();
 
+            // 1. Instant local save
             db.runSync(
                 `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [id, title, amount, category, date, paymentMethod, receiptUrl, tags, createdAt]
+                [id, title, amount, category, date, paymentMethod, localUri, tags, createdAt]
             );
-
-            const newExpense = { ...data, id, title, amount, category, date, paymentMethod, receiptUrl, tags, createdAt };
-            setExpenses(prev => [newExpense, ...prev]);
-
+            const initialExpense = { ...data, id, title, amount, category, date, paymentMethod, receiptUrl: localUri, tags, createdAt };
+            setExpenses(prev => [initialExpense, ...prev]);
             triggerAutoSave();
 
-            // [Sync]
+            // 2. Background Upload
+            const cloudUrl = await uploadReceiptToCloud(id, localUri);
+            if (cloudUrl && cloudUrl !== localUri) {
+                db.runSync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
+                setExpenses(prev => prev.map(e => e.id === id ? { ...e, receiptUrl: cloudUrl } : e));
+            }
+
+            // 3. Sync with FINAL url
             try {
                 const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-                SyncService.createAndUploadEvent(EventTypes.EXPENSE_CREATED, newExpense);
+                SyncService.createAndUploadEvent(EventTypes.EXPENSE_CREATED, { ...initialExpense, receiptUrl: cloudUrl });
             } catch (e) {
                 console.log('Sync Add Expense Error:', e);
             }
 
-            return newExpense;
+            return initialExpense;
         } catch (err) {
             console.error('Add Expense SQL Error:', err);
             throw err;
@@ -86,19 +118,26 @@ export const ExpenseProvider = ({ children }) => {
             const category = data.category || 'General';
             const date = data.date || new Date().toISOString();
             const paymentMethod = data.paymentMethod || 'Cash';
-            const receiptUrl = data.receiptUrl || '';
+            const localUri = data.receiptUrl || data.receiptFile || data.receipt_url || '';
             const tags = JSON.stringify(data.tags || []);
             const updatedAt = new Date().toISOString();
 
             db.runSync(
                 `UPDATE expenses SET title = ?, amount = ?, category = ?, date = ?, payment_method = ?, receipt_url = ?, tags = ?, updated_at = ? WHERE id = ?`,
-                [title, amount, category, date, paymentMethod, receiptUrl, tags, updatedAt, id]
+                [title, amount, category, date, paymentMethod, localUri, tags, updatedAt, id]
             );
 
-            setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...data, amount, receiptUrl, tags, updatedAt } : e));
+            setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...data, amount, receiptUrl: localUri, tags, updatedAt } : e));
             triggerAutoSave();
 
-            // [Sync]
+            // Background Upload
+            const cloudUrl = await uploadReceiptToCloud(id, localUri);
+            if (cloudUrl && cloudUrl !== localUri) {
+                db.runSync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
+                setExpenses(prev => prev.map(e => e.id === id ? { ...e, receiptUrl: cloudUrl } : e));
+            }
+
+            // Sync
             try {
                 const { SyncService, EventTypes } = require('../services/OneWaySyncService');
                 const oldExpense = expenses.find(e => e.id === id);
@@ -111,8 +150,7 @@ export const ExpenseProvider = ({ children }) => {
                             reason: 'Expense Update'
                         });
                     }
-                    // Trigger generic update for other fields
-                    const updatedExpense = { ...oldExpense, ...data, amount, receiptUrl, updatedAt };
+                    const updatedExpense = { ...oldExpense, ...data, amount, receiptUrl: cloudUrl, updatedAt };
                     SyncService.createAndUploadEvent(EventTypes.EXPENSE_UPDATED, updatedExpense);
                 }
             } catch (e) {
@@ -143,10 +181,17 @@ export const ExpenseProvider = ({ children }) => {
         }
     };
 
-    const uploadReceipt = async (id, file) => {
-        console.log('Mocking receipt upload for ID:', id);
-        // Logic for saving file URI to DB could be added here if needed
-        return true;
+    const uploadReceipt = async (id, fileUri) => {
+        try {
+            const cloudUrl = await uploadReceiptToCloud(id, fileUri);
+            if (cloudUrl && cloudUrl !== fileUri) {
+                db.runSync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
+                setExpenses(prev => prev.map(e => e.id === id ? { ...e, receiptUrl: cloudUrl } : e));
+            }
+            return cloudUrl;
+        } catch (err) {
+            return fileUri;
+        }
     };
 
     const bulkDeleteExpenses = async (ids) => {
@@ -181,7 +226,18 @@ export const ExpenseProvider = ({ children }) => {
             deleteExpense,
             addExpense,
             uploadReceipt,
-            bulkDeleteExpenses
+            bulkDeleteExpenses,
+            bulkUpdateExpenses: async (ids, updates) => {
+                try {
+                    ids.forEach(id => {
+                        const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+                        const values = [...Object.values(updates), id];
+                        db.runSync(`UPDATE expenses SET ${setClauses} WHERE id = ?`, values);
+                    });
+                    setExpenses(prev => prev.map(e => ids.includes(e.id) ? { ...e, ...updates } : e));
+                    triggerAutoSave();
+                } catch (e) { console.error(e); }
+            }
         }}>
             {children}
         </ExpenseContext.Provider>
