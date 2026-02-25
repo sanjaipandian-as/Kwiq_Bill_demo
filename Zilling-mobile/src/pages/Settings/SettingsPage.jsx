@@ -549,7 +549,7 @@ const SettingsPage = ({ navigation }) => {
           <View style={styles.tabContent}>
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#3b82f6' }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <Building size={20} color="#fff" />
                 </View>
                 <Text style={styles.cardTitle}>Bank Account Details</Text>
@@ -609,12 +609,12 @@ const SettingsPage = ({ navigation }) => {
                   </TouchableOpacity>
                 )}
 
-                <View style={{ marginTop: 16, backgroundColor: '#eff6ff', padding: 12, borderRadius: 8 }}>
+                <View style={{ marginTop: 16, backgroundColor: '#f5f5f5', padding: 12, borderRadius: 8, borderWidth: 1.5, borderColor: '#000' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <CheckCircle2 size={16} color="#3b82f6" style={{ marginRight: 8 }} />
-                    <Text style={{ fontSize: 12, color: '#1e40af', fontWeight: '600' }}>Cloud Sync Active</Text>
+                    <CheckCircle2 size={16} color="#000" style={{ marginRight: 8 }} />
+                    <Text style={{ fontSize: 12, color: '#000', fontWeight: '800', textTransform: 'uppercase' }}>Cloud Sync Active</Text>
                   </View>
-                  <Text style={{ fontSize: 11, color: '#3b82f6', marginTop: 4 }}>
+                  <Text style={{ fontSize: 11, color: '#000', marginTop: 4, fontWeight: '500' }}>
                     These details are securely saved to your local device and synced to your cloud account (MongoDB & Drive) when you save.
                   </Text>
                 </View>
@@ -855,7 +855,7 @@ const SettingsPage = ({ navigation }) => {
           <View style={styles.tabContent}>
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#10b981' }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <Layout size={20} color="#fff" />
                 </View>
                 <Text style={styles.cardTitle}>Template Design</Text>
@@ -1006,7 +1006,7 @@ const SettingsPage = ({ navigation }) => {
 
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#6366f1' }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <FileText size={20} color="#fff" />
                 </View>
                 <Text style={styles.cardTitle}>Bill Template</Text>
@@ -1152,7 +1152,7 @@ const SettingsPage = ({ navigation }) => {
             {/* Cloud Sync Section */}
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#3b82f6' }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <Cloud size={20} color="#fff" />
                 </View>
                 <Text style={styles.cardTitle}>Cloud Backup & Sync</Text>
@@ -1178,45 +1178,56 @@ const SettingsPage = ({ navigation }) => {
                   <Text style={styles.actionButtonText}>Instant Cloud Backup</Text>
                 </TouchableOpacity>
 
-                {/* --- Uploading Details Section --- */}
-                <View style={{ marginTop: 20, marginBottom: 10 }}>
-                  <Text style={[styles.cardTitle, { fontSize: 16, marginBottom: 8 }]}>Uploading Details</Text>
+                {/* --- Cloud Sync Engine Heartbeat --- */}
+                <View style={{ marginTop: 24, marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <View style={{ width: 32, height: 32, backgroundColor: '#f1f5f9', borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}>
+                      <RotateCcw size={18} color="#000" />
+                    </View>
+                    <Text style={[styles.cardTitle, { fontSize: 16 }]}>Cloud Sync Engine</Text>
+                  </View>
 
-                  <View style={styles.uploadInfoBox}>
+                  <View style={[styles.uploadInfoBox, { backgroundColor: '#fff', borderLeftWidth: 4, borderLeftColor: '#000' }]}>
                     <View style={styles.uploadRow}>
-                      <Text style={styles.uploadLabel}>Pending Uploads:</Text>
-                      <Text style={[styles.uploadValue, { color: queueLength > 0 ? '#ef4444' : '#10b981' }]}>
-                        {queueLength} items
+                      <View>
+                        <Text style={styles.uploadLabel}>Pending Events</Text>
+                        <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '500' }}>Changes waiting to sync</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[styles.uploadValue, { fontSize: 18, color: '#000' }]}>
+                          {queueLength}
+                        </Text>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#94a3b8' }}>EVENTS</Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.divider, { marginVertical: 12, height: 1, backgroundColor: '#f1f5f9' }]} />
+
+                    <View style={styles.uploadRow}>
+                      <View>
+                        <Text style={styles.uploadLabel}>Estimated Time</Text>
+                        <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '500' }}>Based on current network</Text>
+                      </View>
+                      <Text style={styles.uploadValue}>
+                        {queueLength > 0 ? `~${queueLength * 2} seconds` : '0 seconds'}
                       </Text>
                     </View>
 
-                    <View style={[styles.uploadRow, { marginTop: 8 }]}>
-                      <Text style={styles.uploadLabel}>Status:</Text>
-                      {isUploading ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <ActivityIndicator size="small" color="#3b82f6" style={{ marginRight: 6 }} />
-                          <Text style={{ color: '#3b82f6', fontWeight: '600' }}>Syncing to Drive...</Text>
-                        </View>
-                      ) : (
-                        <Text style={styles.uploadValue}>Idle</Text>
-                      )}
-                    </View>
-
                     {queueLength > 0 && (
-                      <View style={[styles.uploadRow, { marginTop: 8 }]}>
-                        <Text style={styles.uploadLabel}>Est. Time:</Text>
-                        <Text style={styles.uploadValue}>~{queueLength * 2} seconds</Text>
-                      </View>
-                    )}
-
-                    {queueLength > 0 && (
-                      <View style={styles.queueWarning}>
-                        <AlertCircle size={14} color="#b45309" />
-                        <Text style={styles.queueWarningText}>
-                          Do not logout or force re-sync until all pending items are uploaded (0 items).
+                      <View style={[styles.queueWarning, { marginTop: 16, backgroundColor: '#f5f5f5', borderColor: '#000', borderLeftWidth: 4 }]}>
+                        <ActivityIndicator size="small" color="#000" />
+                        <Text style={[styles.queueWarningText, { color: '#000', fontWeight: '700' }]}>
+                          Syncing... Your changes are being securely pushed to your Google Drive in the background.
                         </Text>
                       </View>
                     )}
+                  </View>
+
+                  {/* Explanation Section */}
+                  <View style={{ marginTop: 16, paddingHorizontal: 4 }}>
+                    <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 18, fontWeight: '500' }}>
+                      <Text style={{ fontWeight: '800', color: '#475569' }}>How it works:</Text> Every action (Bills, Products, Expenses) is recorded as a secure <Text style={{ color: '#000', fontWeight: '700' }}>"Event"</Text>. These stay on your mobile device when offline and automatically "fly" to your Google Drive the moment you connect to the internet.
+                    </Text>
                   </View>
                 </View>
                 {/* ------------------------------------- */}
@@ -1224,9 +1235,9 @@ const SettingsPage = ({ navigation }) => {
                 {/* Real-time Status Indicator */}
                 {(syncStatus && syncStatus !== 'Ready') ? (
                   <View style={{
-                    backgroundColor: '#fffbeb',
-                    borderColor: '#fef3c7',
-                    borderWidth: 1,
+                    backgroundColor: '#f5f5f5',
+                    borderColor: '#000',
+                    borderWidth: 1.5,
                     borderRadius: 10,
                     padding: 8,
                     marginTop: 12,
@@ -1234,8 +1245,8 @@ const SettingsPage = ({ navigation }) => {
                     alignItems: 'center',
                     gap: 8
                   }}>
-                    <ActivityIndicator size="small" color="#d97706" />
-                    <Text style={{ fontSize: 12, color: '#d97706', fontWeight: '800', flex: 1 }}>
+                    <ActivityIndicator size="small" color="#000" />
+                    <Text style={{ fontSize: 12, color: '#000', fontWeight: '900', flex: 1 }}>
                       Live Status: {syncStatus}
                     </Text>
                   </View>
@@ -1264,7 +1275,7 @@ const SettingsPage = ({ navigation }) => {
                       </TouchableOpacity>
 
                       <View style={styles.syncStatusBadge}>
-                        <CheckCircle2 size={12} color="#059669" />
+                        <CheckCircle2 size={12} color="#000" />
                         <Text style={styles.syncStatusText}>
                           {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}
                         </Text>
@@ -1306,7 +1317,7 @@ const SettingsPage = ({ navigation }) => {
                         }}
                         style={styles.dangerButton}
                       >
-                        <RotateCcw size={16} color="#ef4444" />
+                        <RotateCcw size={16} color="#000" />
                         <Text style={styles.dangerButtonText}>Force Re-sync (Fix Missing Data)</Text>
                       </TouchableOpacity>
                     </View>
@@ -1328,7 +1339,7 @@ const SettingsPage = ({ navigation }) => {
             {/* Local backup section */}
             <Card style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#10b981' }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <Folder size={20} color="#fff" />
                 </View>
                 <Text style={styles.cardTitle}>Local Device Backup</Text>
@@ -1336,31 +1347,27 @@ const SettingsPage = ({ navigation }) => {
               <View style={styles.cardPadding}>
                 <View style={styles.toggleRow}>
                   <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={[styles.cardTitle, { fontSize: 15 }]}>Real-time Auto Save</Text>
-                    <Text style={styles.helperText}>Automatically export JSON backups to your phone's storage every time you add or edit something.</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.cardTitle, { fontSize: 15 }]}>Real-time Auto Save</Text>
+                      <View style={{ backgroundColor: '#000', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ fontSize: 9, fontWeight: '900', color: '#fff' }}>ALWAYS ON</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.helperText}>Automatically export JSON backups to your phone's storage every time you add or edit something. (Required for Security)</Text>
                   </View>
                   <Switch
-                    value={localSettings.defaults?.autoSave}
-                    onValueChange={(v) => handleChange('defaults', 'autoSave', v)}
-                    trackColor={{ false: '#f1f5f9', true: '#10b981' }}
+                    value={true}
+                    disabled={true}
+                    trackColor={{ false: '#f1f5f9', true: '#000' }}
                   />
                 </View>
 
-                {localSettings.defaults?.autoSave ? (
-                  <View style={[styles.infoBox, { marginTop: 12, backgroundColor: '#f0fdf4', borderColor: '#d1fae5' }]}>
-                    <Shield size={16} color="#10b981" />
-                    <Text style={[styles.infoText, { color: '#065f46' }]}>
-                      Active: Local files for Customers, Products, and Invoices are being updated instantly on every change.
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={[styles.infoBox, { marginTop: 12, backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
-                    <AlertCircle size={16} color="#f97316" />
-                    <Text style={[styles.infoText, { color: '#9a3412' }]}>
-                      Disabled: Enable this to keep a fresh copy of your data in your phone's downloads folder.
-                    </Text>
-                  </View>
-                )}
+                <View style={[styles.infoBox, { marginTop: 12, backgroundColor: '#f5f5f5', borderColor: '#000', borderWidth: 1.5 }]}>
+                  <Shield size={16} color="#000" />
+                  <Text style={[styles.infoText, { color: '#000' }]}>
+                    Active: Local files for Customers, Products, and Invoices are being updated instantly on every change for your security.
+                  </Text>
+                </View>
               </View>
             </Card>
           </View>
@@ -1557,8 +1564,8 @@ const SettingsPage = ({ navigation }) => {
             disabled={isSaving}
             style={[
               styles.saveBtn,
-              { backgroundColor: showSuccessIcon ? '#22c55e' : (unsavedChanges ? '#10b981' : '#f1f5f9') },
-              (!unsavedChanges || isSaving) && !showSuccessIcon && { opacity: 0.5, borderWidth: 1, borderColor: '#e2e8f0' }
+              { backgroundColor: showSuccessIcon ? '#000' : (unsavedChanges ? '#000' : '#f1f5f9') },
+              (!unsavedChanges || isSaving) && !showSuccessIcon && { opacity: 0.5, borderWidth: 1.5, borderColor: '#000' }
             ]}
           >
             {isSaving ? (
@@ -1643,11 +1650,11 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerTitle: { fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
-  unsavedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginTop: 4, borderColor: '#ef4444', borderWidth: 1 },
-  unsavedText: { color: '#ef4444', fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  unsavedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginTop: 4, borderColor: '#000', borderWidth: 1.5 },
+  unsavedText: { color: '#000', fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
   headerActions: { flexDirection: 'row', gap: 12 },
   backBtn: { padding: 4 },
-  saveBtn: { backgroundColor: '#10b981', padding: 12, borderRadius: 12, elevation: 0, shadowOpacity: 0 },
+  saveBtn: { backgroundColor: '#000', padding: 12, borderRadius: 12, elevation: 0, shadowOpacity: 0 },
   editBtn: { backgroundColor: '#000', padding: 12, borderRadius: 12, elevation: 0 },
   cancelBtn: { backgroundColor: '#f1f5f9', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' },
   saveBtnDisabled: { backgroundColor: '#e2e8f0', opacity: 0.5 },
@@ -1719,13 +1726,13 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     padding: 18,
     borderLeftWidth: 8,
-    borderLeftColor: '#ef4444',
+    borderLeftColor: '#000',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderWidth: 1.5,
+    borderColor: '#000',
     backgroundColor: '#fff'
   },
-  matrixDisabled: { opacity: 0.6, borderLeftColor: '#cbd5e1' },
+  matrixDisabled: { opacity: 0.6, borderLeftColor: '#f1f5f9' },
   matrixHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
   matrixName: { fontSize: 18, fontWeight: '900', color: '#000' },
   matrixInput: { flex: 1, height: 40, borderWidth: 0, paddingHorizontal: 0, fontSize: 18, fontWeight: '900', color: '#000' },
@@ -1762,8 +1769,8 @@ const styles = StyleSheet.create({
 
   footer: { padding: 40, alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f1f5f9', marginTop: 20 },
   footerText: { color: '#94a3b8', fontSize: 12, fontWeight: '600', marginBottom: 6 },
-  infoBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f0fdf4', padding: 14, borderRadius: 12, marginTop: 20, borderWidth: 1, borderColor: '#10b981' },
-  infoText: { flex: 1, fontSize: 13, color: '#065f46', lineHeight: 18, fontWeight: '500' },
+  infoBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f5f5f5', padding: 14, borderRadius: 12, marginTop: 20, borderWidth: 1.5, borderColor: '#000' },
+  infoText: { flex: 1, fontSize: 13, color: '#000', lineHeight: 18, fontWeight: '700' },
 
   // Contact Styles
   contactIntro: { fontSize: 14, color: '#64748b', lineHeight: 20, marginBottom: 24 },
@@ -1896,9 +1903,11 @@ const styles = StyleSheet.create({
   },
   deleteBtnIcon: {
     padding: 10,
-    backgroundColor: '#fef2f2',
+    backgroundColor: '#fff',
     borderRadius: 10,
-    marginTop: 18
+    marginTop: 18,
+    borderWidth: 1.5,
+    borderColor: '#000'
   },
   matrixSplitView: {
     flexDirection: 'row',
@@ -1987,38 +1996,39 @@ const styles = StyleSheet.create({
   },
   syncStatusBadge: {
     flex: 1,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#fff',
     paddingVertical: 10,
     borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    borderWidth: 1,
-    borderColor: '#d1fae5'
+    borderWidth: 1.5,
+    borderColor: '#000'
   },
   syncStatusText: {
-    color: '#059669',
+    color: '#000',
     fontSize: 12,
-    fontWeight: '800'
+    fontWeight: '900'
   },
   divider: {
     height: 1.5,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#e5e5e5',
     marginVertical: 20
   },
   dangerZone: {
-    backgroundColor: '#fff5f5',
+    backgroundColor: '#fff',
     padding: 16,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#fee2e2'
+    borderWidth: 1.5,
+    borderColor: '#000'
   },
   dangerTitle: {
     fontSize: 14,
-    fontWeight: '800',
-    color: '#b91c1c',
-    marginBottom: 4
+    fontWeight: '900',
+    color: '#000',
+    marginBottom: 4,
+    textTransform: 'uppercase'
   },
   dangerButton: {
     flexDirection: 'row',
@@ -2028,9 +2038,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10
   },
   dangerButtonText: {
-    color: '#ef4444',
-    fontWeight: '700',
-    fontSize: 13
+    color: '#000',
+    fontWeight: '800',
+    fontSize: 13,
+    textDecorationLine: 'underline'
   },
   uploadInfoBox: {
     backgroundColor: '#fff',
@@ -2059,17 +2070,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
-    backgroundColor: '#fff7ed',
+    backgroundColor: '#f5f5f5',
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffedd5',
+    borderWidth: 1.5,
+    borderColor: '#000',
     gap: 8,
   },
   queueWarningText: {
     fontSize: 12,
-    color: '#9a3412',
+    color: '#000',
     flex: 1,
     lineHeight: 18,
+    fontWeight: '700'
   },
 
   // --- Sync Overlay Styles ---
@@ -2152,7 +2164,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden'
   },
   a4BlueHeader: {
-    backgroundColor: '#0047AB', // Reference Image Blue
+    backgroundColor: '#000',
     width: '100%',
     height: 120,
     justifyContent: 'center',
@@ -2178,11 +2190,11 @@ const styles = StyleSheet.create({
   a4PaymentTerms: { fontSize: 10, fontStyle: 'italic', color: '#94a3b8', textAlign: 'center', marginTop: 8, marginBottom: 24 },
 
   a4AddressRow: { flexDirection: 'row', paddingHorizontal: 24, marginBottom: 30 },
-  a4LabelBlue: { fontSize: 11, fontWeight: '900', color: '#0047AB', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  a4LabelBlue: { fontSize: 11, fontWeight: '900', color: '#000', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   a4NameBold: { fontSize: 14, fontWeight: '800', color: '#000', marginBottom: 4 },
   a4AddressText: { fontSize: 11, color: '#334155', lineHeight: 16 },
 
-  a4TableHeader: { flexDirection: 'row', backgroundColor: '#0047AB', paddingVertical: 10, paddingHorizontal: 24 },
+  a4TableHeader: { flexDirection: 'row', backgroundColor: '#000', paddingVertical: 10, paddingHorizontal: 24 },
   a4Th: { fontSize: 10, fontWeight: '800', color: '#fff', textTransform: 'uppercase' },
   a4TableRow: { flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 24, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   a4Td: { fontSize: 11, color: '#0f172a', fontWeight: '500' },
@@ -2190,12 +2202,12 @@ const styles = StyleSheet.create({
   a4TotalRow: { flexDirection: 'row', width: 200, justifyContent: 'space-between', paddingRight: 24, marginBottom: 8 },
   a4TotalLabel: { fontSize: 11, color: '#64748b', fontWeight: '600' },
   a4TotalValue: { fontSize: 11, fontWeight: '700', color: '#000' },
-  a4BalanceBox: { flexDirection: 'row', width: 240, justifyContent: 'space-between', backgroundColor: '#0047AB', paddingVertical: 10, paddingHorizontal: 16, marginTop: 12, marginRight: 24, borderRadius: 0 },
+  a4BalanceBox: { flexDirection: 'row', width: 240, justifyContent: 'space-between', backgroundColor: '#000', paddingVertical: 10, paddingHorizontal: 16, marginTop: 12, marginRight: 24, borderRadius: 0 },
   a4BalanceLabel: { fontSize: 12, fontWeight: '900', color: '#fff', letterSpacing: 1 },
   a4BalanceValue: { fontSize: 13, fontWeight: '900', color: '#fff' },
 
   a4Notes: { fontSize: 11, color: '#334155', paddingHorizontal: 24, marginTop: 4, lineHeight: 16 },
-  a4ThankYou: { fontSize: 18, fontWeight: '800', fontStyle: 'italic', color: '#0047AB', paddingLeft: 24 },
+  a4ThankYou: { fontSize: 18, fontWeight: '900', fontStyle: 'italic', color: '#000', paddingLeft: 24 },
   a4Sign: { fontSize: 11, color: '#64748b', fontWeight: '600' },
 
   // --- Compact Template Styles ---
@@ -2213,7 +2225,7 @@ const styles = StyleSheet.create({
   compactTitle: {
     fontSize: 28,
     fontWeight: '900',
-    color: '#855E01',
+    color: '#000',
     textAlign: 'center',
     marginBottom: 24,
     textTransform: 'uppercase',
@@ -2222,7 +2234,7 @@ const styles = StyleSheet.create({
   compactStoreName: {
     fontSize: 22,
     fontWeight: '900',
-    color: '#855E01',
+    color: '#000',
     marginBottom: 6
   },
   compactStoreDetails: {
@@ -2235,10 +2247,10 @@ const styles = StyleSheet.create({
   compactMetaContainer: {
     marginTop: 16,
     marginBottom: 20,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#C29811', // Darker Gold
-    backgroundColor: '#FDF6E3', // Very light beige
+    borderTopWidth: 1.5,
+    borderBottomWidth: 1.5,
+    borderColor: '#000',
+    backgroundColor: '#f5f5f5',
     paddingVertical: 10,
     paddingHorizontal: 12,
     flexDirection: 'row',
@@ -2254,7 +2266,7 @@ const styles = StyleSheet.create({
   },
   compactMetaLabel: {
     fontWeight: '900',
-    color: '#855E01',
+    color: '#000',
     textTransform: 'uppercase',
     fontSize: 12
   },
@@ -2269,7 +2281,7 @@ const styles = StyleSheet.create({
   compactLabel: {
     fontSize: 10,
     fontWeight: '900',
-    color: '#855E01',
+    color: '#000',
     marginBottom: 6,
     textTransform: 'uppercase',
     letterSpacing: 0.5
@@ -2282,21 +2294,21 @@ const styles = StyleSheet.create({
   },
   compactTableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#855E01', // Solid Brown
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: '#855E01'
+    backgroundColor: '#000',
+    borderTopWidth: 1.5,
+    borderLeftWidth: 1.5,
+    borderRightWidth: 1.5,
+    borderColor: '#000'
   },
   compactTh: {
     color: '#fff',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '900',
     textTransform: 'uppercase',
     paddingVertical: 8,
     paddingHorizontal: 4,
     borderRightWidth: 1,
-    borderRightColor: '#A07409' // Slightly lighter line for separation
+    borderRightColor: '#333'
   },
   compactTableRow: {
     flexDirection: 'row',
@@ -2317,15 +2329,15 @@ const styles = StyleSheet.create({
   },
   compactFooter: {
     flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: '#855E01',
+    borderWidth: 1.5,
+    borderColor: '#000',
     marginTop: 20
   },
   compactTermsBox: {
     flex: 1,
     padding: 12,
-    borderRightWidth: 1,
-    borderColor: '#855E01'
+    borderRightWidth: 1.5,
+    borderColor: '#000'
   },
   compactTotalsBox: {
     width: 200,
@@ -2343,7 +2355,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 8,
     paddingHorizontal: 8,
-    backgroundColor: '#FDF6E3', // Match Meta Bar
+    backgroundColor: '#f5f5f5',
     borderBottomWidth: 0
   },
   compactFooterText: { fontSize: 10, color: '#334155', lineHeight: 14 },
@@ -2436,7 +2448,7 @@ const InvoiceTemplatePreview = ({ variant, isActive }) => {
       {/* Label */}
       <View style={styles.previewLabel}>
         <Text style={[styles.previewText, isActive && styles.previewTextActive]}>{variant}</Text>
-        {isActive && <CheckCircle2 size={14} color="#10b981" style={{ marginTop: 4 }} />}
+        {isActive && <CheckCircle2 size={14} color="#000" style={{ marginTop: 4 }} />}
       </View>
 
 

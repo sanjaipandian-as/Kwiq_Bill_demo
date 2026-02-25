@@ -61,18 +61,37 @@ const googleLogin = asyncHandler(async (req, res) => {
 
         if (user) {
             console.log('Found existing user:', user.email);
+            let needsSave = false;
+
             if (!user.googleId) {
                 user.googleId = googleId;
+                needsSave = true;
+            }
+
+            // Backfill trialExpiresAt for users created before the trial feature
+            if (!user.trialExpiresAt) {
+                const trialExpiresAt = new Date(user.createdAt);
+                trialExpiresAt.setDate(trialExpiresAt.getDate() + 30);
+                user.trialExpiresAt = trialExpiresAt;
+                needsSave = true;
+                console.log('Backfilled trialExpiresAt for existing user:', user.email, '->', trialExpiresAt);
+            }
+
+            if (needsSave) {
                 await user.save();
             }
         } else {
             console.log('Creating new user for:', email);
+            const trialExpiresAt = new Date();
+            trialExpiresAt.setDate(trialExpiresAt.getDate() + 30);
+
             user = await User.create({
                 name,
                 email,
                 googleId,
                 password: '',
                 role: 'employee',
+                trialExpiresAt,
             });
         }
 
@@ -82,6 +101,7 @@ const googleLogin = asyncHandler(async (req, res) => {
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                trialExpiresAt: user.trialExpiresAt,
             },
             token: generateToken(user._id),
         });
@@ -105,6 +125,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
             name: user.name,
             email: user.email,
             role: user.role,
+            trialExpiresAt: user.trialExpiresAt,
         });
     } else {
         res.status(404);

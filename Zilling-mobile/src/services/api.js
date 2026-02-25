@@ -3,10 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 const PRODUCTION_URL = 'https://kwiq-bill.onrender.com';
-const LOCAL_URL = 'http://10.203.95.84:5001';
+const LOCAL_URL = 'http://10.68.133.67:5001';
 
 // Toggle this to true when deploying the APK
-const IS_PRODUCTION = true;
+const IS_PRODUCTION = false;
 
 const BASE_URL = IS_PRODUCTION ? PRODUCTION_URL : LOCAL_URL;
 
@@ -28,7 +28,7 @@ API.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Handle 401 Unauthorized globally
+// Handle 401 Unauthorized and 403 Trial Expired globally
 API.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -40,6 +40,18 @@ API.interceptors.response.use(
       // without a circular dependency or an event emitter.
       // But clearing storage will cause the next app reload or auth check to fail.
     }
+
+    // Handle trial expiration from backend
+    if (error.response && error.response.status === 403) {
+      const message = error.response.data?.message || '';
+      if (message.includes('TRIAL_EXPIRED')) {
+        console.warn('Trial expired - API access blocked by server.');
+        // The TrialGuard on the frontend will handle the UI,
+        // but we tag the error so callers know it's a trial issue.
+        error.isTrialExpired = true;
+      }
+    }
+
     return Promise.reject(error);
   }
 );
@@ -123,6 +135,13 @@ export const services = {
   settings: {
     getSettings: () => API.get('/settings'),
     updateSettings: (data) => API.put('/settings', data),
+    uploadLogo: async (file) => {
+      const formData = new FormData();
+      formData.append('logo', file);
+      return API.post('/settings/logo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    }
   }
 };
 

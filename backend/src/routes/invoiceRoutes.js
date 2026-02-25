@@ -11,11 +11,12 @@ const {
     bulkDeleteInvoices
 } = require('../controllers/invoiceController');
 const { protect } = require('../middleware/authMiddleware');
+const { checkTrial } = require('../middleware/trialMiddleware');
 
-router.route('/').get(protect, getInvoices).post(protect, createInvoice);
-router.route('/bulk-delete').post(protect, bulkDeleteInvoices);
-router.route('/stats').get(protect, getInvoiceStats);
-router.post('/:id/restore', protect, restoreInvoice);
-router.route('/:id').get(protect, getInvoiceById).put(protect, updateInvoice).delete(protect, deleteInvoice);
+router.route('/').get(protect, checkTrial, getInvoices).post(protect, checkTrial, createInvoice);
+router.route('/bulk-delete').post(protect, checkTrial, bulkDeleteInvoices);
+router.route('/stats').get(protect, checkTrial, getInvoiceStats);
+router.post('/:id/restore', protect, checkTrial, restoreInvoice);
+router.route('/:id').get(protect, checkTrial, getInvoiceById).put(protect, checkTrial, updateInvoice).delete(protect, checkTrial, deleteInvoice);
 
 module.exports = router;

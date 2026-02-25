@@ -9,8 +9,8 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// Helper Component for Safe Quantity Input
-const QuantityInput = ({ value, onChange, min = 0.01 }) => {
+// Helper Component for Safe Number Input
+const NumberInput = ({ value, onChange, min = 0, style = {}, prefix = null }) => {
     const [localVal, setLocalVal] = useState(String(value));
     const [isFocused, setIsFocused] = useState(false);
 
@@ -30,34 +30,30 @@ const QuantityInput = ({ value, onChange, min = 0.01 }) => {
     };
 
     return (
-        <TextInput
-            style={{
-                fontSize: 16,
-                fontWeight: '900',
-                color: '#000',
-                minWidth: 45,
-                textAlign: 'center',
-                padding: 4,
-                backgroundColor: '#fff',
-                borderRadius: 8,
-                borderWidth: 1,
-                borderColor: isFocused ? '#000' : '#e2e8f0'
-            }}
-            value={localVal}
-            keyboardType="decimal-pad"
-            selectTextOnFocus
-            onChangeText={setLocalVal}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => {
-                setIsFocused(false);
-                handleCommit();
-            }}
-            onSubmitEditing={() => {
-                handleCommit();
-                Keyboard.dismiss();
-            }}
-            returnKeyType="done"
-        />
+        <View style={[
+            styles.inputWrapper,
+            isFocused && styles.inputWrapperFocused,
+            style
+        ]}>
+            {prefix && <Text style={styles.inputPrefix}>{prefix}</Text>}
+            <TextInput
+                style={styles.ghostInput}
+                value={localVal}
+                keyboardType="decimal-pad"
+                selectTextOnFocus
+                onChangeText={setLocalVal}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => {
+                    setIsFocused(false);
+                    handleCommit();
+                }}
+                onSubmitEditing={() => {
+                    handleCommit();
+                    Keyboard.dismiss();
+                }}
+                returnKeyType="done"
+            />
+        </View>
     );
 };
 
@@ -65,6 +61,7 @@ const BillingGrid = ({
     products,
     cart,
     updateQuantity,
+    updatePrice,
     removeItem,
     selectedItemId,
     onRowClick,
@@ -131,6 +128,12 @@ const BillingGrid = ({
             return sortOrder === 'asc' ? comparison : -comparison;
         });
 
+    const getCartQty = (productId) => {
+        return cart
+            .filter(i => (i._dbId || i.id) === productId)
+            .reduce((sum, i) => sum + (i.quantity || 0), 0);
+    };
+
     const renderItem = ({ item, index }) => {
         const isSelected = item.id === selectedItemId;
 
@@ -145,8 +148,16 @@ const BillingGrid = ({
                         <Text style={styles.itemSku}>{item.sku || 'ITEM'}-{index + 1}</Text>
                         <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
                         <View style={styles.priceRow}>
-                            <Text style={styles.itemUnitPrice}>₹{item.price} • </Text>
-                            <Text style={styles.taxBadge}>GST {item.taxRate}%</Text>
+                            <NumberInput
+                                value={item.price}
+                                onChange={(val) => updatePrice(item.id, val)}
+                                prefix="₹"
+                                style={{ width: 85, height: 32 }}
+                            />
+                            <Text style={styles.priceDivider}> • </Text>
+                            <View style={styles.taxBadgeContainer}>
+                                <Text style={styles.taxBadge}>GST {item.taxRate}%</Text>
+                            </View>
                         </View>
                     </View>
 
@@ -159,9 +170,11 @@ const BillingGrid = ({
                                 <Minus size={14} color="#000" />
                             </TouchableOpacity>
 
-                            <QuantityInput
+                            <NumberInput
                                 value={item.quantity}
                                 onChange={(val) => updateQuantity(item.id, val)}
+                                min={0.01}
+                                style={styles.qtyInput}
                             />
 
                             <TouchableOpacity
@@ -268,9 +281,8 @@ const BillingGrid = ({
                 </View>
             )}
 
-            <KeyboardAvoidingView
+            <View
                 style={[styles.suggestionSection, (isKeyboardVisible || isSearchFocused) && { flex: 1, paddingTop: 10 }]}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
                 {cart.length > 0 && !isSearchFocused && !isKeyboardVisible && (
                     <BottomFunctionBar onFunctionClick={onFunctionClick} variant="inline" />
@@ -324,34 +336,52 @@ const BillingGrid = ({
                     initialNumToRender={8}
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
-                    renderItem={({ item }) => (
-                        <TouchableOpacity
-                            style={styles.suggestionItem}
-                            onPress={() => {
-                                onAddQuickItem && onAddQuickItem(item);
-                                if (!isKeyboardVisible) {
-                                    runLayoutAnimation();
-                                    setIsSearchFocused(false);
-                                }
-                            }}
-                        >
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                                <Text style={[styles.suggestedName, { flex: 1, marginRight: 4 }]} numberOfLines={2}>{item.name}</Text>
-                                <Text style={{ fontSize: 11, fontWeight: '800', color: (item.stock || 0) <= 0 ? '#ef4444' : '#64748b', marginTop: 2 }}>
-                                    Qty: {item.stock || 0}
-                                </Text>
-                            </View>
+                    renderItem={({ item }) => {
+                        const cartQty = getCartQty(item.id);
+                        const hasNoStock = (item.stock || 0) <= 0;
 
-                            <View style={styles.suggestedFooter}>
-                                <Text style={styles.suggestedPrice}>₹{item.price}</Text>
-                                <View style={[styles.addBtnSmall, (item.stock || 0) <= 0 && { backgroundColor: '#cbd5e1' }]}>
-                                    <Plus size={14} color="#fff" />
+                        return (
+                            <TouchableOpacity
+                                style={[
+                                    styles.suggestionItem,
+                                    cartQty > 0 && styles.suggestionItemInCart
+                                ]}
+                                onPress={() => {
+                                    onAddQuickItem && onAddQuickItem(item);
+                                    if (searchQuery !== '') {
+                                        setSearchQuery('');
+                                    }
+                                    if (!isKeyboardVisible) {
+                                        runLayoutAnimation();
+                                        setIsSearchFocused(false);
+                                    }
+                                }}
+                            >
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                                    <Text style={[styles.suggestedName, { flex: 1, marginRight: 4 }]} numberOfLines={2}>{item.name}</Text>
+                                    <View style={{ alignItems: 'flex-end' }}>
+                                        <Text style={{ fontSize: 11, fontWeight: '900', color: hasNoStock ? '#ef4444' : '#1e293b' }}>
+                                            Qty: {item.stock || 0}
+                                        </Text>
+                                        {cartQty > 0 && (
+                                            <View style={styles.inCartBadge}>
+                                                <Text style={styles.inCartBadgeText}>{cartQty} in cart</Text>
+                                            </View>
+                                        )}
+                                    </View>
                                 </View>
-                            </View>
-                        </TouchableOpacity>
-                    )}
+
+                                <View style={styles.suggestedFooter}>
+                                    <Text style={styles.suggestedPrice}>₹{item.price}</Text>
+                                    <View style={[styles.addBtnSmall, hasNoStock && { backgroundColor: '#cbd5e1' }]}>
+                                        <Plus size={14} color="#fff" />
+                                    </View>
+                                </View>
+                            </TouchableOpacity>
+                        );
+                    }}
                 />
-            </KeyboardAvoidingView>
+            </View>
         </View>
     );
 };
@@ -381,16 +411,54 @@ const styles = StyleSheet.create({
     selectedCartCard: { borderColor: '#000', backgroundColor: '#f8fafc' },
     cardMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     cardInfo: { flex: 1 },
-    itemSku: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 0.5, marginBottom: 2 },
-    itemName: { fontSize: 17, fontWeight: '800', color: '#1e293b' },
+    itemSku: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 2 },
+    itemName: { fontSize: 17, fontWeight: '800', color: '#000' },
     priceRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-    itemUnitPrice: { fontSize: 13, color: '#64748b', fontWeight: '600' },
-    taxBadge: { fontSize: 10, fontWeight: '800', color: '#22c55e', backgroundColor: '#f0fdf4', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+    itemUnitPrice: { fontSize: 13, color: '#475569', fontWeight: '700' },
+    taxBadge: { fontSize: 10, fontWeight: '900', color: '#000', backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' },
 
-    cardRight: { alignItems: 'flex-end', gap: 6 },
-    qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f1f5f9', padding: 4, borderRadius: 12 },
-    qtyAction: { width: 28, height: 28, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 1 },
-    itemTotal: { fontSize: 19, fontWeight: '900', color: '#000' },
+    cardRight: { alignItems: 'flex-end', justifyContent: 'center', gap: 8 },
+    qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f1f5f9', padding: 4, borderRadius: 12 },
+    qtyAction: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
+    itemTotal: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+
+    inputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fff',
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderColor: '#e2e8f0',
+        paddingHorizontal: 10,
+        overflow: 'hidden'
+    },
+    inputWrapperFocused: {
+        borderColor: '#000',
+    },
+    inputPrefix: {
+        fontSize: 14,
+        fontWeight: '900',
+        color: '#000',
+        marginRight: 4
+    },
+    ghostInput: {
+        flex: 1,
+        fontSize: 14,
+        fontWeight: '900',
+        color: '#000',
+        paddingVertical: 4,
+        textAlign: 'left',
+        height: '100%'
+    },
+    qtyInput: {
+        width: 45,
+        height: 30,
+        paddingHorizontal: 0,
+        borderWidth: 0,
+        backgroundColor: 'transparent'
+    },
+    priceDivider: { fontSize: 13, color: '#cbd5e1', fontWeight: '500', marginHorizontal: 4 },
+    taxBadgeContainer: { justifyContent: 'center' },
 
     cardActions: { flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
     actionPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
@@ -424,13 +492,16 @@ const styles = StyleSheet.create({
     filterText: { color: '#fff', fontWeight: '900', fontSize: 11 },
     scanIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
 
-    suggestionItem: { flex: 1, backgroundColor: '#fff', borderRadius: 18, padding: 10, borderWidth: 1.5, borderColor: '#f1f5f9', marginBottom: 8, minHeight: 80, justifyContent: 'space-between' },
-    suggestedName: { fontSize: 12, fontWeight: '800', color: '#1e293b', marginBottom: 2 },
-    suggestedFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    suggestedPrice: { fontSize: 14, fontWeight: '900', color: '#000' },
-    addBtnSmall: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },
+    suggestionItem: { flex: 1, backgroundColor: '#fff', borderRadius: 18, padding: 12, borderWidth: 1.5, borderColor: '#e2e8f0', marginBottom: 8, minHeight: 90, justifyContent: 'space-between' },
+    suggestionItemInCart: { borderColor: '#000', backgroundColor: '#f8fafc', borderWidth: 2 },
+    suggestedName: { fontSize: 13, fontWeight: '900', color: '#000', marginBottom: 2 },
+    suggestedFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+    suggestedPrice: { fontSize: 15, fontWeight: '900', color: '#000' },
+    addBtnSmall: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },
     discountBadgeText: { fontSize: 9, fontWeight: '900', color: '#ef4444' },
     discountBadge: { position: 'absolute', top: -10, right: 10, backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' },
+    inCartBadge: { backgroundColor: '#000', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, marginTop: 2 },
+    inCartBadgeText: { fontSize: 8, color: '#fff', fontWeight: '900', textTransform: 'uppercase' },
 
     adjPill: {
         flexDirection: 'row',

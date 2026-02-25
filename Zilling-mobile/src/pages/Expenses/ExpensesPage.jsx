@@ -11,13 +11,15 @@ import {
   Platform,
   RefreshControl,
   Dimensions,
-  StatusBar
+  StatusBar,
+  Image,
+  Modal as RNModal,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Search,
   Plus,
-  Filter,
   MoreVertical,
   Calendar,
   Receipt,
@@ -26,15 +28,12 @@ import {
   ChevronLeft,
   Download,
   Check,
-  ArrowRight,
   Share2,
-  TrendingUp,
   Wallet,
   PieChart,
-  ArrowUpRight,
-  Cloud
+  Cloud,
+  X,
 } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useExpenses } from '../../context/ExpenseContext';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -46,7 +45,7 @@ import { shareExpensesPDF } from '../../utils/exportUtils';
 import { fetchAllTableData } from '../../services/database';
 import { exportToDeviceFolders } from '../../services/backupservices';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const SummaryCard = ({ title, amount, icon: Icon, color, trend }) => (
   <View style={styles.summaryCard}>
@@ -58,7 +57,6 @@ const SummaryCard = ({ title, amount, icon: Icon, color, trend }) => (
       <Text style={styles.summaryAmount}>₹{amount.toLocaleString()}</Text>
       {trend && (
         <View style={styles.trendRow}>
-          <TrendingUp size={12} color="#22c55e" />
           <Text style={styles.trendText}>{trend}</Text>
         </View>
       )}
@@ -83,6 +81,7 @@ export default function ExpensesPage() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedExpenses, setSelectedExpenses] = useState([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [receiptPreview, setReceiptPreview] = useState(null); // for full-screen receipt view
 
   useEffect(() => {
     fetchExpenses();
@@ -185,6 +184,7 @@ export default function ExpensesPage() {
       expense.title,
       [
         { text: 'Edit', onPress: () => handleEdit(expense) },
+        ...(expense.receiptUrl ? [{ text: 'View Receipt', onPress: () => setReceiptPreview(expense.receiptUrl) }] : []),
         { text: 'Delete', style: 'destructive', onPress: () => handleDelete(expense.id) },
         { text: 'Cancel', style: 'cancel' }
       ]
@@ -194,6 +194,7 @@ export default function ExpensesPage() {
   const renderExpenseItem = ({ item }) => {
     const isSelected = selectedExpenses.includes(item.id);
     const hasSelection = selectedExpenses.length > 0;
+    const hasReceipt = item.receiptUrl && item.receiptUrl.length > 0;
 
     return (
       <Pressable
@@ -201,15 +202,33 @@ export default function ExpensesPage() {
         onLongPress={() => toggleSelectExpense(item.id)}
         style={[styles.expenseCard, isSelected && styles.selectedCard]}
       >
+        {/* Receipt Thumbnail Row */}
+        {hasReceipt && (
+          <Pressable
+            onPress={() => setReceiptPreview(item.receiptUrl)}
+            style={styles.receiptRow}
+          >
+            <Image
+              source={{ uri: item.receiptUrl }}
+              style={styles.receiptThumbnail}
+              resizeMode="cover"
+            />
+            <View style={styles.receiptLabel}>
+              <FileText size={12} color="#888" />
+              <Text style={styles.receiptLabelText}>Receipt attached • Tap to view</Text>
+            </View>
+          </Pressable>
+        )}
+
         <View style={styles.cardTop}>
           <View style={styles.cardTitleInfo}>
-            <View style={[styles.categoryBadge, { backgroundColor: '#f1f5f9' }]}>
+            <View style={styles.categoryBadge}>
               <Text style={styles.categoryBadgeText}>{item.category}</Text>
             </View>
             <Text style={styles.expenseTitle} numberOfLines={1}>{item.title}</Text>
           </View>
           <View style={styles.amountContainer}>
-            <Text style={styles.expenseAmount}>₹{item.amount.toLocaleString()}</Text>
+            <Text style={styles.expenseAmount}>₹{item.amount?.toLocaleString()}</Text>
             <Pressable onPress={() => handleMoreActions(item)} style={styles.cardMoreBtn}>
               <MoreVertical size={18} color="#94a3b8" />
             </Pressable>
@@ -225,14 +244,8 @@ export default function ExpensesPage() {
           </View>
           <View style={styles.metaItem}>
             <Wallet size={14} color="#64748b" />
-            <Text style={styles.metaText}>{item.paymentMethod}</Text>
+            <Text style={styles.metaText}>{item.paymentMethod || item.payment_method}</Text>
           </View>
-          {item.receiptUrl && (
-            <View style={[styles.metaItem, styles.receiptBadge]}>
-              <FileText size={14} color="#2563eb" />
-              <Text style={[styles.metaText, { color: '#2563eb' }]}>Receipt</Text>
-            </View>
-          )}
         </View>
 
         {hasSelection && (
@@ -248,17 +261,17 @@ export default function ExpensesPage() {
     <SafeAreaView style={styles.mainContainer} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* Modern Header */}
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Pressable onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-            <ChevronLeft size={24} color="#000" />
+            <ChevronLeft size={24} color="#0f172a" />
           </Pressable>
           <View>
             <Text style={styles.headerTitle}>Expenses</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Cloud size={12} color="#10b981" fill="#10b98120" />
-              <Text style={[styles.headerSubtitle, { color: '#10b981', marginTop: 0 }]}>Cloud Synced</Text>
+              <Cloud size={12} color="#10b981" />
+              <Text style={styles.headerSubtitle}>Cloud Synced</Text>
             </View>
           </View>
         </View>
@@ -266,7 +279,7 @@ export default function ExpensesPage() {
           <Pressable onPress={() => shareExpensesPDF(filteredExpenses)} style={styles.headerActionBtn}>
             <Share2 size={20} color="#64748b" />
           </Pressable>
-          <Pressable onPress={handleBulkExport} style={[styles.headerActionBtn, { marginLeft: 8 }]}>
+          <Pressable onPress={handleBulkExport} style={styles.headerActionBtn}>
             <Download size={20} color="#64748b" />
           </Pressable>
         </View>
@@ -279,7 +292,13 @@ export default function ExpensesPage() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={fetchExpenses} />
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={fetchExpenses}
+            tintColor="#000"
+            colors={['#000']}
+            progressBackgroundColor="#fff"
+          />
         }
         ListHeaderComponent={
           <>
@@ -289,14 +308,14 @@ export default function ExpensesPage() {
                 title="This Month"
                 amount={stats.thisMonthTotal}
                 icon={TrendingDown}
-                color="#ef4444"
+                color="#0f172a"
                 trend="+12%"
               />
               <SummaryCard
                 title="Top Category"
                 amount={stats.highestCategory[1]}
                 icon={PieChart}
-                color="#2563eb"
+                color="#64748b"
                 trend={stats.highestCategory[0]}
               />
             </View>
@@ -307,6 +326,7 @@ export default function ExpensesPage() {
                 <Search size={18} color="#94a3b8" />
                 <Input
                   placeholder="Search title or category..."
+                  placeholderTextColor="#94a3b8"
                   value={searchTerm}
                   onChangeText={setSearchTerm}
                   style={styles.premiumSearchInput}
@@ -333,29 +353,22 @@ export default function ExpensesPage() {
             </View>
             <Text style={styles.emptyTitle}>No Expenses Found</Text>
             <Text style={styles.emptySubtitle}>Start by adding your first business expense.</Text>
-            <Button
-              title="Add New Expense"
-              icon={<Plus size={20} color="#fff" />}
-              onPress={handleAdd}
-              style={styles.emptyActionBtn}
-            />
+            <Pressable onPress={handleAdd} style={styles.emptyActionBtn}>
+              <Plus size={20} color="#fff" />
+              <Text style={styles.emptyBtnText}>Add New Expense</Text>
+            </Pressable>
           </View>
         }
       />
 
       {/* Floating Add Button */}
       {!selectedExpenses.length && (
-        <LinearGradient
-          colors={['#2563eb', '#1d4ed8']}
-          style={styles.fabGradient}
-        >
-          <Pressable onPress={handleAdd} style={styles.fabBtn}>
-            <Plus size={28} color="#fff" />
-          </Pressable>
-        </LinearGradient>
+        <Pressable onPress={handleAdd} style={styles.fabBtn}>
+          <Plus size={28} color="#fff" />
+        </Pressable>
       )}
 
-      {/* Bulk Actions Header (Replacement for Toolbar if desired, but Toolbar is fine) */}
+      {/* Bulk Actions */}
       <BulkActionsToolbar
         selectedCount={selectedExpenses.length}
         onClearSelection={clearSelection}
@@ -391,23 +404,53 @@ export default function ExpensesPage() {
         onClose={() => {
           setIsModalOpen(false);
           setEditingExpense(null);
+          fetchExpenses(); // Refresh after modal close to show updated receipts
         }}
         expense={editingExpense}
       />
+
+      {/* Full-Screen Receipt Preview Modal */}
+      <RNModal
+        visible={!!receiptPreview}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReceiptPreview(null)}
+      >
+        <View style={styles.previewOverlay}>
+          <TouchableOpacity
+            style={styles.previewCloseBtn}
+            onPress={() => setReceiptPreview(null)}
+          >
+            <X size={28} color="#fff" />
+          </TouchableOpacity>
+          {receiptPreview && (
+            <Image
+              source={{ uri: receiptPreview }}
+              style={styles.previewImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </RNModal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  mainContainer: { flex: 1, backgroundColor: '#f8fafc' },
+  // ─── Base ───
+  mainContainer: { flex: 1, backgroundColor: '#fff' },
+
+  // ─── Header ───
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 10,
+    paddingTop: 10,
+    paddingBottom: 14,
     backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   headerBackBtn: {
@@ -419,33 +462,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
-  headerSubtitle: { fontSize: 13, color: '#64748b', fontWeight: '500', marginTop: 2 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerSubtitle: { fontSize: 12, color: '#10b981', fontWeight: '600', marginTop: 2, letterSpacing: 0.3 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerActionBtn: {
-    padding: 8,
+    padding: 10,
     backgroundColor: '#f8fafc',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
 
   listContent: { paddingBottom: 100 },
 
-  // Summary Grid
+  // ─── Summary Grid ───
   summaryGrid: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
     paddingHorizontal: 24,
     marginVertical: 20,
   },
   summaryCard: {
     flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 24,
+    borderRadius: 20,
     padding: 20,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     alignItems: 'flex-start',
     gap: 12,
-    // Subtle shadow for depth without "dim" edges
     shadowColor: '#000',
     shadowOpacity: 0.03,
     shadowOffset: { width: 0, height: 2 },
@@ -460,29 +504,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   summaryContent: { flex: 1, width: '100%' },
-  summaryLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 6 },
-  summaryAmount: { fontSize: 20, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
-  trendRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, backgroundColor: '#ecfdf5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, alignSelf: 'flex-start' },
-  trendText: { fontSize: 11, fontWeight: '700', color: '#059669' },
+  summaryLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 6, letterSpacing: 0.5 },
+  summaryAmount: { fontSize: 22, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
+  trendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    alignSelf: 'flex-start'
+  },
+  trendText: { fontSize: 11, fontWeight: '700', color: '#475569' },
 
-  // Filter Section
+  // ─── Filter Section ───
   filterSection: { paddingBottom: 10 },
   searchWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#f8fafc',
     marginHorizontal: 24,
     paddingHorizontal: 16,
     borderRadius: 16,
-    height: 56,
-    marginBottom: 20,
+    height: 52,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 0,
   },
   premiumSearchInput: {
     flex: 1,
@@ -493,7 +542,7 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     backgroundColor: 'transparent',
     borderWidth: 0,
-    paddingHorizontal: 0
+    paddingHorizontal: 0,
   },
 
   listHeaderRow: {
@@ -507,27 +556,53 @@ const styles = StyleSheet.create({
   listHeaderText: { fontSize: 18, fontWeight: '700', color: '#0f172a', letterSpacing: -0.5 },
   listHeaderCount: { fontSize: 13, fontWeight: '500', color: '#64748b' },
 
-  // Expense Card
+  // ─── Expense Card ───
   expenseCard: {
     backgroundColor: '#fff',
     marginHorizontal: 24,
-    marginBottom: 16,
-    borderRadius: 20,
-    padding: 20,
+    marginBottom: 14,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#000',
     shadowOpacity: 0.02,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
-    elevation: 0,
+    elevation: 1,
   },
   selectedCard: {
-    backgroundColor: '#eff6ff',
+    backgroundColor: '#f0f9ff',
     borderWidth: 1,
-    borderColor: '#3b82f6',
-    elevation: 0
+    borderColor: '#0f172a',
   },
+
+  // ─── Receipt in Card ───
+  receiptRow: {
+    marginBottom: 14,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f8fafc',
+  },
+  receiptThumbnail: {
+    width: '100%',
+    height: 120,
+    borderRadius: 12,
+  },
+  receiptLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  receiptLabelText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+    letterSpacing: 0.3,
+  },
+
   cardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -539,58 +614,62 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: '#f1f5f9'
+    backgroundColor: '#f1f5f9',
   },
   categoryBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     color: '#475569',
     textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   expenseTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', lineHeight: 24 },
   amountContainer: { alignItems: 'flex-end', gap: 4 },
-  expenseAmount: { fontSize: 18, fontWeight: '800', color: '#ef4444', letterSpacing: -0.5 },
+  expenseAmount: { fontSize: 18, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
   cardMoreBtn: { padding: 4, marginTop: 4 },
-  cardDivider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 16 },
+  cardDivider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 14 },
   cardBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  receiptBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#eff6ff',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
 
   selectionOverlay: {
     position: 'absolute',
     top: 16,
     left: 16,
-    zIndex: 10
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#e2e8f0',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  selectionOverlaySelected: {
+    backgroundColor: '#0f172a',
+    borderColor: '#0f172a',
   },
 
-  // FAB
-  fabGradient: {
+  // ─── FAB ───
+  fabBtn: {
     position: 'absolute',
     bottom: 30,
     right: 24,
     width: 60,
     height: 60,
     borderRadius: 30,
-    elevation: 8,
-    shadowColor: '#2563eb',
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
+    backgroundColor: '#0f172a',
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
   },
-  fabBtn: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
 
-  // Empty State
+  // ─── Empty State ───
   emptyContainer: { alignItems: 'center', marginTop: 100, paddingHorizontal: 40 },
   emptyIconBg: {
     width: 80,
@@ -613,17 +692,32 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 16,
     backgroundColor: '#0f172a',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-    width: '100%'
+    width: '100%',
   },
   emptyBtnText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#fff'
-  }
-});
+    color: '#fff',
+  },
 
+  // ─── Full Screen Preview ───
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewCloseBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 60 : 40,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 20,
+  },
+  previewImage: {
+    width: width - 40,
+    height: height * 0.7,
+  },
+});

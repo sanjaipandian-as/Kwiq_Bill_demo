@@ -38,13 +38,13 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingHorizontal: 24,
         gap: 10,
-        paddingBottom: 8 // Add some padding for shadows if needed
+        paddingBottom: 8
     },
     chip: {
         paddingHorizontal: 20,
         paddingVertical: 10,
-        borderRadius: 20,
-        backgroundColor: '#fff',
+        borderRadius: 100,
+        backgroundColor: '#f8fafc',
         borderWidth: 1,
         borderColor: '#e2e8f0',
         elevation: 0,
@@ -52,11 +52,6 @@ const styles = StyleSheet.create({
     chipActive: {
         backgroundColor: '#0f172a',
         borderColor: '#0f172a',
-        elevation: 2,
-        shadowColor: '#0f172a',
-        shadowOpacity: 0.2,
-        shadowOffset: { width: 0, height: 2 },
-        shadowRadius: 4,
     },
     chipText: {
         fontSize: 13,

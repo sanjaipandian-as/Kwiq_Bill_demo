@@ -4,7 +4,7 @@ import { Plus, Search, Edit, Trash2, CheckSquare, Package, Tag, Filter, Upload, 
 import { useProducts } from '../../context/ProductContext';
 import { useSettings } from '../../context/SettingsContext';
 import ProductDrawer from './ProductDrawer';
-import ImportProductModal from '../Billing/components/ImportProductModal';
+import BulkUploadModal from './BulkUploadModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CategoryFilter } from '../../components/Expenses/CategoryFilter';
@@ -124,7 +124,7 @@ const ProductsListScreen = ({ navigation }) => {
 
   const [savingProductId, setSavingProductId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [bulkUploadVisible, setBulkUploadVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
@@ -452,7 +452,7 @@ const ProductsListScreen = ({ navigation }) => {
                 <Text style={styles.subTitle}>{products.length} Products Tracked</Text>
               </View>
               <View style={styles.headerActions}>
-                <TouchableOpacity style={styles.iconBtnDark} onPress={() => setImportModalVisible(true)}>
+                <TouchableOpacity style={styles.iconBtnDark} onPress={() => setBulkUploadVisible(true)}>
                   <Upload color="#fff" size={22} strokeWidth={2.5} />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.addBtn} onPress={handleAddNew}>
@@ -591,12 +591,14 @@ const ProductsListScreen = ({ navigation }) => {
         product={editingProduct}
       />
 
-      <ImportProductModal
-        visible={importModalVisible}
-        onClose={() => setImportModalVisible(false)}
-        onImport={(data) => {
-          importProducts(data);
-          setImportModalVisible(false);
+      <BulkUploadModal
+        visible={bulkUploadVisible}
+        onClose={() => {
+          setBulkUploadVisible(false);
+          fetchProducts();
+        }}
+        onImport={async (data) => {
+          await importProducts(data);
         }}
       />
 

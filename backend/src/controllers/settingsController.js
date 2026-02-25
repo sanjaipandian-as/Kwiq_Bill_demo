@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const Settings = require('../models/settingsModel');
+const { uploadToCloudinary } = require('../config/cloudinary');
 
 // @desc    Get settings
 // @route   GET /settings
@@ -68,7 +69,52 @@ const updateSettings = asyncHandler(async (req, res) => {
     res.json(settings);
 });
 
+// @desc    Upload store logo
+// @route   POST /settings/logo
+// @access  Private
+const uploadLogo = asyncHandler(async (req, res) => {
+    if (!req.file) {
+        res.status(400);
+        throw new Error('No file uploaded');
+    }
+
+    const email = req.user.email;
+    const base64Email = Buffer.from(email).toString('base64');
+    const derivedUserId = `email-${base64Email}`;
+
+    const uploadOptions = {
+        folder: 'store-logos',
+        resource_type: 'image',
+        type: 'upload',
+        access_mode: 'public',
+        public_id: `logo_${derivedUserId}`, // Unique per user/store
+        overwrite: true
+    };
+
+    try {
+        const result = await uploadToCloudinary(req.file.buffer, uploadOptions);
+        const logoUrl = result.secure_url;
+
+        let settings = await Settings.findOne({ userId: derivedUserId });
+        if (settings) {
+            settings.store.logo = logoUrl;
+            settings.lastUpdated = new Date();
+            await settings.save();
+        }
+
+        res.json({
+            message: 'Logo uploaded successfully',
+            logoUrl: logoUrl
+        });
+    } catch (error) {
+        console.error('Logo Upload Error:', error);
+        res.status(500);
+        throw new Error(`Failed to upload logo: ${error.message}`);
+    }
+});
+
 module.exports = {
     getSettings,
     updateSettings,
+    uploadLogo,
 };

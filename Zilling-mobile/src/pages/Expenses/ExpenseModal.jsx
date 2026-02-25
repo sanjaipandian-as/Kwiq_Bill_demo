@@ -27,9 +27,9 @@ import {
     Camera,
     ChevronRight,
     ArrowLeft,
-    Cloud
+    Cloud,
+    Trash2
 } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { useExpenses } from '../../context/ExpenseContext';
 import {
@@ -57,8 +57,9 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
         nextDueDate: ''
     });
 
-    const [receiptFile, setReceiptFile] = useState(null);
+    const [receiptUri, setReceiptUri] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [receiptPreviewVisible, setReceiptPreviewVisible] = useState(false);
 
     useEffect(() => {
         if (expense) {
@@ -67,10 +68,13 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                 amount: expense.amount ? String(expense.amount) : '',
                 date: expense.date ? new Date(expense.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
             });
+            // Restore existing receipt URI from the expense record
+            const existingReceipt = expense.receiptUrl || expense.receipt_url || null;
+            setReceiptUri(existingReceipt && existingReceipt.length > 0 ? existingReceipt : null);
         } else {
             resetForm();
+            setReceiptUri(null);
         }
-        setReceiptFile(null);
     }, [expense, isOpen]);
 
     const resetForm = () => {
@@ -97,14 +101,44 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
         }
 
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             allowsEditing: true,
             quality: 0.7,
         });
 
-        if (!result.canceled) {
-            setReceiptFile(result.assets[0].uri);
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            setReceiptUri(result.assets[0].uri);
         }
+    };
+
+    const handleTakePhoto = async () => {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Denied', 'Camera access is needed to capture receipts.');
+            return;
+        }
+
+        const result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            quality: 0.7,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            setReceiptUri(result.assets[0].uri);
+        }
+    };
+
+    const handleReceiptAction = () => {
+        Alert.alert(
+            'Attach Receipt',
+            'Choose how to add your receipt',
+            [
+                { text: 'Take Photo', onPress: handleTakePhoto },
+                { text: 'Choose from Gallery', onPress: handlePickImage },
+                ...(receiptUri ? [{ text: 'Remove Receipt', style: 'destructive', onPress: () => setReceiptUri(null) }] : []),
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
     };
 
     const handleChange = (name, value) => {
@@ -119,7 +153,13 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
 
         setIsSubmitting(true);
         try {
-            const submissionData = { ...formData, receiptFile };
+            // BUG FIX: Pass receipt as `receiptUrl` (the key ExpenseContext expects),
+            // not as `receiptFile` which was being silently ignored.
+            const submissionData = {
+                ...formData,
+                receiptUrl: receiptUri || '',
+            };
+
             if (isEditMode) {
                 await updateExpense(expense.id, submissionData);
             } else {
@@ -155,7 +195,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                 {/* Header */}
                 <View style={styles.header}>
                     <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                        <X size={24} color="#1e293b" />
+                        <X size={22} color="#1e293b" />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>{isEditMode ? 'Edit Expense' : 'New Expense'}</Text>
                     <View style={{ width: 40 }} />
@@ -168,7 +208,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                     <ScrollView
                         style={styles.content}
                         showsVerticalScrollIndicator={false}
-                        contentContainerStyle={{ paddingBottom: 100 }}
+                        contentContainerStyle={{ paddingBottom: 120 }}
                     >
                         {/* Hero Amount Input */}
                         <View style={styles.amountSection}>
@@ -189,7 +229,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
 
                             {/* Title Input */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>What is this for?</Text>
+                                <Text style={styles.label}>WHAT IS THIS FOR?</Text>
                                 <TextInput
                                     value={formData.title}
                                     onChangeText={(val) => handleChange('title', val)}
@@ -201,7 +241,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
 
                             {/* Category Selector */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Category</Text>
+                                <Text style={styles.label}>CATEGORY</Text>
                                 <ScrollView
                                     horizontal
                                     showsHorizontalScrollIndicator={false}
@@ -215,9 +255,6 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                                                 onPress={() => handleChange('category', cat)}
                                                 style={[styles.categoryChip, isSelected && styles.categoryChipSelected]}
                                             >
-                                                <View style={[styles.catIcon, isSelected && styles.catIconSelected]}>
-                                                    <Tag size={14} color={isSelected ? '#fff' : '#64748b'} />
-                                                </View>
                                                 <Text style={[styles.categoryText, isSelected && styles.categoryTextSelected]}>
                                                     {cat}
                                                 </Text>
@@ -229,7 +266,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
 
                             {/* Payment Method */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Payment Method</Text>
+                                <Text style={styles.label}>PAYMENT METHOD</Text>
                                 <View style={styles.paymentMethodsRow}>
                                     {PAYMENT_METHODS.map((method) => {
                                         const isSelected = formData.paymentMethod === method;
@@ -242,7 +279,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                                                 <Text style={[styles.paymentText, isSelected && styles.paymentTextSelected]}>
                                                     {method}
                                                 </Text>
-                                                {isSelected && <Check size={14} color="#2563eb" />}
+                                                {isSelected && <Check size={14} color="#fff" />}
                                             </TouchableOpacity>
                                         );
                                     })}
@@ -250,8 +287,8 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                             </View>
 
                             {/* Date Selection */}
-                            <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                                <Text style={styles.label}>Date</Text>
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>DATE</Text>
                                 <View style={styles.dateControlRow}>
                                     <View style={styles.dateInputWrapper}>
                                         <CalendarIcon size={18} color="#64748b" />
@@ -259,6 +296,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                                             value={formData.date}
                                             onChangeText={(val) => handleChange('date', val)}
                                             placeholder="YYYY-MM-DD"
+                                            placeholderTextColor="#94a3b8"
                                             style={styles.dateInput}
                                         />
                                     </View>
@@ -273,42 +311,57 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                                 </View>
                             </View>
 
-                            {/* Receipt Upload */}
-                            <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                                <Text style={styles.label}>Receipt Attachment</Text>
-                                <TouchableOpacity onPress={handlePickImage} style={styles.receiptCard}>
-                                    {receiptFile || (isEditMode && expense?.receiptUrl) ? (
-                                        <View style={styles.receiptPreview}>
-                                            <View style={styles.receiptIconBg}>
-                                                <FileText size={24} color="#2563eb" />
+                            {/* Receipt Upload — Enhanced with preview */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>RECEIPT ATTACHMENT</Text>
+
+                                {receiptUri ? (
+                                    <View style={styles.receiptContainer}>
+                                        {/* Receipt Image Preview */}
+                                        <TouchableOpacity
+                                            onPress={() => setReceiptPreviewVisible(true)}
+                                            activeOpacity={0.9}
+                                            style={styles.receiptImageWrapper}
+                                        >
+                                            <Image
+                                                source={{ uri: receiptUri }}
+                                                style={styles.receiptImage}
+                                                resizeMode="cover"
+                                            />
+                                            <View style={styles.receiptImageOverlay}>
+                                                <Text style={styles.receiptOverlayText}>Tap to enlarge</Text>
                                             </View>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.receiptName}>
-                                                    {receiptFile ? 'New Receipt Selected' : 'Existing Receipt Attached'}
-                                                </Text>
-                                                <Text style={styles.receiptSub}>Tap to replace</Text>
-                                            </View>
-                                            <View style={styles.checkCircle}>
-                                                <Check size={14} color="#fff" />
-                                            </View>
+                                        </TouchableOpacity>
+
+                                        {/* Receipt Actions */}
+                                        <View style={styles.receiptActions}>
+                                            <TouchableOpacity onPress={handleReceiptAction} style={styles.receiptActionBtn}>
+                                                <Camera size={16} color="#0f172a" />
+                                                <Text style={styles.receiptActionText}>Replace</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity onPress={() => setReceiptUri(null)} style={styles.receiptRemoveBtn}>
+                                                <Trash2 size={16} color="#fff" />
+                                                <Text style={styles.receiptActionText}>Remove</Text>
+                                            </TouchableOpacity>
                                         </View>
-                                    ) : (
-                                        <View style={styles.uploadPlaceholder}>
-                                            <View style={styles.uploadIconCircle}>
-                                                <Camera size={24} color="#64748b" />
-                                            </View>
-                                            <View>
-                                                <Text style={styles.uploadText}>Upload Receipt</Text>
-                                                <Text style={styles.uploadSubText}>From Gallery</Text>
-                                            </View>
+                                    </View>
+                                ) : (
+                                    <TouchableOpacity onPress={handleReceiptAction} style={styles.receiptUploadCard}>
+                                        <View style={styles.uploadIconCircle}>
+                                            <Camera size={28} color="#64748b" />
                                         </View>
-                                    )}
-                                </TouchableOpacity>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.uploadText}>Attach Receipt</Text>
+                                            <Text style={styles.uploadSubText}>Camera or Gallery</Text>
+                                        </View>
+                                        <ChevronRight size={20} color="#94a3b8" />
+                                    </TouchableOpacity>
+                                )}
                             </View>
 
                             {/* Notes */}
-                            <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                                <Text style={styles.label}>Notes (Optional)</Text>
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>NOTES (OPTIONAL)</Text>
                                 <TextInput
                                     value={formData.description}
                                     onChangeText={(val) => handleChange('description', val)}
@@ -325,12 +378,12 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                 {/* Footer */}
                 <View style={styles.footer}>
                     <TouchableOpacity
-                        style={styles.saveBtn}
+                        style={[styles.saveBtn, isSubmitting && { opacity: 0.6 }]}
                         onPress={handleSubmit}
                         disabled={isSubmitting}
                     >
                         {isSubmitting ? (
-                            <Text style={styles.saveBtnText}>Syncing to Drive...</Text>
+                            <Text style={styles.saveBtnText}>Saving...</Text>
                         ) : (
                             <Text style={styles.saveBtnText}>{isEditMode ? 'Update Expense' : 'Save Expense'}</Text>
                         )}
@@ -339,28 +392,54 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12 }}>
                         <Cloud size={10} color="#94a3b8" />
                         <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                            Encrypted & Synced to Google Drive
+                            Synced to Google Drive
                         </Text>
                     </View>
                 </View>
             </View>
+
+            {/* Full-Screen Receipt Preview Modal */}
+            <RNModal
+                visible={receiptPreviewVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setReceiptPreviewVisible(false)}
+            >
+                <View style={styles.previewOverlay}>
+                    <TouchableOpacity
+                        style={styles.previewCloseBtn}
+                        onPress={() => setReceiptPreviewVisible(false)}
+                    >
+                        <X size={28} color="#fff" />
+                    </TouchableOpacity>
+                    {receiptUri && (
+                        <Image
+                            source={{ uri: receiptUri }}
+                            style={styles.previewImage}
+                            resizeMode="contain"
+                        />
+                    )}
+                </View>
+            </RNModal>
         </RNModal>
     );
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#ffffff' },
+    // ─── Base ───
+    container: { flex: 1, backgroundColor: '#fff' },
 
+    // ─── Header ───
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 20,
-        paddingTop: 20,
+        paddingTop: Platform.OS === 'ios' ? 56 : 20,
         paddingBottom: 15,
         backgroundColor: '#fff',
         borderBottomWidth: 1,
-        borderBottomColor: '#f8fafc',
+        borderBottomColor: '#f1f5f9',
     },
     closeBtn: {
         padding: 8,
@@ -370,93 +449,79 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontSize: 18,
         fontWeight: '700',
-        color: '#1e293b',
+        color: '#0f172a',
+        letterSpacing: -0.3,
     },
 
     content: { flex: 1 },
 
-    // Amount Section
+    // ─── Amount Section ───
     amountSection: {
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 35,
+        paddingVertical: 40,
         backgroundColor: '#fff',
         flexDirection: 'row',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
     },
     currencySymbol: {
-        fontSize: 32,
-        fontWeight: '600',
+        fontSize: 36,
+        fontWeight: '300',
         color: '#94a3b8',
         marginRight: 4,
-        marginTop: -6
+        marginTop: -8,
     },
     amountInput: {
-        fontSize: 48,
-        fontWeight: '800',
+        fontSize: 56,
+        fontWeight: '200',
         color: '#0f172a',
         minWidth: 100,
         padding: 0,
+        letterSpacing: -2,
     },
 
-    // Form Section
+    // ─── Form Section ───
     formSection: {
         paddingHorizontal: 24,
-        gap: 24,
+        paddingTop: 28,
+        gap: 28,
     },
     inputGroup: {
         gap: 12,
     },
     label: {
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '700',
         color: '#64748b',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
+        letterSpacing: 1.5,
     },
 
     textInput: {
-        fontSize: 18,
+        fontSize: 17,
         color: '#0f172a',
-        borderBottomWidth: 2,
-        borderBottomColor: '#f1f5f9',
-        paddingVertical: 8,
-        fontWeight: '600',
+        borderBottomWidth: 1,
+        borderBottomColor: '#e2e8f0',
+        paddingVertical: 10,
+        fontWeight: '500',
     },
 
-    // Category Chips
+    // ─── Category Chips ───
     categoryScroll: {
         gap: 10,
         paddingRight: 20,
     },
     categoryChip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        paddingHorizontal: 14,
+        paddingHorizontal: 18,
         paddingVertical: 10,
-        borderRadius: 14,
+        borderRadius: 100,
         backgroundColor: '#f8fafc',
         borderWidth: 1,
-        borderColor: '#f1f5f9',
+        borderColor: '#e2e8f0',
     },
     categoryChipSelected: {
-        backgroundColor: '#1e293b',
-        borderColor: '#1e293b',
-        elevation: 2,
-        shadowColor: '#1e293b',
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-    },
-    catIcon: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#e2e8f0',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    catIconSelected: {
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: '#0f172a',
+        borderColor: '#0f172a',
     },
     categoryText: {
         fontSize: 14,
@@ -465,12 +530,13 @@ const styles = StyleSheet.create({
     },
     categoryTextSelected: {
         color: '#fff',
+        fontWeight: '700',
     },
 
-    // Date
+    // ─── Date ───
     dateControlRow: {
         flexDirection: 'row',
-        gap: 12
+        gap: 12,
     },
     dateInputWrapper: {
         flex: 1,
@@ -482,7 +548,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8fafc',
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: '#f1f5f9',
+        borderColor: '#e2e8f0',
     },
     dateInput: {
         flex: 1,
@@ -502,7 +568,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
-        borderColor: '#f1f5f9'
+        borderColor: '#e2e8f0',
     },
     quickDateText: {
         fontSize: 13,
@@ -510,7 +576,7 @@ const styles = StyleSheet.create({
         color: '#475569',
     },
 
-    // Payment Methods
+    // ─── Payment Methods ───
     paymentMethodsRow: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -528,8 +594,8 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     paymentChipSelected: {
-        borderColor: '#2563eb',
-        backgroundColor: '#eff6ff',
+        borderColor: '#0f172a',
+        backgroundColor: '#0f172a',
     },
     paymentText: {
         fontSize: 14,
@@ -537,74 +603,105 @@ const styles = StyleSheet.create({
         color: '#64748b',
     },
     paymentTextSelected: {
-        color: '#2563eb',
-        fontWeight: '600',
+        color: '#fff',
+        fontWeight: '700',
     },
 
-    // Receipt
-    receiptCard: {
+    // ─── Receipt Upload ───
+    receiptUploadCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
         backgroundColor: '#fff',
         borderWidth: 1,
         borderColor: '#e2e8f0',
         borderRadius: 16,
-        padding: 16,
         borderStyle: 'dashed',
-    },
-    uploadPlaceholder: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 16,
+        padding: 20,
     },
     uploadIconCircle: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
+        width: 52,
+        height: 52,
+        borderRadius: 26,
         backgroundColor: '#f1f5f9',
         alignItems: 'center',
         justifyContent: 'center',
     },
     uploadText: {
-        fontSize: 15,
+        fontSize: 16,
         fontWeight: '700',
-        color: '#1e293b',
+        color: '#0f172a',
     },
     uploadSubText: {
         fontSize: 12,
         color: '#94a3b8',
-        marginTop: 2
-    },
-    receiptPreview: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 16,
-    },
-    receiptIconBg: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
-        backgroundColor: '#eff6ff',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    receiptName: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#0f172a',
-    },
-    receiptSub: {
-        fontSize: 12,
-        color: '#64748b',
-    },
-    checkCircle: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#10b981',
-        alignItems: 'center',
-        justifyContent: 'center'
+        marginTop: 3,
     },
 
-    // Notes
+    // ─── Receipt Preview (Inline) ───
+    receiptContainer: {
+        borderRadius: 16,
+        overflow: 'hidden',
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    receiptImageWrapper: {
+        width: '100%',
+        height: 200,
+        position: 'relative',
+    },
+    receiptImage: {
+        width: '100%',
+        height: '100%',
+    },
+    receiptImageOverlay: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        paddingVertical: 8,
+        alignItems: 'center',
+    },
+    receiptOverlayText: {
+        fontSize: 12,
+        color: '#fff',
+        fontWeight: '600',
+        letterSpacing: 0.5,
+    },
+    receiptActions: {
+        flexDirection: 'row',
+        gap: 10,
+        padding: 12,
+    },
+    receiptActionBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 10,
+        backgroundColor: '#0f172a',
+        borderRadius: 10,
+    },
+    receiptRemoveBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 10,
+        backgroundColor: '#ef4444',
+        borderRadius: 10,
+    },
+    receiptActionText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#fff',
+    },
+
+    // ─── Notes ───
     notesInput: {
         backgroundColor: '#f8fafc',
         borderRadius: 16,
@@ -613,10 +710,12 @@ const styles = StyleSheet.create({
         textAlignVertical: 'top',
         fontSize: 15,
         color: '#0f172a',
-        lineHeight: 22
+        lineHeight: 22,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
     },
 
-    // Footer
+    // ─── Footer ───
     footer: {
         position: 'absolute',
         bottom: 0,
@@ -625,7 +724,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         paddingHorizontal: 24,
         paddingVertical: 16,
-        paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+        paddingBottom: Platform.OS === 'ios' ? 36 : 16,
         borderTopWidth: 1,
         borderTopColor: '#f1f5f9',
     },
@@ -647,6 +746,27 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '700',
         color: '#fff',
+    },
+
+    // ─── Full Screen Preview ───
+    previewOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.95)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    previewCloseBtn: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 60 : 40,
+        right: 20,
+        zIndex: 10,
+        padding: 10,
+        backgroundColor: 'rgba(255,255,255,0.15)',
+        borderRadius: 20,
+    },
+    previewImage: {
+        width: width - 40,
+        height: height * 0.7,
     },
 });
 
