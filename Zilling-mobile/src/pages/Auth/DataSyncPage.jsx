@@ -1,92 +1,225 @@
-import React from 'react';
-import { View, Text, StyleSheet, Dimensions, SafeAreaView, StatusBar } from 'react-native';
-import * as Progress from 'react-native-progress';
-import { CloudDownload, Server, CheckCircle2, ChevronRight, Info, Clock } from 'lucide-react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Dimensions, SafeAreaView, StatusBar, Animated, Platform, ActivityIndicator, Modal } from 'react-native';
+import { ShieldCheck, Cloud, CheckCircle2, FileCheck, FileWarning, Info } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import BrandLockup from '../../components/ui/BrandLockup';
+import KwiqLoader from '../../components/ui/KwiqLoader';
 
 const { width } = Dimensions.get('window');
 
-const DataSyncPage = ({ progressMessage, progressValue }) => {
+const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const barWidth = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        // Main fade entry
+        Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+        }).start();
+    }, []);
+
+    useEffect(() => {
+        Animated.timing(barWidth, {
+            toValue: progressValue,
+            duration: 400,
+            useNativeDriver: false,
+        }).start();
+    }, [progressValue]);
+
+    const isComplete = progressValue >= 1;
+
+    // ─── DYNAMIC METRICS LOGIC ───
+    // If syncStats are passed (from real-time event processing), use them.
+    // If not, we show '0' or placeholder text until we know the actual counts.
+    const totalFiles = syncStats?.total !== undefined ? syncStats.total : '---';
+    const syncedCount = syncStats?.synced !== undefined ? syncStats.synced : 0;
+    const errorCount = syncStats?.errors || 0;
+
+    // ─── POPUP LOGIC ───
+    const isAligning = progressMessage?.includes('Aligning') || progressMessage?.includes('Finalizing');
+    const timeMatch = progressMessage?.match(/\(Est\. time: (.*?)\)/);
+    const estTime = timeMatch ? timeMatch[1] : null;
+
+    // Determine the message based on complete state
+    let displayMessage = progressMessage?.split(' (Est. time:')[0] || 'Aligning Your Data...';
+    if (isComplete) {
+        displayMessage = "Data was aligned. Opening app...";
+    }
+
     return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="dark-content" />
+        <View style={styles.container}>
+            <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
-            <View style={styles.content}>
-                {/* Brand / Logo placeholder */}
-                <View style={styles.header}>
-                    <View style={styles.brandIcon}>
-                        <Server size={28} color="#6366f1" />
-                    </View>
-                    <Text style={styles.brandName}>KwiqBill</Text>
-                </View>
-
-                {/* Main Illustration Area */}
-                <View style={styles.illustrationContainer}>
-                    <View style={styles.cloudNode}>
-                        <CloudDownload size={32} color="#6366f1" />
-                    </View>
-
-                    <View style={styles.connector}>
-                        <View style={[styles.dot, { backgroundColor: progressValue > 0.3 ? '#6366f1' : '#e2e8f0' }]} />
-                        <View style={[styles.dot, { backgroundColor: progressValue > 0.6 ? '#6366f1' : '#e2e8f0' }]} />
-                        <View style={[styles.dot, { backgroundColor: progressValue > 0.9 ? '#6366f1' : '#e2e8f0' }]} />
-                    </View>
-
-                    <View style={[styles.deviceNode, { borderColor: progressValue === 1 ? '#10b981' : '#e2e8f0' }]}>
-                        {progressValue === 1 ? (
-                            <CheckCircle2 size={32} color="#10b981" />
-                        ) : (
-                            <View style={styles.pulseDot} />
-                        )}
-                    </View>
-                </View>
-
-                {/* Text Content */}
-                <Text style={styles.title}>Aligning Your Data</Text>
-                <Text style={styles.subtitle}>
-                    We're securely restoring your store details, products, and sales history from the cloud.
-                </Text>
-
-                {/* Progress Section */}
-                <View style={styles.progressSection}>
-                    <View style={styles.progressLabelRow}>
-                        <Text style={styles.currentTask}>{progressMessage?.split(' (Est. time:')[0] || 'Connecting...'}</Text>
-                        <Text style={styles.percentageText}>{Math.round(progressValue * 100)}%</Text>
-                    </View>
-
-                    <Progress.Bar
-                        progress={progressValue}
-                        width={width - 60}
-                        height={10}
-                        color="#6366f1"
-                        unfilledColor="#f1f5f9"
-                        borderWidth={0}
-                        borderRadius={5}
-                    />
-
-                    {/* Estimated Time Section */}
-                    {progressMessage?.includes('Est. time:') && (
-                        <View style={styles.estTimeContainer}>
-                            <Clock size={16} color="#6366f1" />
-                            <Text style={styles.estTimeLabel}>Estimated Time Remaining: </Text>
-                            <Text style={styles.estTimeValue}>{progressMessage.split('Est. time: ')[1].replace(')', '')}</Text>
+            {/* ── TOP HERO: Curved Black Header ── */}
+            <View style={styles.heroWrapper}>
+                <LinearGradient
+                    colors={['#000000', '#1A1A1A']}
+                    style={styles.heroGradient}
+                >
+                    <SafeAreaView edges={['top']}>
+                        <View style={styles.heroContent}>
+                            <BrandLockup width={width * 0.75} height={90} variant="light" />
                         </View>
-                    )}
-                </View>
-
-                <View style={{ flex: 1 }} />
-
-                {/* Info / Tip Card */}
-                <View style={styles.tipCard}>
-                    <View style={styles.tipHeader}>
-                        <Info size={16} color="#64748b" />
-                        <Text style={styles.tipTitle}>Security Note</Text>
-                    </View>
-                    <Text style={styles.tipText}>
-                        Your data is encrypted and backed up directly to your personal Google Drive account. Only you can access it.
-                    </Text>
-                </View>
+                    </SafeAreaView>
+                </LinearGradient>
             </View>
-        </SafeAreaView>
+
+            <View style={styles.contentWrapper}>
+                <Animated.View style={[styles.inner, { opacity: fadeAnim }]}>
+
+                    <View style={styles.syncContainer}>
+                        <View style={styles.titleSection}>
+                            <Text style={styles.mainHeading}>Data Synchronization</Text>
+                            <Text style={styles.subHeading}>
+                                Securely retrieving your store settings and inventory records from the cloud.
+                            </Text>
+                        </View>
+
+                        {/* ── PROGRESS SECTION: High-Contrast Mono ── */}
+                        <View style={styles.progressBox}>
+                            <View style={styles.statusRow}>
+                                <View style={styles.indicatorRow}>
+                                    {isComplete ? (
+                                        <CheckCircle2 size={24} color="#000000" />
+                                    ) : (
+                                        <KwiqLoader size={24} color="#000000" />
+                                    )}
+                                    <View>
+                                        <Text style={styles.statusLabel}>Current Status</Text>
+                                        <Text style={[styles.statusText, isComplete && styles.statusTextDone]}>
+                                            {isComplete ? 'Sync Complete' : (isAligning ? 'Aligning Data' : 'Syncing Cloud Records')}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <Text style={styles.percentageText}>{Math.round(progressValue * 100)}%</Text>
+                            </View>
+
+                            <View style={styles.barContainer}>
+                                <View style={styles.barTrack}>
+                                    <Animated.View
+                                        style={[
+                                            styles.barFill,
+                                            {
+                                                width: barWidth.interpolate({
+                                                    inputRange: [0, 1],
+                                                    outputRange: ['0%', '100%'],
+                                                }),
+                                            }
+                                        ]}
+                                    />
+                                </View>
+                                <View style={styles.taskLabelRow}>
+                                    <Cloud size={14} color="#666666" />
+                                    <Text style={styles.currentTaskText} numberOfLines={1}>
+                                        {progressMessage || 'Preparing cloud channel...'}
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* ── SYNC METRICS: Vertical Improved Layout ── */}
+                        <View style={styles.metricsContainer}>
+                            <View style={styles.metricItemMono}>
+                                <View style={styles.metricIconBox}>
+                                    <FileCheck size={20} color="#000000" />
+                                </View>
+                                <View style={styles.metricContent}>
+                                    <Text style={styles.metricTitle}>Total Cloud Records</Text>
+                                    <Text style={styles.metricSubtitle}>Awaiting bitwise verification from cloud</Text>
+                                </View>
+                                {totalFiles === '---' ? (
+                                    <ActivityIndicator size="small" color="#000000" style={{ marginLeft: 12 }} />
+                                ) : (
+                                    <Text style={styles.metricValueLarge}>{totalFiles}</Text>
+                                )}
+                            </View>
+
+                            <View style={styles.metricsTwoColumn}>
+                                <View style={styles.metricSmallMono}>
+                                    <View style={styles.metricIconBoxSmall}>
+                                        <CheckCircle2 size={14} color="#000000" />
+                                    </View>
+                                    <View>
+                                        <Text style={styles.labelSmallMono}>Synced</Text>
+                                        {!syncStats ? (
+                                            <ActivityIndicator size="small" color="#000000" style={{ marginTop: 2 }} />
+                                        ) : (
+                                            <Text style={styles.valueSmallMono}>{syncedCount}</Text>
+                                        )}
+                                    </View>
+                                </View>
+                                <View style={styles.metricSmallMono}>
+                                    <View style={styles.metricIconBoxSmall}>
+                                        <FileWarning size={14} color="#000000" />
+                                    </View>
+                                    <View>
+                                        <Text style={styles.labelSmallMono}>Errors</Text>
+                                        <Text style={styles.valueSmallMono}>{errorCount}</Text>
+                                    </View>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* ── REASSURANCE: Mono Style ── */}
+                        <View style={styles.infoNoteMono}>
+                            <View style={styles.infoIconWrapMono}>
+                                <Info size={18} color="#000000" />
+                            </View>
+                            <Text style={styles.infoNoteTextMono}>
+                                Don't worry, our system will perfectly sync your data safely. Your data integrity is our priority.
+                            </Text>
+                        </View>
+                    </View>
+
+                    {/* ── FOOTER: Updated Version Channel ── */}
+                    <View style={styles.footer}>
+                        <View style={styles.securityRowMono}>
+                            <ShieldCheck size={14} color="#000000" />
+                            <Text style={styles.securityTextMono}>BANK-GRADE AES-256 PROTECTION</Text>
+                        </View>
+                        <Text style={styles.versionTextMono}>v2.0.4 · SECURE DATA CHANNEL · STABLE</Text>
+                    </View>
+                </Animated.View>
+            </View>
+
+            {/* ── ALIGNMENT POPUP ── */}
+            <Modal
+                transparent={true}
+                visible={isAligning}
+                animationType="fade"
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContainer}>
+                        <LinearGradient
+                            colors={['#000000', '#1A1A1A']}
+                            style={styles.modalGradient}
+                        >
+                            {isComplete ? (
+                                <CheckCircle2 size={48} color="#FFFFFF" />
+                            ) : (
+                                <KwiqLoader size={48} color="#FFFFFF" />
+                            )}
+                            <Text style={styles.modalTitle}>{displayMessage}</Text>
+                            <Text style={styles.modalDesc}>
+                                {isComplete
+                                    ? "Your inventory and store data are perfectly synced and ready."
+                                    : "We are optimizing and indexing your cloud records for high-speed local access."
+                                }
+                            </Text>
+
+                            {(estTime && !isComplete) && (
+                                <View style={styles.timeBadge}>
+                                    <Text style={styles.timeBadgeLabel}>ESTIMATED TIME</Text>
+                                    <Text style={styles.timeBadgeValue}>{estTime}</Text>
+                                </View>
+                            )}
+                        </LinearGradient>
+                    </View>
+                </View>
+            </Modal>
+        </View>
     );
 };
 
@@ -95,154 +228,305 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#FFFFFF',
     },
-    content: {
-        flex: 1,
-        paddingHorizontal: 30,
-        paddingTop: 40,
-        paddingBottom: 30,
+    heroWrapper: {
+        backgroundColor: '#000',
+        borderBottomLeftRadius: 40,
+        borderBottomRightRadius: 40,
+        overflow: 'hidden',
+    },
+    heroGradient: {
+        paddingBottom: 60,
+        paddingTop: Platform.OS === 'android' ? 40 : 20,
+    },
+    heroContent: {
         alignItems: 'center',
     },
-    header: {
+    contentWrapper: {
+        flex: 1,
+        marginTop: 0,
+    },
+    inner: {
+        flex: 1,
+        justifyContent: 'space-between',
+        paddingBottom: 24,
+    },
+    syncContainer: {
+        width: '100%',
+        paddingHorizontal: 24,
+        paddingTop: 10,
+    },
+    titleSection: {
+        alignItems: 'center',
+        marginBottom: 28,
+    },
+    mainHeading: {
+        fontSize: 24,
+        fontWeight: '900',
+        color: '#000000',
+        letterSpacing: -1,
+        marginBottom: 8,
+    },
+    subHeading: {
+        fontSize: 14,
+        color: '#666666',
+        textAlign: 'center',
+        lineHeight: 20,
+        fontWeight: '600',
+        paddingHorizontal: 12,
+    },
+    progressBox: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 24,
+        padding: 24,
+        borderWidth: 1.5,
+        borderColor: '#000000',
+        marginBottom: 20,
+    },
+    statusRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    indicatorRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 60,
+        gap: 14,
+        flex: 1,
     },
-    brandIcon: {
+    statusLabel: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#999999',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    statusText: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#000000',
+    },
+    statusTextDone: {
+        color: '#000000',
+    },
+    percentageText: {
+        fontSize: 28,
+        fontWeight: '900',
+        color: '#000000',
+        fontVariant: ['tabular-nums'],
+    },
+    barContainer: {
+        width: '100%',
+        gap: 12,
+    },
+    barTrack: {
+        height: 12,
+        backgroundColor: '#EEEEEE',
+        borderRadius: 6,
+        overflow: 'hidden',
+    },
+    barFill: {
+        height: '100%',
+        backgroundColor: '#000000',
+        borderRadius: 6,
+    },
+    taskLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    currentTaskText: {
+        fontSize: 12,
+        color: '#999999',
+        fontWeight: '700',
+    },
+
+    /* ── Metrics: Vertical Professional Mono ── */
+    metricsContainer: {
+        gap: 10,
+        marginBottom: 20,
+    },
+    metricItemMono: {
+        width: '100%',
+        backgroundColor: '#F9F9F9',
+        borderRadius: 20,
+        padding: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#EEEEEE',
+    },
+    metricIconBox: {
         width: 44,
         height: 44,
         borderRadius: 12,
-        backgroundColor: '#f5f3ff',
+        backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 12,
-    },
-    brandName: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: '#1e293b',
-        letterSpacing: -0.5,
-    },
-    illustrationContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 40,
-    },
-    cloudNode: {
-        width: 70,
-        height: 70,
-        borderRadius: 35,
-        backgroundColor: '#f5f3ff',
-        justifyContent: 'center',
-        alignItems: 'center',
+        marginRight: 16,
         borderWidth: 1,
-        borderColor: '#e0e7ff',
+        borderColor: '#EEEEEE',
     },
-    deviceNode: {
-        width: 70,
-        height: 70,
-        borderRadius: 35,
-        backgroundColor: '#f8fafc',
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 2,
+    metricContent: {
+        flex: 1,
     },
-    connector: {
-        flexDirection: 'row',
-        paddingHorizontal: 15,
-        gap: 8,
-    },
-    dot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-    },
-    pulseDot: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: '#cbd5e1',
-    },
-    title: {
-        fontSize: 26,
-        fontWeight: '800',
-        color: '#0f172a',
-        textAlign: 'center',
-        marginBottom: 12,
-    },
-    subtitle: {
-        fontSize: 15,
-        color: '#64748b',
-        textAlign: 'center',
-        lineHeight: 22,
-        marginBottom: 50,
-        paddingHorizontal: 10,
-    },
-    progressSection: {
-        width: '100%',
-    },
-    progressLabelRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-end',
-        marginBottom: 12,
-    },
-    estTimeContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 16,
-        backgroundColor: '#f5f3ff',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 10,
-        alignSelf: 'flex-start'
-    },
-    estTimeLabel: {
-        fontSize: 13,
-        color: '#475569',
-        marginLeft: 8,
-        fontWeight: '500'
-    },
-    estTimeValue: {
-        fontSize: 13,
-        color: '#6366f1',
-        fontWeight: '700'
-    },
-    currentTask: {
+    metricTitle: {
         fontSize: 14,
+        fontWeight: '800',
+        color: '#000000',
+    },
+    metricSubtitle: {
+        fontSize: 11,
+        color: '#999999',
         fontWeight: '600',
-        color: '#475569',
+        marginTop: 2,
     },
-    percentageText: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#6366f1',
+    metricValueLarge: {
+        fontSize: 22,
+        fontWeight: '900',
+        color: '#000000',
+        marginLeft: 12,
     },
-    tipCard: {
-        width: '100%',
-        backgroundColor: '#f8fafc',
-        padding: 20,
+    metricsTwoColumn: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    metricSmallMono: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
-        borderWidth: 1,
-        borderColor: '#f1f5f9',
-    },
-    tipHeader: {
+        padding: 12,
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 8,
+        gap: 10,
+        borderWidth: 1,
+        borderColor: '#EEEEEE',
     },
-    tipTitle: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#475569',
-        marginLeft: 8,
+    metricIconBoxSmall: {
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        backgroundColor: '#F5F5F5',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    labelSmallMono: {
+        fontSize: 10,
+        color: '#999999',
+        fontWeight: '800',
         textTransform: 'uppercase',
+    },
+    valueSmallMono: {
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#000000',
+    },
+
+    /* ── Info Note Mono ── */
+    infoNoteMono: {
+        flexDirection: 'row',
+        backgroundColor: '#000000',
+        padding: 16,
+        borderRadius: 20,
+        gap: 14,
+        alignItems: 'center',
+    },
+    infoIconWrapMono: {
+        backgroundColor: '#FFFFFF',
+        padding: 8,
+        borderRadius: 12,
+    },
+    infoNoteTextMono: {
+        flex: 1,
+        fontSize: 12,
+        color: '#FFFFFF',
+        fontWeight: '600',
+        lineHeight: 18,
+    },
+
+    /* ── Footer Mono ── */
+    footer: {
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 'auto',
+    },
+    securityRowMono: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    securityTextMono: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#000000',
+        letterSpacing: 1,
+    },
+    versionTextMono: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#CCCCCC',
         letterSpacing: 0.5,
     },
-    tipText: {
-        fontSize: 13,
-        color: '#64748b',
-        lineHeight: 18,
+
+    /* ── Modal Styles ── */
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 30,
+    },
+    modalContainer: {
+        width: '100%',
+        borderRadius: 32,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+        elevation: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+    },
+    modalGradient: {
+        padding: 40,
+        alignItems: 'center',
+    },
+    modalTitle: {
+        fontSize: 22,
+        fontWeight: '900',
+        color: '#FFFFFF',
+        marginTop: 24,
+        textAlign: 'center',
+        letterSpacing: -0.5,
+    },
+    modalDesc: {
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.6)',
+        textAlign: 'center',
+        marginTop: 12,
+        lineHeight: 20,
+        fontWeight: '500',
+    },
+    timeBadge: {
+        marginTop: 30,
+        backgroundColor: '#FFFFFF',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 16,
+        alignItems: 'center',
+    },
+    timeBadgeLabel: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#666666',
+        letterSpacing: 1,
+    },
+    timeBadgeValue: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#000000',
+        marginTop: 2,
     },
 });
 

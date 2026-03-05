@@ -1,0 +1,19 @@
+﻿[dotenv@17.2.3] injecting env (9) from .env -- tip: ≡ƒôí add observability to secrets: https://dotenvx.com/ops
+
+=== ALL USERS IN DATABASE ===
+
+No | Name                  | Email                         | Role     | Created
+---|----------------------|-------------------------------|----------|--------
+1  | KAVI RAJA            | mkvr2006@gmail.com             | employee | 2026-01-23
+2  | Selva Dhanush        | selvadhanushjc@gmail.com       | employee | 2026-01-24
+3  | Selva Dhanush J      | selva.dhanush.s81@kalvium.community | employee | 2026-01-27
+4  | Bala S               | indhumathis23095@gmail.com     | employee | 2026-02-07
+5  | Balaji S             | balajier2006@gmail.com         | employee | 2026-02-07
+6  | BALAJI S 2024-CSE    | 99240041390@klu.ac.in          | employee | 2026-02-07
+7  | falcon 507           | falcon507706@gmail.com         | employee | 2026-02-07
+8  | John Ebenezer        | johnebenezerxa@gmail.com       | employee | 2026-02-08
+9  | SANJAI PANDIAN A S   | sanjaipandian.as@gmail.com     | employee | 2026-02-09
+10 | SANJAI               | sanjaipandian77@gmail.com      | employee | 2026-03-03
+11 | Kwiq Bill            | kwiqbill@gmail.com             | employee | 2026-03-04
+
+Total: 11 users

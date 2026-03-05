@@ -1,0 +1,25 @@
+--- ALL USERS ---
+User: mkvr2006@gmail.com, Name: KAVI RAJA, GoogleId: 106971920213198807058, ID: 69736196e18ab3027983d93f
+User: selvadhanushjc@gmail.com, Name: Selva Dhanush, GoogleId: 114511493270179165638, ID: 69745d5653cb73507bf453ae
+User: selva.dhanush.s81@kalvium.community, Name: Selva Dhanush J, GoogleId: 108296066267103212925, ID: 6978417f22c15877ed679d70
+User: indhumathis23095@gmail.com, Name: Bala S, GoogleId: 108425508394186494028, ID: 69876af3e6328eecb869f197
+User: balajier2006@gmail.com, Name: Balaji S, GoogleId: 109525145705902505027, ID: 6987720084adf6d71f5a2668
+User: 99240041390@klu.ac.in, Name: BALAJI S 2024-CSE, GoogleId: 113879744781641913224, ID: 6987730d84adf6d71f5a2680
+User: falcon507706@gmail.com, Name: falcon 507, GoogleId: 109023588322972434688, ID: 698774d484adf6d71f5a2699
+User: johnebenezerxa@gmail.com, Name: John Ebenezer, GoogleId: 116609331518824508785, ID: 6988af41780d84911485b70e
+User: sanjaipandian.as@gmail.com, Name: SANJAI PANDIAN A S, GoogleId: 116179378274589287738, ID: 6989fbdf27ef0812a828a9c9
+
+--- ALL SETTINGS (COMPANY PROFILES) ---
+Settings for UserID: 116179378274589287738, userEmail: sanjaipandian.as@gmail.com
+  User Details: {
+  "consent": {
+    "analytics": true,
+    "contact": true
+  },
+  "fullName": "Sanjai pandian",
+  "mobile": "8220158988",
+  "email": "sanjaipandian.as@gmail.com",
+  "role": "Owner"
+}
+  Store Name: Saravanan stores
+-----------------------------------

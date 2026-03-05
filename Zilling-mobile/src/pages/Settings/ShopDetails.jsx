@@ -10,12 +10,14 @@ import {
     Alert,
     KeyboardAvoidingView,
     Platform,
-    Dimensions
+    Dimensions,
+    ActivityIndicator
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSettings } from '../../context/SettingsContext';
 import { Store, MapPin, User, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+
 
 const { width } = Dimensions.get('window');
 
@@ -422,7 +424,10 @@ const ShopDetails = () => {
                                         disabled={!canProceed() || saving}
                                     >
                                         {saving ? (
-                                            <Text style={styles.nextText}>Saving...</Text>
+                                            <>
+                                                <ActivityIndicator size="small" color="#fff" />
+                                                <Text style={styles.nextText}>Uploading to Database...</Text>
+                                            </>
                                         ) : (
                                             <>
                                                 <CheckCircle2 size={20} color="#10b981" />
@@ -435,6 +440,7 @@ const ShopDetails = () => {
                         </View>
 
                         <Text style={styles.secureText}>Your data is stored locally and securely on this device</Text>
+
                     </ScrollView>
                 </LinearGradient>
             </KeyboardAvoidingView>

@@ -23,10 +23,22 @@ export const triggerAutoSave = async () => {
     // 2. Fetch all data from SQLite (it's now async because it pulls settings too)
     const allData = await fetchAllTableData();
 
-    // 3. Sync to device folders using BackupServices (which handles SAF and file matching)
-    // We run this without 'await' in contexts if we want it to be non-blocking,
-    // but here we export it as a standard async function.
+    // 3. Sync to device folders using BackupServices
     await exportToDeviceFolders(allData, null, { isAutoSave: true });
+
+    // 4. Cloud Auto-Save: Sync snapshots to Google Drive (if user is logged in)
+    const userStr = await AsyncStorage.getItem('user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        const { syncUserDataToDrive } = require('./googleDriveservices');
+        console.log("[AutoSave] Syncing snapshots to Google Drive...");
+        // Non-blocking call to ensure UI fluidity
+        syncUserDataToDrive(user, allData).catch(err => console.log('Drive Snap-Sync Error:', err.message));
+      } catch (e) {
+        console.log('User parse error in AutoSave:', e.message);
+      }
+    }
 
     console.log("[AutoSave] Sync complete.");
   } catch (error) {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 
 const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
     // Fallback/Demo Data
@@ -25,8 +25,17 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
         }
     };
 
+    // Check if the user wants the logo displayed on bills
+    const showLogo = settings?.invoice?.showLogoInBill !== false; // defaults to true if not explicitly false
+
     return (
         <View style={styles.thermalPaper}>
+            {showLogo && store.logo ? (
+                <Image
+                    source={{ uri: store.logo }}
+                    style={{ width: 40, height: 40, alignSelf: 'center', marginBottom: 4, resizeMode: 'contain' }}
+                />
+            ) : null}
             <Text style={styles.tpStoreName}>{store.name}</Text>
             <Text style={[styles.tpText, styles.tpTextCenter]}>{store.address?.street}, {store.address?.city}</Text>
             <Text style={[styles.tpText, styles.tpTextCenter]}>Phone: {store.contact}</Text>

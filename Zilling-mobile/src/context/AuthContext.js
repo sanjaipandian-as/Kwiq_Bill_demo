@@ -19,34 +19,42 @@ export const AuthProvider = ({ children }) => {
         const currentUser = await GoogleSignin.getCurrentUser();
 
         // Keeps login/session data in AsyncStorage
-        const savedUser = await AsyncStorage.getItem('user');
+        const savedUserDataStr = await AsyncStorage.getItem('user');
 
         // Only restore session if both local user exists AND Google session is active
-        if (savedUser && currentUser) {
-          const userData = JSON.parse(savedUser);
+        if (savedUserDataStr && currentUser) {
+          const userData = JSON.parse(savedUserDataStr);
           setUser(userData);
 
-          // Proactively refresh user data from backend to check trial status
-          try {
-            const latestUser = await services.auth.getCurrentUser();
-            if (latestUser) {
-              const updatedUser = {
-                ...userData,
-                backendId: latestUser.id,
-                trialExpiresAt: latestUser.trialExpiresAt,
-              };
-              await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
-              setUser(updatedUser);
+          // Only refresh if we have a token
+          const token = await AsyncStorage.getItem('token');
+          if (token) {
+            try {
+              const latestUser = await services.auth.getCurrentUser();
+              if (latestUser) {
+                const updatedUser = {
+                  ...userData,
+                  backendId: latestUser.id,
+                  trialExpiresAt: latestUser.trialExpiresAt,
+                };
+                await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+                setUser(updatedUser);
+              }
+            } catch (profileError) {
+              console.log('Failed to refresh user profile:', profileError.message);
+              // If the user is no longer in the DB or unauthorized, kick them out
+              if (profileError.response && (profileError.response.status === 401 || profileError.response.status === 404)) {
+                console.warn('User unauthorized. Logging out...');
+                await logout();
+              }
             }
-          } catch (profileError) {
-            console.log('Failed to refresh user profile on init:', profileError.message);
           }
-        } else if (savedUser && !currentUser) {
+        } else if (savedUserDataStr && !currentUser) {
           // Attempt silent sign-in if we have a saved user but no active session object
           try {
             const user = await GoogleSignin.signInSilently();
             if (user) {
-              setUser(JSON.parse(savedUser));
+              setUser(JSON.parse(savedUserDataStr));
             } else {
               await logout(); // Clear everything if session is truly gone
             }
@@ -75,24 +83,22 @@ export const AuthProvider = ({ children }) => {
       };
 
       // 2. EXCHANGE: Send Google token to backend to get our own JWT
-      let backendToken = idToken;
-      try {
-        if (onProgress) onProgress('Connecting to server...', 0.2);
-        console.log('Exchanging token with backend...');
-        const authResponse = await services.auth.googleLogin(idToken);
-        if (authResponse && authResponse.token) {
-          backendToken = authResponse.token;
-          // Update userData with backend ID and trial info if available
-          if (authResponse.user) {
-            if (authResponse.user.id) userData.backendId = authResponse.user.id;
-            if (authResponse.user.trialExpiresAt) userData.trialExpiresAt = authResponse.user.trialExpiresAt;
-          }
-          console.log('Successfully exchanged Google token for backend JWT');
-        }
-      } catch (authError) {
-        console.warn('Backend Auth Exchange failed:', authError.message);
-        // Alert removed to keep sync UI smooth
+      if (onProgress) onProgress('Connecting to server...', 0.2);
+      console.log('Exchanging token with backend...');
+
+      const authResponse = await services.auth.googleLogin(idToken);
+
+      if (!authResponse || !authResponse.token) {
+        throw new Error('Backend failed to issue a secure token. Please try again.');
       }
+
+      let backendToken = authResponse.token;
+      // Update userData with backend ID and trial info if available
+      if (authResponse.user) {
+        if (authResponse.user.id) userData.backendId = authResponse.user.id;
+        if (authResponse.user.trialExpiresAt) userData.trialExpiresAt = authResponse.user.trialExpiresAt;
+      }
+      console.log('Successfully exchanged Google token for backend JWT');
 
       // 3. Save locally - ONLY TOKEN for now, we save USER after sync
       if (backendToken && backendToken !== idToken) {
@@ -103,7 +109,9 @@ export const AuthProvider = ({ children }) => {
 
       // 4. RESTORE: Fetch Snapshot & Settings from Drive (Before setting user state)
       try {
-        await restoreUserDataFromDrive(userData, onProgress);
+        await restoreUserDataFromDrive(userData, (msg, prog, stats) => {
+          if (onProgress) onProgress(msg, prog, stats);
+        });
       } catch (restoreErr) {
         console.log('Restore failed:', restoreErr);
       }
@@ -116,8 +124,8 @@ export const AuthProvider = ({ children }) => {
         const { SyncService } = require('../services/OneWaySyncService');
 
         // Custom progress handler for the sync service - pass through granular progress
-        const syncProgressHandler = (msg, progress) => {
-          if (onProgress) onProgress(msg, progress || 0.75);
+        const syncProgressHandler = (msg, progress, stats) => {
+          if (onProgress) onProgress(msg, progress || 0.75, stats);
         };
 
         await SyncService.syncDown(syncProgressHandler);
@@ -134,6 +142,10 @@ export const AuthProvider = ({ children }) => {
 
       // Critical: Don't set user in storage or state until sync is complete
       await AsyncStorage.setItem('user', JSON.stringify(userData));
+
+      // Prevent SettingsContext from running a duplicate sync instantly
+      await AsyncStorage.setItem('just_logged_in', 'true');
+
       setUser(userData);
 
       return userData;

@@ -544,7 +544,7 @@ const BillLivePreview = ({ items, totals, settings, template, taxType, customer,
         }}>
             {/* Header */}
             <View style={{ alignItems: 'center', marginBottom: 12 }}>
-                {store.logo ? (
+                {settings?.invoice?.showLogoInBill !== false && store.logo ? (
                     <Image
                         source={{ uri: store.logo }}
                         style={{ width: 60, height: 60, marginBottom: 8, borderRadius: 8 }}

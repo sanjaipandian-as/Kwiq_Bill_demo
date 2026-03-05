@@ -120,12 +120,14 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
         .footer { margin-top: 15px; text-align: center; font-size: 10px; }
     `;
 
+    const { showLogoInBill: showLogo = true } = settings?.invoice || {};
+
     return `
     <html>
         <head><style>${styles}</style></head>
         <body>
             <div class="text-center">
-                ${settings?.store?.logo ? `<img src="${settings.store.logo}" style="width: 50px; height: 50px; object-fit: contain; margin-bottom: 5px;" />` : ''}
+                ${showLogo && settings?.store?.logo ? `<img src="${settings.store.logo}" style="width: 50px; height: 50px; object-fit: contain; margin-bottom: 5px;" />` : ''}
                 <div class="store-name">${storeName}</div>
                 <div style="font-size: 10px;">${storeAddress}</div>
                 <div style="font-size: 10px;">Phone: ${storePhone}</div>

@@ -147,12 +147,12 @@ const ToastItem = ({ toast, onRemove }) => {
 
     const getIcon = () => {
         switch (type) {
-            case 'error': return <AlertCircle size={20} color="#fff" strokeWidth={2.5} />;
-            case 'warning': return <AlertTriangle size={20} color="#fff" strokeWidth={2.5} />;
-            case 'info': return <Info size={20} color="#fff" strokeWidth={2.5} />;
-            case 'success': return <CheckCircle2 size={20} color="#fff" strokeWidth={2.5} />;
+            case 'error': return <AlertCircle size={20} color="#ef4444" strokeWidth={2.5} />;
+            case 'warning': return <AlertTriangle size={20} color="#f59e0b" strokeWidth={2.5} />;
+            case 'info': return <Info size={20} color="#3b82f6" strokeWidth={2.5} />;
+            case 'success': return <CheckCircle2 size={20} color="#10b981" strokeWidth={2.5} />;
             case 'stock': return <AlertTriangle size={20} color="#000" strokeWidth={2.5} />;
-            default: return <BellRing size={20} color="#fff" strokeWidth={2.5} />;
+            default: return <BellRing size={20} color="#3b82f6" strokeWidth={2.5} />;
         }
     };
 
@@ -177,42 +177,8 @@ const ToastItem = ({ toast, onRemove }) => {
             ]}
             {...panResponder.panHandlers}
         >
-            <View style={[styles.blurContainer, isStockType && { borderColor: 'rgba(0, 0, 0, 0.1)' }]}>
-                {isStockType ? (
-                    <View style={[styles.content, { backgroundColor: '#FFFFFF' }]}>
-                        <View style={[styles.iconContainer, { backgroundColor: 'rgba(0, 0, 0, 0.05)' }]}>
-                            {getIcon()}
-                            <View style={[styles.statusDot, { backgroundColor: '#000000', borderColor: '#fff' }]} />
-                        </View>
-
-                        <View style={styles.textContainer}>
-                            <Text style={[styles.messageText, { color: '#000000' }]}>{message}</Text>
-                        </View>
-
-                        <TouchableOpacity onPress={animateOut} style={[styles.closeBtn, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
-                            <X size={16} color="#000" strokeWidth={3} />
-                        </TouchableOpacity>
-
-                        <View style={[styles.progressBackground, { backgroundColor: 'rgba(0,0,0,0.1)' }]}>
-                            <Animated.View
-                                style={[
-                                    styles.progressBar,
-                                    { backgroundColor: '#000000' },
-                                    {
-                                        width: progressWidth.interpolate({
-                                            inputRange: [0, 100],
-                                            outputRange: ['0%', '100%']
-                                        })
-                                    }
-                                ]}
-                            />
-                        </View>
-                    </View>
-                ) : (
-                <LinearGradient
-                    colors={['rgba(24, 24, 27, 0.95)', 'rgba(9, 9, 11, 0.98)']}
-                    style={styles.content}
-                >
+            <View style={styles.blurContainer}>
+                <View style={styles.content}>
                     <View style={styles.iconContainer}>
                         {getIcon()}
                         <View style={[styles.statusDot, { backgroundColor: getStatusColor() }]} />
@@ -223,7 +189,7 @@ const ToastItem = ({ toast, onRemove }) => {
                     </View>
 
                     <TouchableOpacity onPress={animateOut} style={styles.closeBtn}>
-                        <X size={16} color="rgba(255,255,255,0.4)" strokeWidth={3} />
+                        <X size={16} color="#64748b" strokeWidth={3} />
                     </TouchableOpacity>
 
                     {/* Duration Progress Bar */}
@@ -240,8 +206,7 @@ const ToastItem = ({ toast, onRemove }) => {
                             ]}
                         />
                     </View>
-                </LinearGradient>
-                )}
+                </View>
             </View>
         </Animated.View>
     );
@@ -265,13 +230,14 @@ const styles = StyleSheet.create({
     blurContainer: {
         borderRadius: 24,
         overflow: 'hidden',
-        borderWidth: 1.5,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.8)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 12 },
-        shadowOpacity: 0.4,
-        shadowRadius: 16,
-        elevation: 15,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 10,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)', // Solid white fallback with slight transparency
     },
     content: {
         flexDirection: 'row',
@@ -284,7 +250,7 @@ const styles = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 14,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: '#f1f5f9', // Soft light gray background for icon
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 14,
@@ -297,14 +263,14 @@ const styles = StyleSheet.create({
         height: 10,
         borderRadius: 5,
         borderWidth: 2,
-        borderColor: '#000',
+        borderColor: '#fff', // White border on white background
     },
     textContainer: {
         flex: 1,
         marginRight: 10,
     },
     messageText: {
-        color: '#FFFFFF',
+        color: '#0f172a', // Dark text
         fontSize: 15,
         fontWeight: '700',
         letterSpacing: -0.2,
@@ -314,7 +280,7 @@ const styles = StyleSheet.create({
         width: 28,
         height: 28,
         borderRadius: 14,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        backgroundColor: '#f1f5f9',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -324,11 +290,11 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
         height: 3,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        backgroundColor: 'rgba(0, 0, 0, 0.05)',
     },
     progressBar: {
         height: '100%',
-        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+        backgroundColor: 'rgba(0, 0, 0, 0.15)',
         borderTopRightRadius: 2,
         borderBottomRightRadius: 2,
     }

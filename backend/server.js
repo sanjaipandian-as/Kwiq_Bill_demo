@@ -23,7 +23,7 @@ const startServer = async () => {
         await connectDB();
 
         // 2. Start Listening on Port
-        app.listen(PORT, () => {
+        app.listen(PORT, '0.0.0.0', () => {
             console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
         });
 

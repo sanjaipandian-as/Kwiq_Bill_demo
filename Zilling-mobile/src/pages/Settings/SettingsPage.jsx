@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Pressable, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView, StatusBar, Linking, Dimensions, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Pressable, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView, StatusBar, Linking, Dimensions, Image, Modal, Animated } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import DetailedInvoiceTemplate from './DetailedInvoiceTemplate';
 import MinimalInvoiceTemplate from './MinimalInvoiceTemplate';
@@ -41,7 +41,10 @@ import {
   FileText,
   CreditCard,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Database,
+  RefreshCw,
+  LifeBuoy
 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
@@ -54,7 +57,7 @@ import { Input } from '../../components/ui/Input';
 import { Card } from '../../components/ui/Card';
 import services from '../../services/api';
 
-const SettingsPage = ({ navigation }) => {
+const SettingsPage = ({ navigation, route }) => {
   // Trigger clear cache
   const { logout } = useAuth();
   const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, lastEventSyncTime, syncStatus, loading, queueLength, isUploading, isLogoUploading } = useSettings();
@@ -69,6 +72,8 @@ const SettingsPage = ({ navigation }) => {
   const [localSettings, setLocalSettings] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccessIcon, setShowSuccessIcon] = useState(false);
+  const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
+  const logoutFadeAnim = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (settings && !isEditing) {
@@ -78,6 +83,13 @@ const SettingsPage = ({ navigation }) => {
       }
     }
   }, [settings, isEditing]);
+
+  // Handle cross-page navigation (e.g. from Dashboard 'Upgrade' button)
+  useEffect(() => {
+    if (route?.params?.tab) {
+      setActiveTab(route.params.tab);
+    }
+  }, [route?.params?.tab]);
 
   useFocusEffect(
     useCallback(() => {
@@ -98,21 +110,21 @@ const SettingsPage = ({ navigation }) => {
       return;
     }
 
-    Alert.alert(
-      "Confirm Logout",
-      "Are you sure you want to log out? Local data will be cleared.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Logout",
-          style: "destructive",
-          onPress: async () => {
-            await logout();
-            // Navigation reset is handled by AuthStack usually, but ensures safety
-          }
-        }
-      ]
-    );
+    setIsLogoutModalVisible(true);
+    Animated.timing(logoutFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  };
+
+  const closeLogoutModal = () => {
+    Animated.timing(logoutFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setIsLogoutModalVisible(false);
+    });
+  };
+
+  const confirmLogout = async () => {
+    closeLogoutModal();
+    await new Promise(r => setTimeout(r, 200));
+    showToast("Signing out...", "info");
+    await logout();
   };
 
   // ... (keeping existing save/cancel/change handlers) ...
@@ -227,12 +239,14 @@ const SettingsPage = ({ navigation }) => {
       const mimeType = asset.mimeType || 'image/jpeg';
       const dataUri = `data:${mimeType};base64,${asset.base64}`;
       handleChange('store', 'logo', dataUri);
+      handleChange('invoice', 'showLogo', true); // Automatically turn ON logo display on invoices
     }
   };
 
   const removeLogo = () => {
     if (!isEditing) setIsEditing(true);
     handleChange('store', 'logo', null);
+    handleChange('invoice', 'showLogo', false); // Automatically turn OFF logo display on invoices
   };
 
   const addTaxGroup = () => {
@@ -282,7 +296,7 @@ const SettingsPage = ({ navigation }) => {
     { id: 'invoice', label: 'Invoice', icon: Layout },
     { id: 'print', label: 'Print', icon: Printer },
     { id: 'backup', label: 'Backup', icon: Save },
-    { id: 'contact', label: 'Contact', icon: HelpCircle },
+    { id: 'contact', label: 'Contact', icon: Headset },
     { id: 'logout', label: 'Logout', icon: LogOut },
   ];
 
@@ -1059,7 +1073,8 @@ const SettingsPage = ({ navigation }) => {
               </View>
               <View style={styles.cardPadding}>
                 {[
-                  { key: 'showLogo', label: 'Show Store Logo' },
+                  { key: 'showLogo', label: 'Show store logo in invoice' },
+                  { key: 'showLogoInBill', label: 'Show store logo in bill' },
                   { key: 'showTaxBreakup', label: 'Tax Breakup Table' },
                   { key: 'showQrcode', label: 'UPI QR Code' },
                   { key: 'showTerms', label: 'Terms & Conditions' },
@@ -1159,7 +1174,7 @@ const SettingsPage = ({ navigation }) => {
               </View>
               <View style={styles.cardPadding}>
                 <Text style={styles.sectionDesc}>
-                  Secure your data by syncing with Google Drive. Access your information across multiple devices and never lose a single invoice.
+                  Your data is automatically synced with Google Drive. Access your information across multiple devices and never lose a single invoice.
                 </Text>
 
                 <TouchableOpacity
@@ -1172,89 +1187,74 @@ const SettingsPage = ({ navigation }) => {
                       showToast("Backup Failed. Check your connection.", "error");
                     }
                   }}
-                  style={styles.actionButton}
+                  activeOpacity={0.8}
+                  style={[styles.actionButton, { borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 4 }]}
                 >
                   <Cloud size={18} color="#fff" />
-                  <Text style={styles.actionButtonText}>Instant Cloud Backup</Text>
+                  <Text style={[styles.actionButtonText, { fontSize: 15, fontWeight: '800' }]}>Instant Cloud Backup</Text>
                 </TouchableOpacity>
 
                 {/* --- Cloud Sync Engine Heartbeat --- */}
-                <View style={{ marginTop: 24, marginBottom: 10 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <View style={{ width: 32, height: 32, backgroundColor: '#f1f5f9', borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}>
-                      <RotateCcw size={18} color="#000" />
+                <View style={{ marginTop: 32 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+                    <View>
+                      <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 1 }}>Sync Status</Text>
+                      <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 }}>Real-time engine heartbeat</Text>
                     </View>
-                    <Text style={[styles.cardTitle, { fontSize: 16 }]}>Cloud Sync Engine</Text>
-                  </View>
-
-                  <View style={[styles.uploadInfoBox, { backgroundColor: '#fff', borderLeftWidth: 4, borderLeftColor: '#000' }]}>
-                    <View style={styles.uploadRow}>
-                      <View>
-                        <Text style={styles.uploadLabel}>Pending Events</Text>
-                        <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '500' }}>Changes waiting to sync</Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={[styles.uploadValue, { fontSize: 18, color: '#000' }]}>
-                          {queueLength}
-                        </Text>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#94a3b8' }}>EVENTS</Text>
-                      </View>
-                    </View>
-
-                    <View style={[styles.divider, { marginVertical: 12, height: 1, backgroundColor: '#f1f5f9' }]} />
-
-                    <View style={styles.uploadRow}>
-                      <View>
-                        <Text style={styles.uploadLabel}>Estimated Time</Text>
-                        <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '500' }}>Based on current network</Text>
-                      </View>
-                      <Text style={styles.uploadValue}>
-                        {queueLength > 0 ? `~${queueLength * 2} seconds` : '0 seconds'}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: queueLength > 0 ? '#f59e0b' : '#10b981' }} />
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#334155' }}>
+                        {queueLength > 0 ? 'SYNCING' : 'IDLE'}
                       </Text>
                     </View>
-
-                    {queueLength > 0 && (
-                      <View style={[styles.queueWarning, { marginTop: 16, backgroundColor: '#f5f5f5', borderColor: '#000', borderLeftWidth: 4 }]}>
-                        <ActivityIndicator size="small" color="#000" />
-                        <Text style={[styles.queueWarningText, { color: '#000', fontWeight: '700' }]}>
-                          Syncing... Your changes are being securely pushed to your Google Drive in the background.
-                        </Text>
-                      </View>
-                    )}
                   </View>
 
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View style={{ flex: 1, backgroundColor: '#fff', borderRadius: 24, padding: 20, borderWidth: 1.5, borderColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 24, fontWeight: '900', color: '#000' }}>{queueLength}</Text>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', marginTop: 4, textTransform: 'uppercase' }}>Pending</Text>
+                    </View>
+                    <View style={{ flex: 1, backgroundColor: '#fff', borderRadius: 24, padding: 20, borderWidth: 1.5, borderColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 18, fontWeight: '900', color: '#000' }}>{queueLength > 0 ? `~${queueLength * 2}s` : '0s'}</Text>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', marginTop: 4, textTransform: 'uppercase' }}>Est. Time</Text>
+                    </View>
+                  </View>
+
+                  {queueLength > 0 && (
+                    <View style={{ marginTop: 20, backgroundColor: '#fafafa', borderRadius: 24, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                        <ActivityIndicator size="small" color="#000" />
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#000', flex: 1 }}>Syncing changes to Drive...</Text>
+                      </View>
+                      {/* Fake Progress Bar */}
+                      <View style={{ height: 6, backgroundColor: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                        <View style={{ width: '45%', height: '100%', backgroundColor: '#000' }} />
+                      </View>
+                    </View>
+                  )}
+
                   {/* Explanation Section */}
-                  <View style={{ marginTop: 16, paddingHorizontal: 4 }}>
-                    <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 18, fontWeight: '500' }}>
-                      <Text style={{ fontWeight: '800', color: '#475569' }}>How it works:</Text> Every action (Bills, Products, Expenses) is recorded as a secure <Text style={{ color: '#000', fontWeight: '700' }}>"Event"</Text>. These stay on your mobile device when offline and automatically "fly" to your Google Drive the moment you connect to the internet.
+                  <View style={{ marginTop: 24, backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                      <HelpCircle size={16} color="#000" />
+                      <Text style={{ fontSize: 14, fontWeight: '800', color: '#000' }}>How it works</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 20, fontWeight: '500' }}>
+                      Every action is recorded as a secure <Text style={{ color: '#000', fontWeight: '800' }}>"Event"</Text>. These stay on your device when offline and automatically sync to your Google Drive when you're back online.
                     </Text>
                   </View>
                 </View>
                 {/* ------------------------------------- */}
 
-                {/* Real-time Status Indicator */}
-                {(syncStatus && syncStatus !== 'Ready') ? (
-                  <View style={{
-                    backgroundColor: '#f5f5f5',
-                    borderColor: '#000',
-                    borderWidth: 1.5,
-                    borderRadius: 10,
-                    padding: 8,
-                    marginTop: 12,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 8
-                  }}>
-                    <ActivityIndicator size="small" color="#000" />
-                    <Text style={{ fontSize: 12, color: '#000', fontWeight: '900', flex: 1 }}>
-                      Live Status: {syncStatus}
-                    </Text>
-                  </View>
-                ) : null}
+                <View style={styles.divider} />
 
                 {queueLength === 0 ? (
-                  <>
-                    <View style={[styles.syncActionsRow, { marginTop: 12 }]}>
+                  <View style={{ gap: 20 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#000' }}>Manual Sync</Text>
+                        <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Last sync: {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}</Text>
+                      </View>
                       <TouchableOpacity
                         onPress={async () => {
                           showToast("Syncing...", "info");
@@ -1268,28 +1268,21 @@ const SettingsPage = ({ navigation }) => {
                             showToast("Sync Failed", "error");
                           }
                         }}
-                        style={[styles.miniSyncBtn, { flex: 1.5 }]}
+                        style={{ backgroundColor: '#000', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8 }}
                       >
                         <RotateCcw size={16} color="#fff" />
-                        <Text style={styles.miniSyncBtnText}>Sync Now</Text>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>Sync Now</Text>
                       </TouchableOpacity>
-
-                      <View style={styles.syncStatusBadge}>
-                        <CheckCircle2 size={12} color="#000" />
-                        <Text style={styles.syncStatusText}>
-                          {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}
-                        </Text>
-                      </View>
                     </View>
 
-                    <View style={styles.divider} />
-
-                    <View style={styles.dangerZone}>
-                      <Text style={styles.dangerTitle}>Advanced Recovery</Text>
-                      <Text style={[styles.helperText, { marginBottom: 12, fontSize: 11 }]}>
-                        Force Re-sync clears your local meta-data and attempts to rebuild your database by re-importing every event from Google Drive. Use this only if you notice missing data or sync errors.
+                    <View style={{ backgroundColor: '#fff', padding: 20, borderRadius: 24, borderWidth: 1.5, borderColor: '#000' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                        <RefreshCw size={18} color="#000" />
+                        <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Advanced Recovery</Text>
+                      </View>
+                      <Text style={{ fontSize: 11, color: '#64748b', lineHeight: 18, marginBottom: 16 }}>
+                        Notice missing data or sync errors? Force Re-sync rebuilds your local database from scratch using your Google Drive events.
                       </Text>
-
                       <TouchableOpacity
                         onPress={() => {
                           Alert.alert(
@@ -1315,21 +1308,18 @@ const SettingsPage = ({ navigation }) => {
                             ]
                           );
                         }}
-                        style={styles.dangerButton}
+                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9', marginTop: 4 }}
                       >
-                        <RotateCcw size={16} color="#000" />
-                        <Text style={styles.dangerButtonText}>Force Re-sync (Fix Missing Data)</Text>
+                        <Text style={{ color: '#000', fontWeight: '800', fontSize: 13, textDecorationLine: 'underline' }}>Force Re-sync Database</Text>
                       </TouchableOpacity>
                     </View>
-                  </>
+                  </View>
                 ) : (
-                  <View style={{ marginTop: 20, padding: 12, backgroundColor: '#f1f5f9', borderRadius: 8, alignItems: 'center' }}>
-                    <Shield size={24} color="#64748b" style={{ marginBottom: 8 }} />
-                    <Text style={{ fontWeight: '600', color: '#475569', textAlign: 'center' }}>
-                      Sync Actions Locked
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4 }}>
-                      Please wait for pending uploads to finish before initiating manual syncs to prevent data conflicts.
+                  <View style={{ padding: 24, backgroundColor: '#f8fafc', borderRadius: 24, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' }}>
+                    <Shield size={32} color="#94a3b8" style={{ marginBottom: 12 }} />
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#000', textAlign: 'center' }}>Sync Engine Active</Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 6, lineHeight: 20 }}>
+                      Manual sync actions are restricted while background uploads are in progress to ensure data integrity.
                     </Text>
                   </View>
                 )}
@@ -1342,30 +1332,33 @@ const SettingsPage = ({ navigation }) => {
                 <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
                   <Folder size={20} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Local Device Backup</Text>
+                <Text style={styles.cardTitle}>Device Protection</Text>
               </View>
               <View style={styles.cardPadding}>
-                <View style={styles.toggleRow}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={[styles.cardTitle, { fontSize: 15 }]}>Real-time Auto Save</Text>
-                      <View style={{ backgroundColor: '#000', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                        <Text style={{ fontSize: 9, fontWeight: '900', color: '#fff' }}>ALWAYS ON</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                  <View style={{ flex: 1, marginRight: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Local Auto Save</Text>
+                      <View style={{ backgroundColor: '#10b981', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ fontSize: 8, fontWeight: '900', color: '#fff' }}>ACTIVE</Text>
                       </View>
                     </View>
-                    <Text style={styles.helperText}>Automatically export JSON backups to your phone's storage every time you add or edit something. (Required for Security)</Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 18 }}>Offline backup files are saved to your storage on every change.</Text>
                   </View>
                   <Switch
                     value={true}
                     disabled={true}
+                    thumbColor="#fff"
                     trackColor={{ false: '#f1f5f9', true: '#000' }}
                   />
                 </View>
 
-                <View style={[styles.infoBox, { marginTop: 12, backgroundColor: '#f5f5f5', borderColor: '#000', borderWidth: 1.5 }]}>
-                  <Shield size={16} color="#000" />
-                  <Text style={[styles.infoText, { color: '#000' }]}>
-                    Active: Local files for Customers, Products, and Invoices are being updated instantly on every change for your security.
+                <View style={{ marginTop: 20, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 8 }}>
+                  <View style={{ width: 32, height: 32, backgroundColor: '#f0fdf4', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
+                    <Shield size={16} color="#10b981" />
+                  </View>
+                  <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', flex: 1 }}>
+                    All local data for Products, Parties, and Invoices is being mirrored for emergency recovery.
                   </Text>
                 </View>
               </View>
@@ -1408,7 +1401,7 @@ const SettingsPage = ({ navigation }) => {
               >
                 <MessageCircle size={24} color="#fff" />
                 <View style={{ flex: 1, marginLeft: 16 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff' }}>Chat on WhatsApp</Text>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#ffffffff' }}>Chat on WhatsApp</Text>
                   <Text style={{ fontSize: 12, color: '#a3a3a3', marginTop: 2 }}>Instant replies from our team</Text>
                 </View>
                 <View style={{ backgroundColor: '#333', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
@@ -1470,7 +1463,7 @@ const SettingsPage = ({ navigation }) => {
             {/* Info Footer */}
             <View style={{ marginTop: 24, padding: 24, backgroundColor: '#fafafa', borderRadius: 20, borderWidth: 1, borderColor: '#f1f5f9', alignItems: 'center' }}>
               <View style={{ padding: 10, backgroundColor: '#fff', borderRadius: 24, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
-                <HelpCircle size={24} color="#000" />
+                <RefreshCw size={24} color="#000" />
               </View>
               <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a', textAlign: 'center' }}>Available Mon-Sat</Text>
               <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4, lineHeight: 18, maxWidth: 260 }}>
@@ -1482,38 +1475,160 @@ const SettingsPage = ({ navigation }) => {
       case 'logout':
         return (
           <View style={styles.tabContent}>
-            <Card style={styles.card}>
-              <View style={styles.cardPadding}>
-                <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#fef2f2', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                    <LogOut size={32} color="#ef4444" />
-                  </View>
-                  <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b', marginBottom: 8 }}>Sign Out</Text>
-                  <Text style={{ fontSize: 14, color: '#64748b', textAlign: 'center', marginBottom: 24, paddingHorizontal: 20 }}>
-                    Are you sure you want to sign out? Your unsaved local data might be lost if not synced.
-                  </Text>
+            {/* Minimal Profile Header */}
 
-                  <TouchableOpacity
-                    onPress={handleLogout}
-                    style={{
-                      backgroundColor: '#ef4444',
-                      paddingVertical: 14,
-                      paddingHorizontal: 32,
-                      borderRadius: 14,
-                      width: '100%',
-                      alignItems: 'center',
-                      elevation: 4,
-                      shadowColor: '#ef4444',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.3,
-                      shadowRadius: 8
-                    }}
-                  >
-                    <Text style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>Log Out</Text>
-                  </TouchableOpacity>
+
+            {/* Pro Visual: What Happens Section */}
+            <View style={{ padding: 4 }}>
+              <Text style={{ fontSize: 14, fontWeight: '900', color: '#000', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>
+                Security & Data Impact
+              </Text>
+
+              <View style={{ gap: 12 }}>
+                {/* Visual Step 1 */}
+                <View style={{ flexDirection: 'row', gap: 16 }}>
+                  <View style={{ alignItems: 'center' }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
+                      <Database size={18} color="#fff" />
+                    </View>
+                    <View style={{ width: 2, flex: 1, backgroundColor: '#f1f5f9' }} />
+                  </View>
+                  <View style={{ flex: 1, paddingBottom: 24 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Local Storage Cleared</Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
+                      All local database cache and events will be wiped from this device for your security.
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Visual Step 2 */}
+                <View style={{ flexDirection: 'row', gap: 16 }}>
+                  <View style={{ alignItems: 'center' }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
+                      <Cloud size={18} color="#fff" />
+                    </View>
+                    <View style={{ width: 2, flex: 1, backgroundColor: '#f1f5f9' }} />
+                  </View>
+                  <View style={{ flex: 1, paddingBottom: 24 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Cloud Backups Retained</Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
+                      Your products, customers, and invoices remain safely encrypted in your Google Drive and Private Cloud.
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Visual Step 3 */}
+                <View style={{ flexDirection: 'row', gap: 16 }}>
+                  <View style={{ alignItems: 'center' }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
+                      <RefreshCw size={18} color="#fff" />
+                    </View>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Instant Recovery</Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
+                      Sign back in on any device with this Google account to instantly restore all your business data.
+                    </Text>
+                  </View>
                 </View>
               </View>
-            </Card>
+            </View>
+
+            {/* Sync Safety Indicator */}
+            <View style={{
+              marginTop: 32,
+              backgroundColor: queueLength > 0 ? '#fffbeb' : '#f8fafc',
+              padding: 20,
+              borderRadius: 24,
+              borderWidth: 1.5,
+              borderColor: queueLength > 0 ? '#fde68a' : '#e2e8f0',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 16
+            }}>
+              <View style={{
+                width: 48,
+                height: 48,
+                borderRadius: 16,
+                backgroundColor: queueLength > 0 ? '#fef3c7' : '#fff',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: queueLength > 0 ? '#fde68a' : '#e2e8f0'
+              }}>
+                {queueLength > 0 ? (
+                  <ActivityIndicator size="small" color="#d97706" />
+                ) : (
+                  <CheckCircle2 size={24} color="#16a34a" />
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: '900', color: '#000' }}>
+                  {queueLength > 0 ? 'Sync in Progress' : 'Cloud Status: Protected'}
+                </Text>
+                <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2, fontWeight: '600' }}>
+                  {queueLength > 0
+                    ? `Waiting for ${queueLength} items to upload.`
+                    : 'Everything is synced. Safe to sign out.'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Pro Logout Button */}
+            <View style={{ marginTop: 20 }}>
+              <TouchableOpacity
+                onPress={handleLogout}
+                activeOpacity={0.8}
+                style={{
+                  backgroundColor: queueLength > 0 ? '#f1f5f9' : '#000',
+                  paddingVertical: 18,
+                  borderRadius: 24,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 12,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 10 },
+                  shadowOpacity: queueLength > 0 ? 0 : 0.3,
+                  shadowRadius: 20,
+                  elevation: queueLength > 0 ? 0 : 8,
+                  borderWidth: queueLength > 0 ? 1.5 : 0,
+                  borderColor: '#e2e8f0'
+                }}
+              >
+                {queueLength > 0 ? (
+                  <ActivityIndicator size="small" color="#94a3b8" />
+                ) : (
+                  <LogOut size={22} color="#fff" />
+                )}
+                <Text style={{
+                  color: queueLength > 0 ? '#94a3b8' : '#fff',
+                  fontSize: 16,
+                  fontWeight: '900',
+                  letterSpacing: 1
+                }}>
+                  {queueLength > 0 ? 'SYNCHRONIZING...' : 'SIGN OUT SECURELY'}
+                </Text>
+              </TouchableOpacity>
+
+              {queueLength > 0 && (
+                <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 12, fontWeight: '600' }}>
+                  Logout will be available once all {queueLength} events are safely in the cloud.
+                </Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={{ paddingVertical: 16, alignItems: 'center' }}
+            >
+              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>Go back to Settings</Text>
+            </TouchableOpacity>
+
+            {/* Version Badge */}
+            <View style={{ alignItems: 'center', marginTop: 20, opacity: 0.3 }}>
+              <Text style={{ fontSize: 10, fontWeight: '900', color: '#000', letterSpacing: 1 }}>KWIQ BILL v1.0.0</Text>
+            </View>
           </View>
         );
       default:
@@ -1525,16 +1640,8 @@ const SettingsPage = ({ navigation }) => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      {/* Full Screen Sync Overlay */}
-      {isUploading && (
-        <View style={styles.syncOverlay}>
-          <View style={styles.syncContent}>
-            <ActivityIndicator size="large" color="#000" />
-            <Text style={styles.syncText}>{syncStatus && syncStatus !== 'Ready' ? syncStatus : 'Syncing to Cloud...'}</Text>
-            <Text style={styles.syncSubText}>Please wait a moment while we secure your data</Text>
-          </View>
-        </View>
-      )}
+      {/* Full Screen Sync Overlay Removed - Now uses Global Toast Indicator */}
+
       {/* Custom Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -1612,6 +1719,63 @@ const SettingsPage = ({ navigation }) => {
         </ScrollView>
       </View>
 
+      {/* Custom Logout Confirmation Modal */}
+      <Modal
+        visible={isLogoutModalVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closeLogoutModal}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View
+            style={[
+              styles.modalBackdrop,
+              { opacity: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+            ]}
+          />
+          <Pressable style={styles.modalPressable} onPress={closeLogoutModal}>
+            <Animated.View
+              style={[
+                styles.logoutModalContainer,
+                {
+                  transform: [
+                    { scale: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                    { translateY: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
+                  ],
+                  opacity: logoutFadeAnim
+                }
+              ]}
+            >
+              <View style={styles.logoutIconContainer}>
+                <LogOut size={32} color="#fff" />
+              </View>
+
+              <Text style={styles.logoutModalTitle}>Signing Out?</Text>
+              <Text style={styles.logoutModalDesc}>
+                All local data and cache will be cleared from this device. {"\n\n"}
+                <Text style={{ fontWeight: '800', color: '#000' }}>Don't worry:</Text> Your products, parties, and invoices are safely backed up to your Google Drive.
+              </Text>
+
+              <View style={styles.logoutModalFooter}>
+                <TouchableOpacity
+                  onPress={closeLogoutModal}
+                  style={styles.logoutModalCancel}
+                >
+                  <Text style={styles.logoutModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={confirmLogout}
+                  style={styles.logoutModalConfirm}
+                >
+                  <Text style={styles.logoutModalConfirmText}>Sign Out</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </Pressable>
+        </View>
+      </Modal>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         enabled={Platform.OS === 'ios'}
@@ -1620,20 +1784,18 @@ const SettingsPage = ({ navigation }) => {
         <ScrollView
           style={styles.scroller}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 100, flexGrow: 1 }}
+          contentContainerStyle={{ paddingBottom: 10, flexGrow: 1 }}
         >
           {renderTabContent()}
-          <View style={styles.footer}>
+          {/* <View style={styles.footer}>
             <Text style={styles.footerText}>Version 1.0.0 (Build 2026.1)</Text>
-            <Text style={styles.footerText}>
-              Last Sync: {settings.lastUpdatedAt ? new Date(settings.lastUpdatedAt).toLocaleString() : 'Never'}
-            </Text>
-          </View>
+
+          </View> */}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#ffffff' },
@@ -2084,44 +2246,7 @@ const styles = StyleSheet.create({
     fontWeight: '700'
   },
 
-  // --- Sync Overlay Styles ---
-  syncOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
-    zIndex: 9999,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  syncContent: {
-    width: '80%',
-    padding: 30,
-    borderRadius: 24,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-  },
-  syncText: {
-    marginTop: 20,
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#000',
-    textAlign: 'center',
-    letterSpacing: -0.5,
-  },
-  syncSubText: {
-    marginTop: 10,
-    fontSize: 13,
-    color: '#64748b',
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
+
 
   // --- Thermal Preview Styles ---
   thermalPaper: {
@@ -2322,16 +2447,96 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#334155',
     fontWeight: '500',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    borderRightWidth: 1,
-    borderRightColor: '#E2E8F0'
   },
-  compactFooter: {
+
+  // --- Modal Styles ---
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+  },
+  modalPressable: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  logoutModalContainer: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#fff',
+    borderRadius: 32,
+    padding: 30,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.2,
+    shadowRadius: 30,
+    elevation: 10,
+  },
+  logoutIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  logoutModalTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#000',
+    marginBottom: 12,
+    letterSpacing: -0.5,
+  },
+  logoutModalDesc: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 32,
+    fontWeight: '500',
+  },
+  logoutModalFooter: {
     flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  logoutModalCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: '#000',
-    marginTop: 20
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+  },
+  logoutModalCancelText: {
+    color: '#64748b',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  logoutModalConfirm: {
+    flex: 1.5,
+    backgroundColor: '#ef4444',
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#ef4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  logoutModalConfirmText: {
+    color: '#fff',
+    fontWeight: '900',
+    fontSize: 14,
   },
   compactTermsBox: {
     flex: 1,
