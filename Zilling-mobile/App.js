@@ -12,7 +12,9 @@ import { SettingsProvider } from './src/context/SettingsContext';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { ExpenseProvider } from './src/context/ExpenseContext'
 import { ToastProvider } from './src/context/ToastContext';
+import SyncStatusIndicator from './src/components/SyncStatusIndicator';
 import { initializeDB } from './src/services/database';
+import './src/utils/crypto'; // Ensure crypto polyfill is active
 
 // Allows the auth session to close correctly on Android
 WebBrowser.maybeCompleteAuthSession();
@@ -42,6 +44,7 @@ const AuthenticatedApp = () => {
             <ExpenseProvider>
               <TransactionProvider>
                 <AppNavigator />
+                <SyncStatusIndicator />
               </TransactionProvider>
             </ExpenseProvider>
           </ProductProvider>

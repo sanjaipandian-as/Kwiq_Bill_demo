@@ -6,25 +6,42 @@ const { uploadToCloudinary } = require('../config/cloudinary');
 // @route   GET /settings
 // @access  Private
 const getSettings = asyncHandler(async (req, res) => {
-    // Derive userId: email-<base64(email)>
-    const email = req.user.email;
-    const base64Email = Buffer.from(email).toString('base64');
-    const derivedUserId = `email-${base64Email}`;
+    try {
+        // Derive userId: email-<base64(email)>
+        const email = req.user.email;
+        const base64Email = Buffer.from(email).toString('base64');
+        const derivedUserId = `email-${base64Email}`;
 
-    console.log(`[SettingsController] Fetching for: ${derivedUserId}`);
+        console.log(`[SettingsController] Fetching for: ${derivedUserId} (email: ${email})`);
 
-    let settings = await Settings.findOne({ userId: derivedUserId });
-
-    if (!settings) {
-        settings = await Settings.create({
-            userId: derivedUserId,
-            userEmail: email,
-            store: { email: email },
-            user: { email: email }
+        // Search by both derived ID and userEmail to handle migration
+        let settings = await Settings.findOne({
+            $or: [
+                { userId: derivedUserId },
+                { userEmail: email }
+            ]
         });
-    }
 
-    res.json(settings);
+        if (!settings) {
+            console.log(`[SettingsController] No settings found, creating new for: ${email}`);
+            settings = await Settings.create({
+                userId: derivedUserId,
+                userEmail: email,
+                store: { email: email },
+                user: { email: email, fullName: req.user.name || '' }
+            });
+        } else if (settings.userId !== derivedUserId) {
+            // Migrate legacy userId to the new derived format
+            console.log(`[SettingsController] Migrating userId from ${settings.userId} to ${derivedUserId}`);
+            settings.userId = derivedUserId;
+            await settings.save();
+        }
+
+        res.json(settings);
+    } catch (error) {
+        console.error('[SettingsController] ERROR:', error);
+        throw error;
+    }
 });
 
 // @desc    Update settings
@@ -37,31 +54,45 @@ const updateSettings = asyncHandler(async (req, res) => {
     const derivedUserId = `email-${base64Email}`;
 
     console.log(`[SettingsController] Update request for: ${derivedUserId}`);
-    // console.log('[SettingsController] Payload:', JSON.stringify(req.body, null, 2));
+
+    // Strip Mongoose immutable/internal fields that may come from the client
+    const { _id, __v, createdAt, updatedAt, ...cleanBody } = req.body;
 
     const updateData = {
-        ...req.body,
+        ...cleanBody,
         userId: derivedUserId,
         userEmail: email,
         lastUpdated: new Date()
     };
 
-    let settings = await Settings.findOne({ userId: derivedUserId });
+    // Find existing by either ID or email
+    let settings = await Settings.findOne({
+        $or: [
+            { userId: derivedUserId },
+            { userEmail: email }
+        ]
+    });
 
     if (!settings) {
-        console.log('[SettingsController] Creating new record');
+        console.log(`[SettingsController] Creating new record for: ${email}`);
         settings = await Settings.create(updateData);
     } else {
-        console.log('[SettingsController] Updating existing record');
+        console.log(`[SettingsController] Updating existing record: ${settings.userId}`);
+        // Ensure we update by internal ID to keep userId consistency
         settings = await Settings.findOneAndUpdate(
-            { userId: derivedUserId },
+            { _id: settings._id },
             { $set: updateData },
-            { new: true, upsert: false }
+            { new: true }
         );
     }
 
     if (settings) {
-        console.log('[SettingsController] Success: Saved to companyprofiles');
+        console.log('\n📥 FEEDING SETTINGS DATA TO MONGODB:');
+        console.log(`   - User Identity: ${settings.userId}`);
+        console.log(`   - Store Name: ${settings.store?.name || 'N/A'}`);
+        console.log(`   - Owner Name: ${settings.user?.fullName || 'N/A'}`);
+        console.log(`   - Onboarding Completed: ${settings.onboardingCompletedAt ? 'YES' : 'NO'}`);
+        console.log('✅ SETTINGS SAVED TO COMPANYPROFILES\n');
     } else {
         console.error('[SettingsController] Failed to save');
     }

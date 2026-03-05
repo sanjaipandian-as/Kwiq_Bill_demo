@@ -119,40 +119,6 @@ const TrialGuard = ({ children }) => {
         );
     }
 
-    // Show trial days remaining banner when less than 7 days remain
-    if (trialInfo.daysRemaining !== null && trialInfo.daysRemaining <= 7 && trialInfo.daysRemaining > 0) {
-        return (
-            <View style={{ flex: 1 }}>
-                <View style={styles.trialBanner}>
-                    <LinearGradient
-                        colors={trialInfo.daysRemaining <= 3 ? ['#FF6B6B', '#FF4757'] : ['#FFA502', '#FF6348']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.bannerGradient}
-                    >
-                        <Ionicons
-                            name={trialInfo.daysRemaining <= 3 ? "warning" : "time-outline"}
-                            size={16}
-                            color="#fff"
-                        />
-                        <Text style={styles.bannerText}>
-                            {trialInfo.daysRemaining === 1
-                                ? 'Last day of your free trial!'
-                                : `${trialInfo.daysRemaining} days left in your free trial`}
-                        </Text>
-                        <TouchableOpacity
-                            onPress={() => Linking.openURL('https://kwiqbill.com/pricing')}
-                            style={styles.bannerUpgradeBtn}
-                        >
-                            <Text style={styles.bannerUpgradeText}>Upgrade</Text>
-                        </TouchableOpacity>
-                    </LinearGradient>
-                </View>
-                {children}
-            </View>
-        );
-    }
-
     return children;
 };
 

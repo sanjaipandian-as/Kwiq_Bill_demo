@@ -48,7 +48,7 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
             {/* Row 1: Logo | Center Info | Copies */}
             <View style={[styles.detailedRow, { borderBottomWidth: 1 }]}>
                 <View style={[styles.detailedCol, { width: 70, justifyContent: 'center', alignItems: 'center' }]}>
-                    {logo ? (
+                    {settings?.invoice?.showLogo !== false && logo ? (
                         <Image source={{ uri: logo }} style={{ width: 60, height: 60, resizeMode: 'contain' }} />
                     ) : (
                         <Text style={styles.detailedBold}>LOGO</Text>

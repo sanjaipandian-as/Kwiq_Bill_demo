@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Modal, Dimensions, TouchableOpacity, Image
+  View, Text, StyleSheet, ScrollView, Pressable, Modal, Dimensions, TouchableOpacity, Image, Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -230,6 +230,15 @@ export default function Dashboard() {
     };
   }, [transactions, products, expenses, dateFilter, productFilter]);
 
+  const trialDaysRemaining = useMemo(() => {
+    if (!user?.trialExpiresAt) return null;
+    const expirationDate = new Date(user.trialExpiresAt);
+    const today = new Date();
+    const timeDiff = expirationDate.getTime() - today.getTime();
+    const days = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+    return days > 0 ? days : null;
+  }, [user]);
+
   const dateOptions = ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month', 'All'];
   const productFilterOptions = ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month', 'All'];
 
@@ -289,6 +298,40 @@ export default function Dashboard() {
 
       <ScrollView style={styles.contentScroll} showsVerticalScrollIndicator={false}>
         <View style={styles.bodyWrapper}>
+
+          {/* Dynamic Trial Card */}
+          {trialDaysRemaining !== null && trialDaysRemaining <= 30 && (
+            <View style={styles.trialCardContainer}>
+              <LinearGradient
+                colors={
+                  trialDaysRemaining > 20 ? ['#22c55e', '#16a34a'] : // First 10 days - Green
+                    trialDaysRemaining > 10 ? ['#FFA502', '#FF6348'] : // 11 to 20 days - Orange
+                      ['#FF6B6B', '#FF4757'] // Last 10 days - Red
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.trialCard}
+              >
+                <View style={styles.trialIcon}>
+                  <Clock size={20} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trialTitle}>Free Trial Period</Text>
+                  <Text style={styles.trialSub}>
+                    {trialDaysRemaining === 1
+                      ? 'Last day of your free trial!'
+                      : `${trialDaysRemaining} days remaining in your trial.`}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.trialBtn}
+                  onPress={() => navigation.navigate('Settings', { tab: 'contact' })}
+                >
+                  <Text style={styles.trialBtnText}>Upgrade</Text>
+                </TouchableOpacity>
+              </LinearGradient>
+            </View>
+          )}
 
           {/* Action Grid */}
           <View style={styles.actionGrid}>
@@ -632,10 +675,58 @@ const styles = StyleSheet.create({
   vDivider: { width: 1, backgroundColor: '#f1f5f9', marginHorizontal: 12, height: '70%', alignSelf: 'center' },
 
   // Action Grid
-  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, paddingTop: 25 },
+  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, paddingTop: 15 },
   iconBtnWrapper: { width: '33.3%', alignItems: 'center', marginBottom: 25 },
   iconSquare: { width: 66, height: 66, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 10, backgroundColor: '#fff', elevation: 2 },
   iconLabel: { fontSize: 12, fontWeight: '700', color: '#475569', textAlign: 'center', marginTop: 4 },
+
+  // Trial Card Styles
+  trialCardContainer: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+  },
+  trialCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+  },
+  trialIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trialTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  trialSub: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.9)',
+    marginTop: 2,
+  },
+  trialBtn: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  trialBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#000',
+  },
 
   // Financial Scroll
   finScroll: { paddingHorizontal: 20, marginBottom: 25 },

@@ -155,15 +155,15 @@ const settingsSchema = mongoose.Schema(
 
 // Query middleware to filter out soft-deleted records
 settingsSchema.pre('find', function () {
-    this.where({ isDeleted: false });
+    this.where({ isDeleted: { $ne: true } });
 });
 
 settingsSchema.pre('findOne', function () {
-    this.where({ isDeleted: false });
+    this.where({ isDeleted: { $ne: true } });
 });
 
 settingsSchema.pre('countDocuments', function () {
-    this.where({ isDeleted: false });
+    this.where({ isDeleted: { $ne: true } });
 });
 
 const Settings = mongoose.model('Settings', settingsSchema);

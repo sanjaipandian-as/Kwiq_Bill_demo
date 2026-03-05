@@ -15,19 +15,24 @@ import MainTabs from './MainTabs';
 import LowStockPage from '../pages/LowStockPage';
 import GSTPage from '../pages/GST/GSTPage';
 import RecycleBinPage from '../pages/Invoices/RecycleBinPage';
+import TermsOfService from '../pages/Legal/TermsOfService';
+import PrivacyPolicy from '../pages/Legal/PrivacyPolicy';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import ShopDetails from '../pages/Settings/ShopDetails';
-import LoadingScreen from '../components/ui/LoadingScreen';
+import DataSyncPage from '../pages/Auth/DataSyncPage';
 
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator() {
   const { user, isLoading } = useAuth();
-  const { settings, loading: settingsLoading } = useSettings();
+  const { settings, loading: settingsLoading, dbProfileComplete, syncStatus, syncStats } = useSettings();
 
   const isProfileComplete = () => {
     if (!settings) return false;
+
+    // Must have profile saved in database (MongoDB) — this is the primary check
+    if (!dbProfileComplete) return false;
 
     // 1. If onboarding was explicitly completed, consider it complete 
     // This prevents the app from redirecting to ShopDetails while the user is editing settings (and temporarily clearing fields)
@@ -45,7 +50,21 @@ export default function AppNavigator() {
   };
 
   if (isLoading || settingsLoading) {
-    return <LoadingScreen message={isLoading ? "Securely Signing In..." : "Aligning Your Data..."} />;
+    const message = isLoading ? "Authenticating Session..." : (syncStatus || "Preparing Data Sync...");
+
+    // Ensure the aligning popup triggers its 100% completion success state smoothly
+    let currentProgress = settingsLoading ? 0.35 : 0.15;
+    if (syncStatus?.includes('aligned') || syncStatus?.includes('Opening app')) {
+      currentProgress = 1.0;
+    }
+
+    return (
+      <DataSyncPage
+        progressMessage={message}
+        progressValue={currentProgress}
+        syncStats={syncStats}
+      />
+    );
   }
 
   const profileComplete = isProfileComplete();
@@ -71,6 +90,8 @@ export default function AppNavigator() {
             <Stack.Screen name="RecycleBin" component={RecycleBinPage} />
           </>
         )}
+        <Stack.Screen name="TermsOfService" component={TermsOfService} />
+        <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicy} />
       </Stack.Navigator>
     </NavigationContainer>
   );

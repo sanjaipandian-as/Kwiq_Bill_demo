@@ -32,7 +32,7 @@ const CompactInvoiceTemplate = ({ settings, data }) => {
         <View style={styles.compactPaper}>
             {/* Header */}
             <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                {store.logo && (
+                {settings?.invoice?.showLogo !== false && store.logo && (
                     <Image source={{ uri: store.logo }} style={{ width: 40, height: 40, marginRight: 10, borderRadius: 4 }} />
                 )}
                 <View style={{ flex: 1 }}>

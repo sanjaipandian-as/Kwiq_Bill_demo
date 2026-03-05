@@ -3,7 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 const PRODUCTION_URL = 'https://kwiq-bill.onrender.com';
-const LOCAL_URL = 'http://10.68.133.67:5001';
+const LOCAL_IP = '10.68.133.85'; // Your machine's current IPv4
+const LOCAL_URL = Platform.OS === 'android'
+  ? `http://${LOCAL_IP}:5001`
+  : 'http://localhost:5001';
 
 // Toggle this to true when deploying the APK
 const IS_PRODUCTION = false;
@@ -23,22 +26,30 @@ console.log(`[API] Initialized with baseURL: ${BASE_URL} (Mode: ${IS_PRODUCTION 
 API.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem('token');
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+    if (!config.headers) config.headers = {};
+    config.headers['Authorization'] = `Bearer ${token}`;
   }
   return config;
+}, (error) => {
+  return Promise.reject(error);
 });
 
 // Handle 401 Unauthorized and 403 Trial Expired globally
 API.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // Detailed error logging for debugging "Network Error"
+    if (error.message === 'Network Error') {
+      console.error(`[API] Network Error connecting to: ${BASE_URL}`);
+      console.error('Possible causes: Server not running, IP changed, or device not on same WiFi.');
+    } else if (error.response) {
+      console.log(`[API] Error Status: ${error.response.status} for ${error.config.url}`);
+    }
+
     if (error.response && error.response.status === 401) {
       console.warn('Unauthorized request - 401. Clearing token...');
       await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user');
-      // Note: We can't easily trigger a logout in AuthContext from here 
-      // without a circular dependency or an event emitter.
-      // But clearing storage will cause the next app reload or auth check to fail.
     }
 
     // Handle trial expiration from backend
@@ -46,8 +57,6 @@ API.interceptors.response.use(
       const message = error.response.data?.message || '';
       if (message.includes('TRIAL_EXPIRED')) {
         console.warn('Trial expired - API access blocked by server.');
-        // The TrialGuard on the frontend will handle the UI,
-        // but we tag the error so callers know it's a trial issue.
         error.isTrialExpired = true;
       }
     }

@@ -9,7 +9,7 @@ import {
     Vibration
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { Maximize2, X } from 'lucide-react-native';
+import { Maximize2, X, Camera, AlertCircle } from 'lucide-react-native';
 import { useProducts } from '../context/ProductContext';
 import { addToBillingQueue } from '../services/billingQueue';
 import { useToast } from '../context/ToastContext';
@@ -83,15 +83,41 @@ export default function ScanBarcodeModal({ visible, onClose, onScanned }) {
     if (!permission.granted) {
         return (
             <Modal visible={visible} animationType="fade" transparent={true} onRequestClose={onClose}>
-                <View style={styles.permissionContainer}>
-                    <Text style={styles.permissionText}>Camera permission is required to scan barcodes.</Text>
-                    <View style={{ flexDirection: 'row', gap: 10 }}>
-                        <Pressable onPress={requestPermission} style={styles.grantBtn}>
-                            <Text style={{ color: 'white', fontWeight: 'bold' }}>Grant Permission</Text>
-                        </Pressable>
-                        <Pressable onPress={onClose} style={styles.closeBtn}>
-                            <Text style={{ color: 'white' }}>Cancel</Text>
-                        </Pressable>
+                <View style={styles.permissionOverlay}>
+                    <View style={styles.permissionCard}>
+                        <View style={styles.permissionIconContainer}>
+                            <Camera size={40} color="#000" />
+                            <View style={styles.permissionBadge}>
+                                <AlertCircle size={14} color="#fff" fill="#000" />
+                            </View>
+                        </View>
+
+                        <Text style={styles.permissionTitle}>Camera Access Required</Text>
+                        <Text style={styles.permissionSubTitle}>
+                            Kwiq Bill needs camera access to scan product barcodes and add items quickly to your bill.
+                        </Text>
+
+                        <View style={styles.permissionActionContainer}>
+                            <Pressable
+                                onPress={requestPermission}
+                                style={({ pressed }) => [
+                                    styles.permitBtn,
+                                    pressed && { opacity: 0.8 }
+                                ]}
+                            >
+                                <Text style={styles.permitBtnText}>Allow Camera Access</Text>
+                            </Pressable>
+
+                            <Pressable
+                                onPress={onClose}
+                                style={({ pressed }) => [
+                                    styles.denyBtn,
+                                    pressed && { opacity: 0.7 }
+                                ]}
+                            >
+                                <Text style={styles.denyBtnText}>Maybe Later</Text>
+                            </Pressable>
+                        </View>
                     </View>
                 </View>
             </Modal>
@@ -145,36 +171,99 @@ export default function ScanBarcodeModal({ visible, onClose, onScanned }) {
 }
 
 const styles = StyleSheet.create({
-    permissionContainer: {
+    permissionOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.8)',
+        backgroundColor: 'rgba(0,0,0,0.6)',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 20
+        padding: 24
     },
-    permissionText: {
-        color: 'white',
-        fontSize: 16,
+    permissionCard: {
+        backgroundColor: '#ffffff',
+        width: '100%',
+        maxWidth: 340,
+        borderRadius: 32,
+        padding: 32,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    permissionIconContainer: {
+        width: 80,
+        height: 80,
+        borderRadius: 24,
+        backgroundColor: '#f8fafc',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+    },
+    permissionBadge: {
+        position: 'absolute',
+        top: -4,
+        right: -4,
+        backgroundColor: '#000',
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 3,
+        borderColor: '#fff',
+    },
+    permissionTitle: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: '#000',
         textAlign: 'center',
-        marginBottom: 20
+        marginBottom: 12,
+        letterSpacing: -0.5,
     },
-    grantBtn: {
-        padding: 10,
-        backgroundColor: '#2563eb',
-        borderRadius: 8,
-        marginRight: 10
+    permissionSubTitle: {
+        fontSize: 15,
+        fontWeight: '500',
+        color: '#64748b',
+        textAlign: 'center',
+        lineHeight: 22,
+        marginBottom: 32,
     },
-    closeBtn: {
-        padding: 10,
-        backgroundColor: '#ef4444',
-        borderRadius: 8
+    permissionActionContainer: {
+        width: '100%',
+        gap: 12,
+    },
+    permitBtn: {
+        backgroundColor: '#000',
+        width: '100%',
+        paddingVertical: 16,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    permitBtnText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    denyBtn: {
+        backgroundColor: 'transparent',
+        width: '100%',
+        paddingVertical: 12,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    denyBtnText: {
+        color: '#94a3b8',
+        fontSize: 14,
+        fontWeight: '600',
     },
     cameraContainer: {
         flex: 1,
         backgroundColor: 'black',
-    },
-    camera: {
-        flex: 1,
     },
     cameraUi: {
         flex: 1,
@@ -185,7 +274,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: 20,
-        backgroundColor: 'rgba(0,0,0,0.3)',
     },
     camCloseBtn: {
         width: 44,
@@ -198,7 +286,7 @@ const styles = StyleSheet.create({
     camTitle: {
         color: 'white',
         fontSize: 18,
-        fontWeight: '600',
+        fontWeight: '800',
     },
     camFocusArea: {
         alignItems: 'center',
@@ -217,17 +305,13 @@ const styles = StyleSheet.create({
         shadowRadius: 10,
         elevation: 5,
     },
-    focusCorners: {
-        opacity: 0.8,
-    },
     camFooter: {
         padding: 40,
         alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.3)',
     },
     camInstruction: {
         color: 'rgba(255,255,255,0.8)',
         fontSize: 16,
-        fontWeight: '500',
+        fontWeight: '600',
     },
 });

@@ -40,7 +40,7 @@ const ClassicInvoiceTemplate = ({ settings, data }) => {
             {/* Blue Header */}
             <View style={[styles.a4BlueHeader, { backgroundColor: colors.primary }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20 }}>
-                    {store.logo ? (
+                    {settings?.invoice?.showLogo !== false && store.logo ? (
                         <Image source={{ uri: store.logo }} style={{ width: 40, height: 40, backgroundColor: '#fff', borderRadius: 4 }} />
                     ) : (
                         <View style={{ width: 40, height: 40, backgroundColor: '#ffffff22', borderRadius: 4, alignItems: 'center', justifyContent: 'center' }}>

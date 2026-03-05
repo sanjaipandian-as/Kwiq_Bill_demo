@@ -17,9 +17,12 @@ const settingsRoutes = require('./routes/settingsRoutes');
 const app = express();
 
 // Middleware
-// Middleware
+// More permissive CORS for local development to avoid IP issues
 app.use(cors({
-    origin: [/http:\/\/localhost:\d+/, 'http://localhost:5173', 'http://localhost:5000', 'https://zilling.netlify.app', 'https://billing-software-o1qb.onrender.com', 'https://kwiq-bill.onrender.com', /^https:\/\/.*\.vercel\.app$/],
+    origin: (origin, callback) => {
+        // Allow all origins for now to debug mobile connection
+        callback(null, true);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
     optionsSuccessStatus: 200
@@ -31,8 +34,10 @@ app.use((req, res, next) => {
     next();
 });
 
-// app.options('*', cors()); // Enable pre-flight for all routes
-app.use(helmet());
+// app.options('*', cors()); 
+app.use(helmet({
+    crossOriginResourcePolicy: false, // Allow images to be loaded
+}));
 app.use(express.json());
 
 
@@ -46,6 +51,18 @@ if (process.env.NODE_ENV === 'development') {
 // Routes
 app.get('/', (req, res) => {
     res.send('API is running...');
+});
+
+// Health check endpoint - returns DB connection status
+app.get('/health', (req, res) => {
+    const mongoose = require('mongoose');
+    const dbState = mongoose.connection.readyState;
+    // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+    if (dbState === 1) {
+        res.json({ status: 'connected', db: 'MongoDB' });
+    } else {
+        res.status(503).json({ status: 'disconnected', db: 'MongoDB', state: dbState });
+    }
 });
 
 app.use('/auth', authRoutes);

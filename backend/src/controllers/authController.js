@@ -32,6 +32,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 // @route   POST /auth/google
 // @access  Public
 const googleLogin = asyncHandler(async (req, res) => {
+    console.log('--- RECV: Google Login Request ---');
     const { token } = req.body;
     const { OAuth2Client } = require('google-auth-library');
 
@@ -57,12 +58,31 @@ const googleLogin = asyncHandler(async (req, res) => {
 
         const { name, email, sub: googleId } = payload;
 
-        let user = await User.findOne({ $or: [{ email }, { googleId }] });
+        // Look up user by email (case-insensitive)
+        let user = await User.findOne({
+            email: email.toLowerCase(),
+        });
 
-        if (user) {
-            console.log('Found existing user:', user.email);
-            let needsSave = false;
+        let needsSave = false;
 
+        if (!user) {
+            // NEW USER: Auto-register them — they'll see the onboarding form
+            console.log(`🆕 New user signing up: ${email} (${name})`);
+            const trialExpiresAt = new Date();
+            trialExpiresAt.setDate(trialExpiresAt.getDate() + 30);
+
+            user = await User.create({
+                name: name,
+                email: email.toLowerCase(),
+                googleId: googleId,
+                role: 'employee',
+                trialExpiresAt: trialExpiresAt,
+            });
+            console.log('✅ New user created:', user.email, '| Trial expires:', trialExpiresAt);
+        } else {
+            console.log('✅ Existing user found:', user.email);
+
+            // Update googleId if not set
             if (!user.googleId) {
                 user.googleId = googleId;
                 needsSave = true;
@@ -70,7 +90,7 @@ const googleLogin = asyncHandler(async (req, res) => {
 
             // Backfill trialExpiresAt for users created before the trial feature
             if (!user.trialExpiresAt) {
-                const trialExpiresAt = new Date(user.createdAt);
+                const trialExpiresAt = new Date(user.createdAt || Date.now());
                 trialExpiresAt.setDate(trialExpiresAt.getDate() + 30);
                 user.trialExpiresAt = trialExpiresAt;
                 needsSave = true;
@@ -80,19 +100,6 @@ const googleLogin = asyncHandler(async (req, res) => {
             if (needsSave) {
                 await user.save();
             }
-        } else {
-            console.log('Creating new user for:', email);
-            const trialExpiresAt = new Date();
-            trialExpiresAt.setDate(trialExpiresAt.getDate() + 30);
-
-            user = await User.create({
-                name,
-                email,
-                googleId,
-                password: '',
-                role: 'employee',
-                trialExpiresAt,
-            });
         }
 
         res.json({

@@ -2,7 +2,8 @@ import { db, clearDatabase } from './database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import { getAccessToken, getOrCreateFolder, uploadFileToFolder, fetchWithTimeout } from './googleDriveservices';
-
+import { generateUUID } from '../utils/crypto';
+const CryptoJS = require('crypto-js');
 const PROCESSED_EVENTS_KEY = 'processed_events_ids';
 const PENDING_UPLOAD_QUEUE_KEY = 'pending_upload_queue';
 const LAST_SYNCED_KEY = 'last_synced_timestamp';
@@ -249,7 +250,7 @@ export const SyncService = {
     async getDeviceId() {
         let deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
         if (!deviceId) {
-            deviceId = `mobile-${Crypto.randomUUID().slice(0, 8)}`;
+            deviceId = `mobile-${generateUUID().slice(0, 8)}`;
             await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId);
         }
         return deviceId;
@@ -257,9 +258,9 @@ export const SyncService = {
 
     /**
      * Create and Dispatch an Event
-     */
+     *
     async createAndUploadEvent(type, payload) {
-        const eventId = Crypto.randomUUID();
+        const eventId = generateUUID();
         const timestamp = new Date().toISOString();
         const deviceId = await this.getDeviceId();
 
@@ -284,8 +285,18 @@ export const SyncService = {
                 const accessToken = await getAccessToken();
                 if (!accessToken) throw new Error("No access token");
 
+                // Get encryption key
+                const userStr = await AsyncStorage.getItem('user');
+                const user = userStr ? JSON.parse(userStr) : null;
+                const syncKey = user?.email || "";
+
+                let content = JSON.stringify(envelope);
+                if (syncKey) {
+                    content = CryptoJS.AES.encrypt(content, syncKey).toString();
+                }
+
                 const folderId = await this.getEventsFolderId(accessToken);
-                await uploadFileToFolder(accessToken, folderId, fileName, JSON.stringify(envelope));
+                await uploadFileToFolder(accessToken, folderId, fileName, content);
 
                 // If successful, remove from queue
                 await this.removeFromQueue(eventId);
@@ -309,14 +320,19 @@ export const SyncService = {
      */
     async syncDown(onProgress = () => { }) {
         try {
-            const updateStatus = (msg, progress) => {
+            const updateStatus = (msg, progress, stats) => {
                 console.log(`[Sync] ${msg}`);
-                onProgress(msg, progress);
+                onProgress(msg, progress, stats);
             };
 
             updateStatus('Starting Sync Down...', 0.65);
             const accessToken = await getAccessToken();
             if (!accessToken) return { success: false, processedCount: 0, failures: 1, error: "No Access Token" };
+
+            // Decryption Support: Get encryption key (user email)
+            const userStr = await AsyncStorage.getItem('user');
+            const currentUser = userStr ? JSON.parse(userStr) : null;
+            const syncKey = currentUser?.email || "";
 
 
             const folderId = await this.getEventsFolderId(accessToken);
@@ -389,9 +405,17 @@ export const SyncService = {
             updateStatus(`${filesToProcess.length} new events found.`, 0.68);
 
             // Optimization: Fetch event contents in parallel batches
-            const BATCH_SIZE = 100; // Large batches for maximum parallel throughput
+            // Increased BATCH_SIZE to 80 to accelerate the synchronization process.
+            const BATCH_SIZE = 80;
             let processedCount = 0;
             let failures = 0;
+            const totalToProcess = filesToProcess.length;
+
+            const liveStats = () => ({
+                synced: processedCount,
+                errors: failures,
+                total: totalToProcess
+            });
 
             const startTime = Date.now();
 
@@ -418,19 +442,19 @@ export const SyncService = {
                     const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
                     const totalBatches = Math.ceil(filesToProcess.length / BATCH_SIZE);
                     const msg = `Syncing batch ${currentBatch} of ${totalBatches}... (Est. time: ${timeStr})`;
-                    updateStatus(msg, overallProgress);
+                    updateStatus(msg, overallProgress, liveStats());
                 } else {
-                    updateStatus(`Starting data download...`, 0.65);
+                    updateStatus(`Starting data download...`, 0.65, liveStats());
                 }
 
                 const envelopes = await Promise.all(batch.map(async (file) => {
                     let attempts = 0;
                     while (attempts < 2) { // Reduced from 3 to 2 retries for speed
                         try {
-                            // Use shorter 15s timeout for small JSON event files
+                            // Use 30s timeout for event files (increased from 15s for stability)
                             const contentRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
                                 headers: { Authorization: `Bearer ${currentToken}` }
-                            }, 15000);
+                            }, 30000);
 
                             // If 401, refresh token once and retry
                             if (contentRes.status === 401 && attempts === 0) {
@@ -467,10 +491,21 @@ export const SyncService = {
                             }
 
                             try {
-                                return JSON.parse(cleanText);
+                                let contentToParse = cleanText;
+                                // DECIPHER: If content is encrypted (Desktop/Web sync compatibility)
+                                if (contentToParse.startsWith('U2FsdGVkX1')) {
+                                    try {
+                                        const bytes = CryptoJS.AES.decrypt(contentToParse, syncKey);
+                                        const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                                        if (decrypted) contentToParse = decrypted;
+                                    } catch (decErr) {
+                                        console.warn(`[Sync] Decryption failed for ${file.name}. Possibly wrong key.`);
+                                        return null;
+                                    }
+                                }
+                                return JSON.parse(contentToParse);
                             } catch (jsonError) {
-                                if (cleanText.startsWith('U2FsdGVkX1')) return null; // Skip encrypted
-                                console.error(`[Sync] JSON Parse Error for ${file.name}. Content starts with: "${cleanText.substring(0, 100)}"`);
+                                console.error(`[Sync] JSON Parse Error for ${file.name}.`);
                                 throw jsonError;
                             }
                         } catch (e) {
@@ -536,6 +571,11 @@ export const SyncService = {
                         }
                     }
                 }
+
+                // Small delay between batches to give the network stack a breather
+                if (i + BATCH_SIZE < filesToProcess.length) {
+                    await new Promise(r => setTimeout(r, 200));
+                }
             }
 
             // Save processed IDs once at the end (not per-batch)
@@ -543,7 +583,7 @@ export const SyncService = {
 
             await AsyncStorage.setItem(LAST_SYNCED_KEY, new Date().toISOString());
             const finalMsg = `Sync Complete! Applied ${processedCount} new events. ${failures > 0 ? `(${failures} failed)` : ''}`;
-            updateStatus(finalMsg, 0.90);
+            updateStatus(finalMsg, 0.90, liveStats());
 
             return {
                 success: failures === 0,
@@ -600,21 +640,28 @@ export const SyncService = {
             const accessToken = await getAccessToken();
             if (!accessToken) return { success: false, error: 'No access token' };
 
-            const folderName = `KwiqBilling-${user.id}`;
-
-            // 1. Find the user's backup folder on Drive
+            // 1. Find the user's backup folder on Drive (Search standard 'Kwiqbill' first)
             onProgress('Locating cloud backup...', 0.15);
-            const query = `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-            const searchRes = await fetchWithTimeout(
-                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
-                { headers: { Authorization: `Bearer ${accessToken}` } }
-            );
-            const searchData = await searchRes.json();
+            let folderId = null;
+            const foldersToTry = ['Kwiqbill', `KwiqBilling-${user.id}`];
 
-            if (!searchData.files || searchData.files.length === 0) {
+            for (const fName of foldersToTry) {
+                if (folderId) break;
+                const folderQuery = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+                const sRes = await fetchWithTimeout(
+                    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(folderQuery)}`,
+                    { headers: { Authorization: `Bearer ${accessToken}` } }
+                );
+                const sData = await sRes.json();
+                if (sData.files && sData.files.length > 0) {
+                    folderId = sData.files[0].id;
+                    console.log(`[Restore] Found snapshot root: ${fName}`);
+                }
+            }
+
+            if (!folderId) {
                 return { success: false, error: 'No backup folder found on Drive' };
             }
-            const folderId = searchData.files[0].id;
 
             // 2. Download all snapshot files in parallel
             onProgress('Downloading snapshots...', 0.25);
@@ -656,6 +703,19 @@ export const SyncService = {
 
                     // Strip MIME headers if present
                     let cleanText = text.trim();
+
+                    // DECRYPTION SUPPORT: Handle encrypted snapshots from Desktop/Web
+                    if (cleanText.startsWith('U2FsdGVkX1')) {
+                        try {
+                            // Use email as key (consistent with syncDown and snapshots)
+                            const bytes = CryptoJS.AES.decrypt(cleanText, user.email);
+                            const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                            if (decrypted) cleanText = decrypted;
+                        } catch (decErr) {
+                            console.warn(`[Restore] Decryption failed for ${fileName}.`);
+                        }
+                    }
+
                     if (cleanText.toLowerCase().includes('content-type:')) {
                         const parts = cleanText.split(/\r?\n\r?\n/);
                         for (const part of parts) {
@@ -1043,9 +1103,19 @@ export const SyncService = {
             // Copy array to avoid mutation issues during iteration
             const currentQueue = [...queue];
 
+            // Get encryption key for retry
+            const userStr = await AsyncStorage.getItem('user');
+            const user = userStr ? JSON.parse(userStr) : null;
+            const syncKey = user?.email || "";
+
             for (const item of currentQueue) {
                 try {
-                    await uploadFileToFolder(accessToken, folderId, item.fileName, JSON.stringify(item.content));
+                    let content = JSON.stringify(item.content);
+                    if (syncKey) {
+                        content = CryptoJS.AES.encrypt(content, syncKey).toString();
+                    }
+
+                    await uploadFileToFolder(accessToken, folderId, item.fileName, content);
                     await this.removeFromQueue(item.content.eventId);
                     console.log(`[Sync] Retried & Uploaded: ${item.fileName}`);
                 } catch (e) {

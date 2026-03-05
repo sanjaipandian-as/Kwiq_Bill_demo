@@ -184,7 +184,10 @@ const BillingGrid = ({
                                 <Plus size={14} color="#000" />
                             </TouchableOpacity>
                         </View>
-                        <Text style={styles.itemTotal}>₹{(item.total || 0).toFixed(0)}</Text>
+                        <View style={styles.totalWrapper}>
+                            <Text style={styles.totalLabel}>Amount</Text>
+                            <Text style={styles.itemTotal}>₹{(item.total || 0).toFixed(0)}</Text>
+                        </View>
                     </View>
                 </View>
 
@@ -417,10 +420,12 @@ const styles = StyleSheet.create({
     itemUnitPrice: { fontSize: 13, color: '#475569', fontWeight: '700' },
     taxBadge: { fontSize: 10, fontWeight: '900', color: '#000', backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' },
 
-    cardRight: { alignItems: 'flex-end', justifyContent: 'center', gap: 8 },
-    qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f1f5f9', padding: 4, borderRadius: 12 },
-    qtyAction: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
-    itemTotal: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+    cardRight: { minWidth: 100, alignItems: 'flex-end', justifyContent: 'space-between', paddingVertical: 2 },
+    qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f8fafc', padding: 4, borderRadius: 14, borderWidth: 1, borderColor: '#f1f5f9' },
+    qtyAction: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2, borderWidth: 1, borderColor: '#f1f5f9' },
+    totalWrapper: { alignItems: 'flex-end', marginTop: 4 },
+    totalLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: -2 },
+    itemTotal: { fontSize: 24, fontWeight: '900', color: '#000', letterSpacing: -1 },
 
     inputWrapper: {
         flexDirection: 'row',
@@ -447,7 +452,7 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         color: '#000',
         paddingVertical: 4,
-        textAlign: 'left',
+        textAlign: 'center',
         height: '100%'
     },
     qtyInput: {

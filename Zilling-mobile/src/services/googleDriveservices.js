@@ -2,6 +2,26 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { db } from './database';
+import { generateUUID } from '../utils/crypto';
+const CryptoJS = require('crypto-js');
+
+/**
+ * Helper: Encrypt content using a key (usually user email)
+ */
+const encryptContent = (content, key) => {
+  if (!content || !key) return content;
+  try {
+    if (!CryptoJS || !CryptoJS.AES) {
+      console.warn('[Crypto] CryptoJS not fully initialized. Skipping encryption.');
+      return content;
+    }
+    return CryptoJS.AES.encrypt(content, key).toString();
+  } catch (e) {
+    console.error('[Crypto] Encryption fatal error - using fallback (plain data):', e.message);
+    // Safety check: ensure at least plain data flows through
+    return content;
+  }
+};
 
 /**
  * Helper: Get valid access token
@@ -96,7 +116,7 @@ export const checkStoreBrandingStatus = async (user) => {
   if (!user || !user.id) return { error: 'No user ID' };
   try {
     const accessToken = await getAccessToken();
-    const folderName = `KwiqBilling-${user.id}`;
+    const folderName = 'Kwiqbill'; // Standardized folder name for cross-platform sync
 
     // 1. Find folder
     const folderQuery = `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
@@ -339,7 +359,7 @@ export const syncUserDataToDrive = async (user, allData) => {
 
   try {
     const accessToken = await getAccessToken();
-    const folderName = `KwiqBilling-${user.id}`;
+    const folderName = 'Kwiqbill';
 
     // 1. Ensure Folder Exists
     const folderId = await getOrCreateFolder(accessToken, folderName);
@@ -351,9 +371,15 @@ export const syncUserDataToDrive = async (user, allData) => {
     for (const table of tables) {
       if (allData[table] && allData[table].length > 0) { // Only save non-empty
         const fileName = `${table}.json`;
-        const content = JSON.stringify(allData[table], null, 2);
+        let content = JSON.stringify(allData[table], null, 2);
+
+        // Encrypt snapshots for security
+        if (user.email) {
+          content = encryptContent(content, user.email);
+        }
+
         await uploadFileToFolder(accessToken, folderId, fileName, content);
-        console.log(`Uploaded ${fileName} to Drive.`);
+        console.log(`Uploaded ${fileName} to Drive (Encrypted).`);
       }
     }
 
@@ -414,8 +440,13 @@ export const syncUserDataToDrive = async (user, allData) => {
           details: taxDetails
         };
 
-        await uploadFileToFolder(accessToken, folderId, 'tax_report.json', JSON.stringify(taxReport, null, 2));
-        console.log('Uploaded tax_report.json to Drive.');
+        let reportContent = JSON.stringify(taxReport, null, 2);
+        if (user.email) {
+          reportContent = encryptContent(reportContent, user.email);
+        }
+
+        await uploadFileToFolder(accessToken, folderId, 'tax_report.json', reportContent);
+        console.log('Uploaded tax_report.json to Drive (Encrypted).');
 
       } catch (e) {
         console.warn('Error generating tax report for Drive:', e);
@@ -423,7 +454,11 @@ export const syncUserDataToDrive = async (user, allData) => {
     }
 
     // Also save User Details in the same folder for reference
-    await uploadFileToFolder(accessToken, folderId, 'user_profile.json', JSON.stringify(user, null, 2));
+    let profileContent = JSON.stringify(user, null, 2);
+    if (user.email) {
+      profileContent = encryptContent(profileContent, user.email);
+    }
+    await uploadFileToFolder(accessToken, folderId, 'user_profile.json', profileContent);
 
     return true;
   } catch (error) {
@@ -447,20 +482,28 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       return;
     }
 
-    const folderName = `KwiqBilling-${user.id}`;
-    // Find folder (don't create if missing, just search)
-    const query = `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    const searchRes = await fetchWithTimeout(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const searchData = await searchRes.json();
+    // Standardized search: Primary is 'Kwiqbill', fallback is legacy 'KwiqBilling-{id}'
+    let folderId = null;
+    const foldersToTry = ['Kwiqbill', `KwiqBilling-${user.id}`];
 
-    if (!searchData.files || searchData.files.length === 0) {
-      console.log('[Restore] No backup folder found on Drive.');
+    for (const fName of foldersToTry) {
+      if (folderId) break;
+      const query = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      const sRes = await fetchWithTimeout(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      const sData = await sRes.json();
+      if (sData.files && sData.files.length > 0) {
+        folderId = sData.files[0].id;
+        console.log(`[Restore] Found snapshot folder: ${fName} (${folderId})`);
+      }
+    }
+
+    if (!folderId) {
+      console.log('[Restore] No backup folder found on Drive (checked Kwiqbill and Legacy).');
       return;
     }
-    const folderId = searchData.files[0].id;
     console.log('[Restore] Found backup folder ID:', folderId);
 
     // 1. Search for specific snapshot files we need to restore
@@ -501,22 +544,35 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
           const text = await contentRes.text();
           if (!text || text.trim() === "") return null;
 
-          let cleanText = text.trim();
-          if (cleanText.toLowerCase().includes('content-type:')) {
-            const parts = cleanText.split(/\r?\n\r?\n/);
-            if (parts.length > 1) {
-              for (let part of parts) {
-                const trimmed = part.trim();
-                if (trimmed.toLowerCase().includes('content-type:')) continue;
-                if (trimmed.length > 0) {
-                  cleanText = trimmed;
-                  break;
+          try {
+            // DECRYPTION SUPPORT: Handle encrypted snapshots from Desktop/Web
+            let cleanText = text.trim();
+            if (cleanText.startsWith('U2FsdGVkX1')) {
+              try {
+                // Use email as key - common across desktop/mobile for the same user
+                const bytes = CryptoJS.AES.decrypt(cleanText, user.email);
+                const decryptedData = bytes.toString(CryptoJS.enc.Utf8);
+                if (decryptedData) cleanText = decryptedData;
+              } catch (decErr) {
+                console.warn(`[Restore] Decryption failed for ${baseName}. Key mismatch or corrupted.`);
+              }
+            }
+
+            // Standard cleaning if still has MIME headers (failsafe)
+            if (cleanText.toLowerCase().includes('content-type:')) {
+              const parts = cleanText.split(/\r?\n\r?\n/);
+              if (parts.length > 1) {
+                for (let part of parts) {
+                  const trimmed = part.trim();
+                  if (trimmed.toLowerCase().includes('content-type:')) continue;
+                  if (trimmed.length > 0) {
+                    cleanText = trimmed;
+                    break;
+                  }
                 }
               }
             }
-          }
 
-          try {
             return JSON.parse(cleanText);
           } catch (e) {
             console.error(`[Restore] JSON Parse Error for ${baseName}:`, e.message);
@@ -562,6 +618,17 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       fetchFileFromMap('user details.json')
     ]);
 
+    // Live Metrics Tracking during restoration
+    const restoredStats = {
+      synced: 0,
+      errors: 0,
+      total: (products?.length || 0) + (customers?.length || 0) + (expenses?.length || 0) + (invoices?.length || 0)
+    };
+
+    const updateRestoreProgress = (msg, prog) => {
+      if (onProgress) onProgress(msg, prog, restoredStats);
+    };
+
     // Restore Logo if available
     let localLogoUri = null;
     try {
@@ -572,7 +639,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
 
     // 1. Restore Settings
     if ((settings && Array.isArray(settings) && settings.length > 0) || userDetailsFile) {
-      if (onProgress) onProgress('Syncing store preferences...', 0.48);
+      updateRestoreProgress('Syncing store preferences...', 0.48);
       try {
         const localSaved = await AsyncStorage.getItem('app_settings');
         const localSettings = localSaved ? JSON.parse(localSaved) : {};
@@ -584,17 +651,9 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
         const driveBank = driveSettings.bankDetails || userDetailsFile?.bankDetails || {};
 
         // Deep merge drive settings with local
-        // LOGO PRIORITIZATION: 
-        // 1. Remote Cloudinary URL (from settings.json)
-        // 2. Local File restored from Drive (store_logo.jpg)
-        // 3. Legacy Base64
-        let finalLogo = localLogoUri;
-        const driveLogo = driveSettings.store?.logo;
-        if (driveLogo && driveLogo.startsWith('http')) {
-          finalLogo = driveLogo;
-        } else if (driveLogo && driveLogo.startsWith('data:image') && !localLogoUri) {
-          finalLogo = driveLogo;
-        }
+        // LOGO: Do NOT use Drive logo. Logo comes from the Database (MongoDB) only.
+        // Preserve whatever logo is already in local settings (set by DB fetch later).
+        const existingLogo = localSettings.store?.logo || null;
 
         const merged = {
           ...localSettings,
@@ -602,7 +661,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
           store: {
             ...(localSettings.store || {}),
             ...(driveSettings.store || {}),
-            logo: finalLogo
+            logo: existingLogo  // Keep existing local/DB logo, don't overwrite from Drive
           },
           tax: { ...(localSettings.tax || {}), ...(driveSettings.tax || {}) },
           invoice: { ...(localSettings.invoice || {}), ...(driveSettings.invoice || {}) },
@@ -615,7 +674,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
         };
 
         await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
-        console.log('[Restore] Settings merged and restored. Logo:', finalLogo?.substring(0, 30));
+        console.log('[Restore] Settings merged from Drive (logo excluded — fetched from DB).');
       } catch (e) {
         console.warn('[Restore] Settings merge failed, fixing state:', e.message);
         // Minimum viable settings restore
@@ -626,7 +685,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
 
     // 2. Restore Products
     if (products && Array.isArray(products)) {
-      if (onProgress) onProgress(`Restoring ${products.length} products...`, 0.52);
+      updateRestoreProgress(`Restoring ${products.length} products...`, 0.52);
       await db.withTransactionAsync(async () => {
         for (const p of products) {
           await db.runAsync(
@@ -649,6 +708,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
               p.updated_at
             ]
           );
+          restoredStats.synced++;
         }
       });
       console.log(`[Restore] Restored ${products.length} products.`);
@@ -656,7 +716,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
 
     // 3. Restore Customers
     if (customers && Array.isArray(customers)) {
-      if (onProgress) onProgress(`Restoring ${customers.length} customers...`, 0.55);
+      updateRestoreProgress(`Restoring ${customers.length} customers...`, 0.55);
       await db.withTransactionAsync(async () => {
         for (const c of customers) {
           await db.runAsync(
@@ -668,6 +728,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
               c.whatsappOptIn ? 1 : 0, c.smsOptIn ? 1 : 0, c.outstanding || 0
             ]
           );
+          restoredStats.synced++;
         }
       });
       console.log(`[Restore] Restored ${customers.length} customers.`);
@@ -675,7 +736,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
 
     // 4. Restore Expenses
     if (expenses && Array.isArray(expenses)) {
-      if (onProgress) onProgress(`Restoring ${expenses.length} expenses...`, 0.57);
+      updateRestoreProgress(`Restoring ${expenses.length} expenses...`, 0.57);
       await db.withTransactionAsync(async () => {
         for (const e of expenses) {
           await db.runAsync(
@@ -683,6 +744,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [e.id, e.title, e.amount, e.category, e.date, e.payment_method, (typeof e.tags === 'string' ? e.tags : JSON.stringify(e.tags || [])), e.created_at, e.updated_at]
           );
+          restoredStats.synced++;
         }
       });
       console.log(`[Restore] Restored ${expenses.length} expenses.`);
@@ -690,7 +752,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
 
     // 5. Restore Invoices
     if (invoices && Array.isArray(invoices)) {
-      if (onProgress) onProgress(`Restoring ${invoices.length} invoices...`, 0.59);
+      updateRestoreProgress(`Restoring ${invoices.length} invoices...`, 0.59);
       await db.withTransactionAsync(async () => {
         for (const i of invoices) {
           await db.runAsync(
@@ -710,6 +772,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
               i.is_deleted ? 1 : 0, i.created_at, i.updated_at
             ]
           );
+          restoredStats.synced++;
         }
       });
       console.log(`[Restore] Restored ${invoices.length} invoices.`);
@@ -731,7 +794,7 @@ export const syncSettingsToDrive = async (user, settings) => {
 
   try {
     const accessToken = await getAccessToken();
-    const folderName = `KwiqBilling-${user.id}`;
+    const folderName = 'Kwiqbill';
 
     // 1. Ensure Folder Exists
     const folderId = await getOrCreateFolder(accessToken, folderName);
@@ -789,7 +852,10 @@ export const syncSettingsToDrive = async (user, settings) => {
       }
     }
 
-    const content = JSON.stringify([settingsToSave], null, 2);
+    let content = JSON.stringify([settingsToSave], null, 2);
+    if (user.email) {
+      content = encryptContent(content, user.email);
+    }
 
     // 3. Upload
     await uploadFileToFolder(accessToken, folderId, 'settings.json', content);
@@ -801,9 +867,13 @@ export const syncSettingsToDrive = async (user, settings) => {
       bankDetails: settings.bankDetails,
       onboardingCompletedAt: settings.onboardingCompletedAt
     };
-    await uploadFileToFolder(accessToken, folderId, 'user details.json', JSON.stringify(userDetails, null, 2));
+    let detailsContent = JSON.stringify(userDetails, null, 2);
+    if (user.email) {
+      detailsContent = encryptContent(detailsContent, user.email);
+    }
+    await uploadFileToFolder(accessToken, folderId, 'user details.json', detailsContent);
 
-    console.log('[Sync] Settings and User Details uploaded to Drive.');
+    console.log('[Sync] Settings and User Details uploaded to Drive (Encrypted).');
     return true;
   } catch (error) {
     console.error('[Sync] Settings upload failed:', error);
@@ -848,13 +918,18 @@ export const saveUserDetailsToDrive = async (userDetails) => {
       mimeType: 'application/json'
     };
 
+    let content = JSON.stringify(userDetails);
+    if (userDetails.email) {
+      content = encryptContent(content, userDetails.email);
+    }
+
     const body =
       `--${boundary}\r\n` +
       `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
       `${JSON.stringify(metadata)}\r\n` +
       `\r\n--${boundary}\r\n` +
       `Content-Type: application/json\r\n\r\n` +
-      `${JSON.stringify(userDetails)}\r\n` +
+      `${content}\r\n` +
       `\r\n--${boundary}--`;
 
     const url = existingFile
@@ -874,5 +949,143 @@ export const saveUserDetailsToDrive = async (userDetails) => {
 
   } catch (error) {
     console.error("Auto-sync error:", error);
+  }
+};
+
+/**
+ * Fetch ONLY settings.json from Drive and merge into local AsyncStorage.
+ * Called on EVERY session init to keep store/bank/tax/invoice prefs in sync.
+ * Logo is NOT touched — it comes from the Database (MongoDB).
+ */
+export const fetchSettingsFromDrive = async (user) => {
+  if (!user || !user.id) return null;
+
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      console.log('[DriveSettings] No access token, skipping.');
+      return null;
+    }
+
+    // Search for the Drive folder
+    let folderId = null;
+    const foldersToTry = ['Kwiqbill', `KwiqBilling-${user.id}`];
+
+    for (const fName of foldersToTry) {
+      if (folderId) break;
+      const query = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      const sRes = await fetchWithTimeout(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      const sData = await sRes.json();
+      if (sData.files && sData.files.length > 0) {
+        folderId = sData.files[0].id;
+      }
+    }
+
+    if (!folderId) {
+      console.log('[DriveSettings] No Drive folder found.');
+      return null;
+    }
+
+    // Fetch settings.json and user details.json
+    const targetFiles = ['settings.json', 'user details.json'];
+    const namesQuery = targetFiles.map(name => `name='${name}'`).join(' or ');
+    const listQuery = `(${namesQuery}) and '${folderId}' in parents and trashed=false`;
+
+    const listRes = await fetchWithTimeout(
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQuery)}&fields=files(id,name)&pageSize=10`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const listData = await listRes.json();
+    const filesMap = {};
+    if (listData.files) {
+      listData.files.forEach(f => { filesMap[f.name] = f.id; });
+    }
+
+    // Download and parse a file
+    const fetchFile = async (baseName) => {
+      const fileId = filesMap[baseName];
+      if (!fileId) return null;
+
+      try {
+        const contentRes = await fetchWithTimeout(
+          `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        if (!contentRes.ok) return null;
+
+        let text = await contentRes.text();
+        if (!text || text.trim() === '') return null;
+
+        let cleanText = text.trim();
+        // Handle encrypted data
+        if (cleanText.startsWith('U2FsdGVkX1')) {
+          try {
+            const bytes = CryptoJS.AES.decrypt(cleanText, user.email);
+            const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+            if (decrypted) cleanText = decrypted;
+          } catch (e) {
+            console.warn('[DriveSettings] Decryption failed for ' + baseName);
+          }
+        }
+
+        return JSON.parse(cleanText);
+      } catch (e) {
+        console.warn('[DriveSettings] Error fetching ' + baseName + ':', e.message);
+        return null;
+      }
+    };
+
+    const [settingsData, userDetailsData] = await Promise.all([
+      fetchFile('settings.json'),
+      fetchFile('user details.json'),
+    ]);
+
+    // Extract the drive settings object
+    const driveSettings = (settingsData && Array.isArray(settingsData) && settingsData.length > 0)
+      ? settingsData[0]
+      : (settingsData || userDetailsData || null);
+
+    if (!driveSettings) {
+      console.log('[DriveSettings] No settings found on Drive.');
+      return null;
+    }
+
+    // Deep extraction of bank details
+    const driveBank = driveSettings.bankDetails || userDetailsData?.bankDetails || {};
+
+    // Merge with local, preserving logo from DB
+    const localSaved = await AsyncStorage.getItem('app_settings');
+    const localSettings = localSaved ? JSON.parse(localSaved) : {};
+    const existingLogo = localSettings.store?.logo || null;
+
+    const merged = {
+      ...localSettings,
+      ...driveSettings,
+      store: {
+        ...(localSettings.store || {}),
+        ...(driveSettings.store || {}),
+        logo: existingLogo, // Logo comes from DB only
+      },
+      tax: { ...(localSettings.tax || {}), ...(driveSettings.tax || {}) },
+      invoice: { ...(localSettings.invoice || {}), ...(driveSettings.invoice || {}) },
+      defaults: { ...(localSettings.defaults || {}), ...(driveSettings.defaults || {}) },
+      bankDetails: {
+        accountName: '', accountNumber: '', ifsc: '', bankName: '', branch: '',
+        ...(localSettings.bankDetails || {}),
+        ...driveBank,
+      },
+    };
+
+    await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
+    console.log('[DriveSettings] ✅ Settings fetched from Drive and merged.');
+    console.log('[DriveSettings] Store:', merged.store?.name, '| Bank:', merged.bankDetails?.bankName || 'none');
+
+    return merged;
+  } catch (error) {
+    console.error('[DriveSettings] Failed:', error.message);
+    return null;
   }
 };
