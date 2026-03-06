@@ -1176,7 +1176,7 @@ const SettingsPage = ({ navigation, route }) => {
                 <Text style={styles.sectionDesc}>
                   Your data is automatically synced with Google Drive. Access your information across multiple devices and never lose a single invoice.
                 </Text>
-
+  
                 <TouchableOpacity
                   onPress={async () => {
                     showToast("Backing up to Cloud...", "info");

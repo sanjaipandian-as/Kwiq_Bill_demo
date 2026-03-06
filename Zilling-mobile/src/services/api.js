@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 const PRODUCTION_URL = 'https://kwiq-bill.onrender.com';
-const LOCAL_IP = '10.68.133.85'; // Your machine's current IPv4
+const LOCAL_IP = '192.168.137.1'; // Your machine's current IPv4
 const LOCAL_URL = Platform.OS === 'android'
   ? `http://${LOCAL_IP}:5001`
   : 'http://localhost:5001';

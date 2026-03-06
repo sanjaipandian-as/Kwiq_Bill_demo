@@ -55,14 +55,99 @@ const STATE_OPTIONS = [
 
 const SOURCE_OPTIONS = ['Direct', 'WhatsApp', 'Instagram', 'Referral', 'Other'];
 
+// ── Pure-JS Calendar Picker ─────────────────────────────────────────────────
+const DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function CalendarPicker({ visible, onClose, onSelect, selectedDate, markedDates = [] }) {
+    const today = new Date();
+    const [viewYear, setViewYear] = useState((selectedDate || today).getFullYear());
+    const [viewMonth, setViewMonth] = useState((selectedDate || today).getMonth());
+
+    const markedSet = useMemo(() => {
+        const s = new Set();
+        markedDates.forEach(d => s.add(new Date(d).toDateString()));
+        return s;
+    }, [markedDates]);
+
+    const goMonth = (delta) => {
+        let m = viewMonth + delta;
+        let y = viewYear;
+        if (m < 0) { m = 11; y--; }
+        if (m > 11) { m = 0; y++; }
+        setViewMonth(m); setViewYear(y);
+    };
+
+    const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    while (cells.length % 7 !== 0) cells.push(null);
+    const weeks = [];
+    for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+    if (!visible) return null;
+    return (
+        <View style={calStyles.overlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+            <View style={calStyles.sheet}>
+                <View style={calStyles.header}>
+                    <TouchableOpacity style={calStyles.navBtn} onPress={() => goMonth(-1)}>
+                        <Text style={calStyles.navArrow}>‹</Text>
+                    </TouchableOpacity>
+                    <Text style={calStyles.monthTitle}>{MONTHS[viewMonth]} {viewYear}</Text>
+                    <TouchableOpacity style={calStyles.navBtn} onPress={() => goMonth(1)}>
+                        <Text style={calStyles.navArrow}>›</Text>
+                    </TouchableOpacity>
+                </View>
+                <View style={calStyles.dayRow}>
+                    {DAYS.map(d => <Text key={d} style={calStyles.dayLabel}>{d}</Text>)}
+                </View>
+                {weeks.map((week, wi) => (
+                    <View key={wi} style={calStyles.weekRow}>
+                        {week.map((day, di) => {
+                            if (!day) return <View key={di} style={calStyles.dayCell} />;
+                            const dt = new Date(viewYear, viewMonth, day);
+                            const isToday = dt.toDateString() === today.toDateString();
+                            const isSelected = selectedDate && dt.toDateString() === selectedDate.toDateString();
+                            const hasInv = markedSet.has(dt.toDateString());
+                            const isFuture = dt > today;
+                            return (
+                                <TouchableOpacity
+                                    key={di}
+                                    style={[calStyles.dayCell, isSelected && calStyles.dayCellSelected, isToday && !isSelected && calStyles.dayCellToday]}
+                                    onPress={() => { if (!isFuture) { onSelect(dt); onClose(); } }}
+                                    disabled={isFuture}
+                                >
+                                    <Text style={[calStyles.dayNum, isSelected && calStyles.dayNumSelected, isFuture && calStyles.dayNumFuture]}>{day}</Text>
+                                    {hasInv && <View style={[calStyles.dot, isSelected && calStyles.dotSelected]} />}
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                ))}
+                <TouchableOpacity style={calStyles.clearBtn} onPress={() => { onSelect(null); onClose(); }}>
+                    <Text style={calStyles.clearBtnText}>Clear — Show All</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function CustomerModal({ isOpen, onClose, customer, onSave, onDelete, initialTab = 'details' }) {
     const { transactions } = useTransactions();
     const [activeTab, setActiveTab] = useState(initialTab);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [pickedDate, setPickedDate] = useState(null); // null = show all
 
     useEffect(() => {
         if (isOpen) {
             setActiveTab(initialTab);
+            setPickedDate(null);
+            setShowDatePicker(false);
         }
     }, [isOpen, initialTab]);
 
@@ -82,6 +167,14 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
         }, 0);
         return { total, pending, count: history.length };
     }, [history]);
+
+    // Filter history by the picked date (exact day match)
+    const filteredHistory = useMemo(() => {
+        if (!pickedDate) return history;
+        const pd = pickedDate.toDateString();
+        return history.filter(t => new Date(t.date).toDateString() === pd);
+    }, [history, pickedDate]);
+
 
     const [formData, setFormData] = useState({
         fullName: '',
@@ -195,36 +288,58 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
     const renderHistoryItem = ({ item: tx }) => {
         const date = new Date(tx.date);
         const isPaid = (tx.status || '').toUpperCase() === 'PAID';
-        const due = (parseFloat(tx.total) || 0) - (parseFloat(tx.amountReceived) || 0);
+        const due = Math.max(0, (parseFloat(tx.total) || 0) - (parseFloat(tx.amountReceived) || 0));
+        const items = tx.items || [];
+        const dateStr = date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
 
         return (
             <Pressable style={styles.ledgerCard} onPress={() => shareReceiptPDF(tx)}>
-                <View style={styles.ledgerCardTop}>
-                    <View style={styles.ledgerDateBox}>
-                        <Text style={styles.ledgerDay}>{date.getDate()}</Text>
-                        <Text style={styles.ledgerMonth}>{date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</Text>
+                {/* ── Invoice header row ── */}
+                <View style={styles.ledgerHeader}>
+                    <View style={styles.ledgerInvBlock}>
+                        <Text style={styles.ledgerInvNum}>INV-#{(tx.id || '').substring(0, 6).toUpperCase()}</Text>
+                        <View style={styles.ledgerDateRow}>
+                            <Calendar size={10} color="#999" />
+                            <Text style={styles.ledgerDateText}>{dateStr}</Text>
+                        </View>
                     </View>
-                    <View style={styles.ledgerMainInfo}>
-                        <Text style={styles.ledgerInvText}>INV-#{tx.id?.substring(0, 6).toUpperCase()}</Text>
-                        <View style={styles.ledgerStatusRow}>
-                            <View style={[styles.statusIndicator, { backgroundColor: isPaid ? '#22c55e' : '#ef4444' }]} />
-                            <Text style={[styles.statusLabelText, { color: isPaid ? '#22c55e' : '#ef4444' }]}>
-                                {isPaid ? 'PAID FULL' : `DUE ₹${due.toLocaleString()}`}
+
+                    <View style={styles.ledgerRightBlock}>
+                        <Text style={styles.ledgerAmount}>₹{(tx.total || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</Text>
+                        <View style={[styles.statusBadge, isPaid ? styles.statusPaid : styles.statusDue]}>
+                            <Text style={[styles.statusBadgeText, isPaid ? styles.statusPaidText : styles.statusDueText]}>
+                                {isPaid ? 'PAID' : `DUE ₹${due.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
                             </Text>
                         </View>
                     </View>
-                    <View style={styles.ledgerAmountBox}>
-                        <Text style={styles.ledgerTotalAmount}>₹{(tx.total || 0).toLocaleString()}</Text>
-                        <ChevronRight size={16} color="#cbd5e1" />
-                    </View>
                 </View>
 
-                <View style={styles.ledgerItemsList}>
-                    {(tx.items || []).slice(0, 1).map((item, idx) => (
-                        <Text key={idx} style={styles.ledgerItemPreview} numberOfLines={1}>
-                            {item.name} {tx.items.length > 1 ? `+${tx.items.length - 1} more` : ''}
-                        </Text>
-                    ))}
+                {/* ── Products list ── */}
+                {items.length > 0 && (
+                    <View style={styles.ledgerItemsBlock}>
+                        {items.map((item, idx) => {
+                            const qty = item.quantity || item.qty || 1;
+                            const rate = parseFloat(item.price || item.rate || 0);
+                            const lineTotal = qty * rate;
+                            return (
+                                <View key={idx} style={[styles.ledgerItemRow, idx < items.length - 1 && styles.ledgerItemRowBorder]}>
+                                    <View style={styles.ledgerItemQtyBox}>
+                                        <Text style={styles.ledgerItemQty}>{qty}</Text>
+                                    </View>
+                                    <Text style={styles.ledgerItemName} numberOfLines={1}>{item.name || 'Item'}</Text>
+                                    <Text style={styles.ledgerItemTotal}>
+                                        ₹{lineTotal > 0 ? lineTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 }) : '—'}
+                                    </Text>
+                                </View>
+                            );
+                        })}
+                    </View>
+                )}
+
+                {/* ── Tap to share hint ── */}
+                <View style={styles.ledgerTapRow}>
+                    <ChevronRight size={12} color="#bbb" />
+                    <Text style={styles.ledgerTapHint}>Tap to share receipt</Text>
                 </View>
             </Pressable>
         );
@@ -268,13 +383,13 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 <View style={styles.fieldContainer}>
                     <Text style={styles.fieldLabel}>FULL NAME <Text style={styles.reqText}>*</Text></Text>
                     <View style={styles.inputWrapper}>
-                        <User size={18} color="#94a3b8" />
+                        <User size={18} color="#777" />
                         <TextInput
                             style={styles.fieldInput}
                             value={formData.fullName}
                             onChangeText={(text) => setFormData({ ...formData, fullName: text })}
                             placeholder="e.g. Rahul Sharma"
-                            placeholderTextColor="#cbd5e1"
+                            placeholderTextColor="#bbb"
                         />
                     </View>
                 </View>
@@ -282,13 +397,13 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 <View style={styles.fieldContainer}>
                     <Text style={styles.fieldLabel}>CONTACT NUMBER <Text style={styles.reqText}>*</Text></Text>
                     <View style={styles.inputWrapper}>
-                        <Phone size={18} color="#94a3b8" />
+                        <Phone size={18} color="#777" />
                         <TextInput
                             style={styles.fieldInput}
                             value={formData.phone}
                             onChangeText={(text) => setFormData({ ...formData, phone: text })}
                             placeholder="10-digit mobile number"
-                            placeholderTextColor="#cbd5e1"
+                            placeholderTextColor="#bbb"
                             keyboardType="phone-pad"
                             maxLength={10}
                         />
@@ -319,13 +434,13 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 <View style={styles.fieldContainer}>
                     <Text style={styles.fieldLabel}>EMAIL ADDRESS</Text>
                     <View style={styles.inputWrapper}>
-                        <Mail size={18} color="#94a3b8" />
+                        <Mail size={18} color="#777" />
                         <TextInput
                             style={styles.fieldInput}
                             value={formData.email}
                             onChangeText={(text) => setFormData({ ...formData, email: text })}
                             placeholder="client@mail.com"
-                            placeholderTextColor="#cbd5e1"
+                            placeholderTextColor="#bbb"
                             keyboardType="email-address"
                             autoCapitalize="none"
                         />
@@ -336,13 +451,13 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                     <View style={styles.fieldContainer}>
                         <Text style={styles.fieldLabel}>GST IDENTIFICATION NUMBER</Text>
                         <View style={styles.inputWrapper}>
-                            <Building size={18} color="#94a3b8" />
+                            <Building size={18} color="#777" />
                             <TextInput
                                 style={styles.fieldInput}
                                 value={formData.gstin}
                                 onChangeText={(text) => setFormData({ ...formData, gstin: text })}
                                 placeholder="22AAAAA0000A1Z5"
-                                placeholderTextColor="#cbd5e1"
+                                placeholderTextColor="#bbb"
                                 autoCapitalize="characters"
                             />
                         </View>
@@ -352,11 +467,11 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 <View style={styles.fieldContainer}>
                     <Text style={styles.fieldLabel}>LEAD SOURCE</Text>
                     <TouchableOpacity style={styles.dropdownInput} onPress={() => openPicker("Select Lead Source", SOURCE_OPTIONS, 'source')}>
-                        <LayoutGrid size={18} color="#94a3b8" />
+                        <LayoutGrid size={18} color="#777" />
                         <Text style={[styles.dropdownValue, !formData.source && styles.placeholder]}>
                             {formData.source || "Select Source"}
                         </Text>
-                        <ChevronDown size={18} color="#94a3b8" />
+                        <ChevronDown size={18} color="#777" />
                     </TouchableOpacity>
                 </View>
             </View>
@@ -367,13 +482,13 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 <View style={styles.fieldContainer}>
                     <Text style={styles.fieldLabel}>STREET / BUILDING</Text>
                     <View style={styles.inputWrapper}>
-                        <MapPin size={18} color="#94a3b8" />
+                        <MapPin size={18} color="#777" />
                         <TextInput
                             style={styles.fieldInput}
                             value={formData.address.street}
                             onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, street: text } })}
                             placeholder="Unit No, Building Name"
-                            placeholderTextColor="#cbd5e1"
+                            placeholderTextColor="#bbb"
                         />
                     </View>
                 </View>
@@ -386,7 +501,7 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                             value={formData.address.city}
                             onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, city: text } })}
                             placeholder="City"
-                            placeholderTextColor="#cbd5e1"
+                            placeholderTextColor="#bbb"
                         />
                     </View>
                     <View style={[styles.fieldContainer, { flex: 1 }]}>
@@ -396,7 +511,7 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                             value={formData.address.pincode}
                             onChangeText={(text) => setFormData({ ...formData, address: { ...formData.address, pincode: text } })}
                             placeholder="400001"
-                            placeholderTextColor="#cbd5e1"
+                            placeholderTextColor="#bbb"
                             keyboardType="numeric"
                         />
                     </View>
@@ -420,13 +535,13 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                     value={formData.notes}
                     onChangeText={(text) => setFormData({ ...formData, notes: text })}
                     placeholder="Briefly describe client preferences or specific requirements..."
-                    placeholderTextColor="#cbd5e1"
+                    placeholderTextColor="#bbb"
                     multiline
                     numberOfLines={4}
                 />
             </View>
 
-            <View style={{ height: 120 }} />
+            <View style={{ height: 80 }} />
         </ScrollView>
     );
 
@@ -437,8 +552,8 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                     <View style={styles.dragHandle} />
                     <View style={styles.headerTitleRow}>
                         <View style={styles.titleContent}>
-                            <Text style={styles.mainTitle}>{customer ? 'Update Profile' : 'Add New Client'}</Text>
-                            <Text style={styles.subTitle}>Business Intelligence & Ledger</Text>
+                            <Text style={styles.mainTitle}>{customer ? 'Edit Party' : 'Register Party'}</Text>
+                            <Text style={styles.subTitle}>{customer ? 'Update profile & ledger details' : 'Add a new client or business contact'}</Text>
                         </View>
                         <TouchableOpacity onPress={onClose} style={styles.headerX}>
                             <X size={20} color="#000" />
@@ -446,23 +561,23 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                     </View>
 
                     {customer && (
-                        <View style={styles.tabContainer}>
+                        <View style={styles.tabToggleWrap}>
                             <TouchableOpacity
-                                style={[styles.tabBtn, activeTab === 'details' && styles.tabBtnActive]}
+                                style={[styles.tabToggleBtn, activeTab === 'details' && styles.tabToggleBtnActive]}
                                 onPress={() => setActiveTab('details')}
                             >
-                                <User size={16} color={activeTab === 'details' ? '#000' : '#94a3b8'} />
-                                <Text style={[styles.tabText, activeTab === 'details' && styles.tabTextActive]}>PROFILE</Text>
+                                <User size={15} color={activeTab === 'details' ? '#fff' : '#888'} />
+                                <Text style={[styles.tabToggleText, activeTab === 'details' && styles.tabToggleTextActive]}>Profile</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.tabBtn, activeTab === 'history' && styles.tabBtnActive]}
+                                style={[styles.tabToggleBtn, activeTab === 'history' && styles.tabToggleBtnActive]}
                                 onPress={() => setActiveTab('history')}
                             >
-                                <CreditCard size={16} color={activeTab === 'history' ? '#000' : '#94a3b8'} />
-                                <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>LEDGER</Text>
+                                <CreditCard size={15} color={activeTab === 'history' ? '#fff' : '#888'} />
+                                <Text style={[styles.tabToggleText, activeTab === 'history' && styles.tabToggleTextActive]}>Ledger</Text>
                                 {history.length > 0 && (
-                                    <View style={styles.ledgerCount}>
-                                        <Text style={styles.ledgerCountText}>{history.length}</Text>
+                                    <View style={[styles.tabCountBadge, activeTab === 'history' && styles.tabCountBadgeActive]}>
+                                        <Text style={[styles.tabCountText, activeTab === 'history' && styles.tabCountTextActive]}>{history.length}</Text>
                                     </View>
                                 )}
                             </TouchableOpacity>
@@ -483,25 +598,99 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                                 </View>
                             ) : (
                                 <View style={{ flex: 1 }}>
-                                    <View style={styles.ledgerStatsOverlay}>
-                                        <View style={styles.statMiniCard}>
-                                            <Text style={styles.miniLabel}>OUTSTANDING</Text>
-                                            <Text style={[styles.miniValue, stats.pending > 0 && { color: '#ef4444' }]}>₹{stats.pending.toLocaleString()}</Text>
+                                    {/* Combined Stats + Date Filter Card */}
+                                    <View style={styles.ledgerTopCard}>
+                                        <View style={styles.ledgerTopRow}>
+
+                                            {/* LEFT: 3 stats — narrower */}
+                                            <View style={styles.ledgerStatsSection}>
+                                                <View style={styles.statMiniCard}>
+                                                    <Text style={styles.miniLabel}>Outstanding</Text>
+                                                    <Text style={[styles.miniValue, stats.pending > 0 && { color: '#ef4444' }]}>
+                                                        ₹{stats.pending.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.statMiniDivider} />
+                                                <View style={styles.statMiniCard}>
+                                                    <Text style={styles.miniLabel}>Lifetime</Text>
+                                                    <Text style={styles.miniValue}>₹{stats.total.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</Text>
+                                                </View>
+                                                <View style={styles.statMiniDivider} />
+                                                <View style={styles.statMiniCard}>
+                                                    <Text style={styles.miniLabel}>Invoices</Text>
+                                                    <Text style={styles.miniValue}>{stats.count}</Text>
+                                                </View>
+                                            </View>
+
+                                            {/* Vertical divider */}
+                                            <View style={styles.cardVertDivider} />
+
+                                            {/* RIGHT: All + Date picker buttons */}
+                                            <View style={styles.filterControlCol}>
+                                                <TouchableOpacity
+                                                    style={[styles.filterBtn, !pickedDate && styles.filterBtnActive]}
+                                                    onPress={() => setPickedDate(null)}
+                                                >
+                                                    <Text style={[styles.filterBtnText, !pickedDate && styles.filterBtnTextActive]}>All</Text>
+                                                </TouchableOpacity>
+
+                                                <TouchableOpacity
+                                                    style={[styles.filterBtn, pickedDate && styles.filterBtnActive]}
+                                                    onPress={() => setShowDatePicker(true)}
+                                                >
+                                                    <Calendar size={11} color={pickedDate ? '#fff' : '#555'} />
+                                                    <Text style={[styles.filterBtnText, pickedDate && styles.filterBtnTextActive]}>
+                                                        {pickedDate
+                                                            ? pickedDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+                                                            : 'Date'}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            </View>
                                         </View>
-                                        <View style={styles.statMiniDivider} />
-                                        <View style={styles.statMiniCard}>
-                                            <Text style={styles.miniLabel}>LIFETIME VALUE</Text>
-                                            <Text style={styles.miniValue}>₹{stats.total.toLocaleString()}</Text>
-                                        </View>
+
+                                        {/* Active date banner */}
+                                        {pickedDate && (
+                                            <View style={styles.activeDateBanner}>
+                                                <Calendar size={11} color="#fff" />
+                                                <Text style={styles.activeDateText}>
+                                                    {pickedDate.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                                                </Text>
+                                                <TouchableOpacity onPress={() => setPickedDate(null)}>
+                                                    <X size={13} color="#fff" />
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
                                     </View>
+
+                                    {/* JS Calendar Picker */}
+                                    <CalendarPicker
+                                        visible={showDatePicker}
+                                        onClose={() => setShowDatePicker(false)}
+                                        onSelect={(date) => setPickedDate(date)}
+                                        selectedDate={pickedDate}
+                                        markedDates={history.map(t => t.date)}
+                                    />
+
                                     <FlatList
-                                        data={history}
+                                        data={filteredHistory}
                                         keyExtractor={item => item.id.toString()}
                                         renderItem={renderHistoryItem}
                                         contentContainerStyle={styles.ledgerList}
                                         showsVerticalScrollIndicator={false}
+                                        ListEmptyComponent={
+                                            <View style={styles.filterEmptyBox}>
+                                                <Calendar size={28} color="#ddd" />
+                                                <Text style={styles.filterEmptyTitle}>No invoices found</Text>
+                                                <Text style={styles.filterEmptyText}>
+                                                    {pickedDate
+                                                        ? `No transactions on ${pickedDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                                                        : 'No transactions yet'}
+                                                </Text>
+                                            </View>
+                                        }
                                     />
                                 </View>
+
                             )}
                         </View>
                     )}
@@ -570,14 +759,40 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#fff' },
-    topHeader: { backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#f1f5f9' },
+    topHeader: { backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#efefef' },
     dragHandle: { width: 36, height: 4, backgroundColor: '#e2e8f0', borderRadius: 2, alignSelf: 'center', marginTop: 10 },
-    headerTitleRow: { flexDirection: 'row', padding: 24, paddingBottom: 16, alignItems: 'center', justifyContent: 'space-between' },
+    headerTitleRow: { flexDirection: 'row', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, alignItems: 'center', justifyContent: 'space-between' },
     titleContent: { gap: 2 },
-    mainTitle: { fontSize: 24, fontWeight: '900', color: '#000', letterSpacing: -1 },
-    subTitle: { fontSize: 13, fontWeight: '700', color: '#94a3b8' },
-    headerX: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
+    mainTitle: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+    subTitle: { fontSize: 13, fontWeight: '600', color: '#999' },
+    headerX: { width: 38, height: 38, borderRadius: 11, backgroundColor: '#f3f3f3', alignItems: 'center', justifyContent: 'center' },
 
+    // 50/50 pill tab toggle
+    tabToggleWrap: {
+        flexDirection: 'row',
+        marginHorizontal: 20,
+        marginBottom: 14,
+        backgroundColor: '#f0f0f0',
+        borderRadius: 14,
+        padding: 4,
+        gap: 0,
+    },
+    tabToggleBtn: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: 7, paddingVertical: 10, borderRadius: 11,
+    },
+    tabToggleBtnActive: { backgroundColor: '#000' },
+    tabToggleText: { fontSize: 13, fontWeight: '800', color: '#888' },
+    tabToggleTextActive: { color: '#fff' },
+    tabCountBadge: {
+        backgroundColor: '#ddd', borderRadius: 8,
+        paddingHorizontal: 6, paddingVertical: 2,
+    },
+    tabCountBadgeActive: { backgroundColor: 'rgba(255,255,255,0.25)' },
+    tabCountText: { fontSize: 10, fontWeight: '900', color: '#555' },
+    tabCountTextActive: { color: '#fff' },
+
+    // Legacy tab styles kept for safety
     tabContainer: { flexDirection: 'row', paddingHorizontal: 24, gap: 12, paddingBottom: 0 },
     tabBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 12, borderBottomWidth: 2, borderColor: 'transparent' },
     tabBtnActive: { borderColor: '#000' },
@@ -586,55 +801,228 @@ const styles = StyleSheet.create({
     ledgerCount: { backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
     ledgerCountText: { fontSize: 9, fontWeight: '900', color: '#64748b' },
 
-    mainBody: { flex: 1 },
+    mainBody: { flex: 1, backgroundColor: '#f5f5f5' },
     formScroll: { flex: 1 },
-    formContent: { padding: 24, gap: 32 },
-    formHero: { flexDirection: 'row', backgroundColor: '#000', borderRadius: 24, padding: 20, marginBottom: 8 },
+    formContent: { padding: 18, paddingTop: 20, gap: 16 },
+    formHero: { flexDirection: 'row', backgroundColor: '#000', borderRadius: 20, padding: 18, marginBottom: 4 },
     heroStatItem: { flex: 1, alignItems: 'center' },
     heroStatLabel: { fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.4)', letterSpacing: 1, marginBottom: 4 },
     heroStatValue: { fontSize: 18, fontWeight: '900', color: '#fff' },
     heroStatDivider: { width: 1, height: '80%', backgroundColor: 'rgba(255,255,255,0.1)', alignSelf: 'center' },
 
-    inputGroup: { gap: 16 },
-    groupHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    groupTitle: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1.2, textTransform: 'uppercase' },
+    inputGroup: {
+        gap: 12,
+        backgroundColor: '#fff',
+        borderRadius: 18,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#ededed',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    groupHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+    groupTitle: {
+        fontSize: 11, fontWeight: '900', color: '#888',
+        letterSpacing: 1.2, textTransform: 'uppercase',
+    },
     vipBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9' },
     vipBadgeOn: { backgroundColor: '#000', borderColor: '#000' },
     vipBadgeText: { fontSize: 10, fontWeight: '900', color: '#64748b' },
     vipBadgeTextOn: { color: '#fff' },
 
-    fieldContainer: { gap: 8 },
-    fieldLabel: { fontSize: 11, fontWeight: '800', color: '#475569', letterSpacing: 0.5 },
+    fieldContainer: { gap: 6 },
+    fieldLabel: { fontSize: 12, fontWeight: '800', color: '#333', letterSpacing: 0.3 },
     reqText: { color: '#ef4444' },
-    inputWrapper: { flexDirection: 'row', height: 52, backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 14, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#f1f5f9' },
-    fieldInput: { flex: 1, fontSize: 15, fontWeight: '700', color: '#000' },
-    simpleInput: { height: 52, backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 14, fontSize: 15, fontWeight: '700', color: '#000', borderWidth: 1, borderColor: '#f1f5f9' },
+    inputWrapper: {
+        flexDirection: 'row', height: 50,
+        backgroundColor: '#fff',
+        borderRadius: 12, paddingHorizontal: 14,
+        alignItems: 'center', gap: 10,
+        borderWidth: 1.5, borderColor: '#c9c9c9',
+    },
+    fieldInput: { flex: 1, fontSize: 15, fontWeight: '600', color: '#000' },
+    simpleInput: {
+        height: 50,
+        backgroundColor: '#fff',
+        borderRadius: 12, paddingHorizontal: 14,
+        fontSize: 15, fontWeight: '600', color: '#000',
+        borderWidth: 1.5, borderColor: '#c9c9c9',
+    },
 
-    typeSelectorRow: { flexDirection: 'row', gap: 12 },
-    typeOption: { flex: 1, height: 52, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: '#f1f5f9' },
-    typeOptionActive: { borderColor: '#000', backgroundColor: '#fff' },
-    typeRadio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
-    typeRadioActive: { borderColor: '#000' },
-    radioInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#000' },
-    typeOptionText: { fontSize: 14, fontWeight: '800', color: '#64748b' },
-    typeOptionTextActive: { color: '#000' },
+    typeSelectorRow: { flexDirection: 'row', gap: 10 },
+    typeOption: {
+        flex: 1, height: 50, flexDirection: 'row', alignItems: 'center', gap: 10,
+        backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 14,
+        borderWidth: 1.5, borderColor: '#c9c9c9',
+    },
+    typeOptionActive: { borderColor: '#000', backgroundColor: '#000' },
+    typeRadio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#c9c9c9', alignItems: 'center', justifyContent: 'center' },
+    typeRadioActive: { borderColor: '#fff' },
+    radioInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
+    typeOptionText: { fontSize: 14, fontWeight: '800', color: '#555' },
+    typeOptionTextActive: { color: '#fff' },
 
-    dropdownInput: { flexDirection: 'row', height: 52, backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'space-between', gap: 12, borderWidth: 1, borderColor: '#f1f5f9' },
-    dropdownValue: { flex: 1, fontSize: 15, fontWeight: '700', color: '#000' },
-    placeholder: { color: '#cbd5e1' },
+    dropdownInput: {
+        flexDirection: 'row', height: 50,
+        backgroundColor: '#fff',
+        borderRadius: 12, paddingHorizontal: 14,
+        alignItems: 'center', justifyContent: 'space-between', gap: 10,
+        borderWidth: 1.5, borderColor: '#c9c9c9',
+    },
+    dropdownValue: { flex: 1, fontSize: 15, fontWeight: '600', color: '#000' },
+    placeholder: { color: '#bbb' },
 
-    gridRow: { flexDirection: 'row', gap: 12 },
-    textArea: { minHeight: 100, backgroundColor: '#f8fafc', borderRadius: 16, padding: 14, fontSize: 14, fontWeight: '600', color: '#000', textAlignVertical: 'top', borderWidth: 1, borderColor: '#f1f5f9' },
+    gridRow: { flexDirection: 'row', gap: 10 },
+    textArea: {
+        minHeight: 90,
+        backgroundColor: '#fff',
+        borderRadius: 12, padding: 14,
+        fontSize: 14, fontWeight: '600', color: '#000',
+        textAlignVertical: 'top',
+        borderWidth: 1.5, borderColor: '#c9c9c9',
+    },
 
-    ledgerContainer: { flex: 1, backgroundColor: '#f8fafc' },
-    ledgerStatsOverlay: { flexDirection: 'row', backgroundColor: '#fff', margin: 24, marginBottom: 0, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
-    statMiniCard: { flex: 1, alignItems: 'center' },
-    miniLabel: { fontSize: 8, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5 },
-    miniValue: { fontSize: 15, fontWeight: '900', color: '#000', marginTop: 4 },
-    statMiniDivider: { width: 1, height: '60%', backgroundColor: '#f1f5f9', alignSelf: 'center' },
+    ledgerContainer: { flex: 1, backgroundColor: '#f5f5f5' },
 
-    ledgerList: { padding: 24, gap: 12 },
-    ledgerCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+    // Combined stats + filter card
+    ledgerTopCard: {
+        marginHorizontal: 14, marginTop: 14,
+        backgroundColor: '#fff',
+        borderRadius: 18,
+        borderWidth: 1, borderColor: '#e8e8e8',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
+        overflow: 'hidden',
+    },
+    ledgerTopRow: {
+        flexDirection: 'row',
+        alignItems: 'stretch',
+    },
+    // Stats — takes ~65% of width
+    ledgerStatsSection: {
+        flex: 2,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 6,
+    },
+    cardVertDivider: {
+        width: 1, backgroundColor: '#efefef',
+        marginVertical: 10,
+    },
+    // Filter col — takes ~35% of width
+    filterControlCol: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 7,
+        paddingVertical: 12,
+        paddingHorizontal: 8,
+    },
+    filterBtn: {
+        flexDirection: 'row', alignItems: 'center', gap: 5,
+        paddingHorizontal: 10, paddingVertical: 7,
+        borderRadius: 22,
+        backgroundColor: '#f3f3f3',
+        borderWidth: 1.5, borderColor: '#dedede',
+        alignSelf: 'stretch', justifyContent: 'center',
+    },
+    filterBtnActive: { backgroundColor: '#000', borderColor: '#000' },
+    filterBtnText: { fontSize: 12, fontWeight: '800', color: '#444' },
+    filterBtnTextActive: { color: '#fff' },
+
+    // Active date banner
+    activeDateBanner: {
+        flexDirection: 'row', alignItems: 'center', gap: 8,
+        backgroundColor: '#000',
+        paddingHorizontal: 14, paddingVertical: 8,
+    },
+    activeDateText: { flex: 1, fontSize: 11, fontWeight: '700', color: '#fff' },
+
+    // Legacy — kept
+    ledgerStatsOverlay: {
+        flexDirection: 'row', backgroundColor: '#fff',
+        marginHorizontal: 14, marginTop: 14, marginBottom: 0,
+        borderRadius: 16, padding: 14,
+        borderWidth: 1, borderColor: '#e8e8e8',
+    },
+    ledgerStatsRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 10 },
+    filterCardDivider: { height: 1, backgroundColor: '#f0f0f0' },
+    filterInlineRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14, gap: 10 },
+    filterLabelBox: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingRight: 10, borderRightWidth: 1, borderRightColor: '#ebebeb' },
+    filterLabelText: { fontSize: 12, fontWeight: '800', color: '#555' },
+    filterChipScroll: { gap: 8, paddingRight: 4, flexDirection: 'row' },
+
+    statMiniCard: { flex: 1, alignItems: 'center', gap: 3 },
+    miniLabel: { fontSize: 9, fontWeight: '800', color: '#999', letterSpacing: 0.4, textTransform: 'uppercase' },
+    miniValue: { fontSize: 14, fontWeight: '900', color: '#000' },
+    statMiniDivider: { width: 1, height: 26, backgroundColor: '#e8e8e8', alignSelf: 'center' },
+
+    ledgerList: { padding: 14, paddingTop: 12, gap: 10 },
+
+    // ── Ledger card ──────────────────────────────────
+    ledgerCard: {
+        backgroundColor: '#fff', borderRadius: 16,
+        borderWidth: 1, borderColor: '#e8e8e8',
+        overflow: 'hidden',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    },
+
+    // Header row: inv number + date | amount + status
+    ledgerHeader: {
+        flexDirection: 'row', alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10,
+        gap: 12,
+    },
+    ledgerInvBlock: { gap: 4 },
+    ledgerInvNum: { fontSize: 14, fontWeight: '900', color: '#000', letterSpacing: 0.3 },
+    ledgerDateRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    ledgerDateText: { fontSize: 12, fontWeight: '600', color: '#888' },
+
+    ledgerRightBlock: { alignItems: 'flex-end', gap: 5 },
+    ledgerAmount: { fontSize: 16, fontWeight: '900', color: '#000' },
+    statusBadge: {
+        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7,
+        borderWidth: 1,
+    },
+    statusPaid: { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' },
+    statusDue: { backgroundColor: '#fff1f2', borderColor: '#fecdd3' },
+    statusBadgeText: { fontSize: 10, fontWeight: '900', letterSpacing: 0.3 },
+    statusPaidText: { color: '#16a34a' },
+    statusDueText: { color: '#ef4444' },
+
+    // Products block
+    ledgerItemsBlock: {
+        borderTopWidth: 1, borderTopColor: '#f0f0f0',
+        marginHorizontal: 14, paddingTop: 8, paddingBottom: 4,
+    },
+    ledgerItemRow: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingVertical: 7, gap: 10,
+    },
+    ledgerItemRowBorder: { borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
+    ledgerItemQtyBox: {
+        width: 26, height: 26, borderRadius: 8,
+        backgroundColor: '#f3f3f3', borderWidth: 1, borderColor: '#e8e8e8',
+        alignItems: 'center', justifyContent: 'center',
+    },
+    ledgerItemQty: { fontSize: 11, fontWeight: '900', color: '#555' },
+    ledgerItemName: { flex: 1, fontSize: 13, fontWeight: '700', color: '#222' },
+    ledgerItemTotal: { fontSize: 13, fontWeight: '800', color: '#000' },
+
+    // Tap hint
+    ledgerTapRow: {
+        flexDirection: 'row', alignItems: 'center', gap: 4,
+        paddingHorizontal: 14, paddingBottom: 10, paddingTop: 2,
+    },
+    ledgerTapHint: { fontSize: 11, fontWeight: '600', color: '#bbb' },
+
+    // Legacy — kept for safety
     ledgerCardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     ledgerDateBox: { width: 44, height: 44, backgroundColor: '#f8fafc', borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
     ledgerDay: { fontSize: 16, fontWeight: '900', color: '#000' },
@@ -650,9 +1038,23 @@ const styles = StyleSheet.create({
     ledgerItemPreview: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
 
     ledgerEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
-    emptyArt: { width: 72, height: 72, borderRadius: 24, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
-    emptyHeading: { fontSize: 18, fontWeight: '900', color: '#000' },
-    emptyText: { fontSize: 14, fontWeight: '600', color: '#94a3b8', textAlign: 'center' },
+    emptyArt: { width: 64, height: 64, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e8e8e8' },
+    emptyHeading: { fontSize: 17, fontWeight: '900', color: '#000' },
+    emptyText: { fontSize: 13, fontWeight: '600', color: '#999', textAlign: 'center' },
+
+    // Month filter chips
+    monthChip: {
+        paddingHorizontal: 12, paddingVertical: 5,
+        borderRadius: 20, backgroundColor: '#f3f3f3',
+        borderWidth: 1.5, borderColor: '#e0e0e0',
+    },
+    monthChipActive: { backgroundColor: '#000', borderColor: '#000' },
+    monthChipText: { fontSize: 12, fontWeight: '800', color: '#555' },
+    monthChipTextActive: { color: '#fff' },
+
+    filterEmptyBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 8 },
+    filterEmptyTitle: { fontSize: 15, fontWeight: '900', color: '#333' },
+    filterEmptyText: { fontSize: 13, fontWeight: '600', color: '#bbb', textAlign: 'center' },
 
     modalFooter: { padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#f1f5f9' },
     footerActions: { flexDirection: 'row', gap: 12 },
@@ -669,4 +1071,50 @@ const styles = StyleSheet.create({
     sheetLabel: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1 },
     option: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 18, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
     optionLabel: { fontSize: 15, fontWeight: '800', color: '#000' }
+});
+
+// ── CalendarPicker styles ─────────────────────────────────────────────────────
+const calStyles = StyleSheet.create({
+    overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', zIndex: 2000 },
+    sheet: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 28, borderTopRightRadius: 28,
+        padding: 20, paddingBottom: 32,
+    },
+    header: {
+        flexDirection: 'row', alignItems: 'center',
+        justifyContent: 'space-between', marginBottom: 16,
+    },
+    navBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+    navArrow: { fontSize: 28, fontWeight: '300', color: '#000', lineHeight: 32 },
+    monthTitle: { fontSize: 17, fontWeight: '900', color: '#000' },
+    dayRow: {
+        flexDirection: 'row', marginBottom: 6,
+    },
+    dayLabel: {
+        flex: 1, textAlign: 'center',
+        fontSize: 11, fontWeight: '800', color: '#aaa',
+    },
+    weekRow: { flexDirection: 'row', marginBottom: 4 },
+    dayCell: {
+        flex: 1, aspectRatio: 1,
+        alignItems: 'center', justifyContent: 'center',
+        borderRadius: 12,
+    },
+    dayCellSelected: { backgroundColor: '#000' },
+    dayCellToday: { backgroundColor: '#f3f3f3' },
+    dayNum: { fontSize: 14, fontWeight: '700', color: '#111' },
+    dayNumSelected: { color: '#fff' },
+    dayNumFuture: { color: '#ddd' },
+    dot: {
+        width: 4, height: 4, borderRadius: 2,
+        backgroundColor: '#000', marginTop: 2,
+    },
+    dotSelected: { backgroundColor: '#fff' },
+    clearBtn: {
+        marginTop: 16, alignItems: 'center',
+        paddingVertical: 14, borderRadius: 16,
+        backgroundColor: '#f3f3f3',
+    },
+    clearBtnText: { fontSize: 14, fontWeight: '800', color: '#555' },
 });

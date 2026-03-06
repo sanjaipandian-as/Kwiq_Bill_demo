@@ -80,7 +80,19 @@ export default function BillingPage({ navigation, route }) {
       }
       fetchProducts();
       processBillingQueue();
-    }, [activeBillId])
+
+      // Ensure sync pill is visible when we focus if scanner is closed
+      if (isScannerOpen) {
+        updateSettings('app', { isScannerActive: true });
+      } else {
+        updateSettings('app', { isScannerActive: false });
+      }
+
+      return () => {
+        // Clear scanner active state on unmount/blur
+        updateSettings('app', { isScannerActive: false });
+      };
+    }, [activeBillId, isScannerOpen])
   );
 
   useEffect(() => {
@@ -878,64 +890,106 @@ export default function BillingPage({ navigation, route }) {
         {/* Premium Header */}
         <LinearGradient
           colors={['#000000', '#1a1a1a']}
-          style={styles.headerGradient}
+          style={[styles.headerGradient, isScannerOpen && { paddingBottom: 0 }]}
         >
           <SafeAreaView edges={['top']}>
-            <View style={styles.topBar}>
-              <View>
-                <Text style={styles.headerTitle}>Billing</Text>
-                <Text style={styles.headerSubtitle}>{activeBills.length} Active Sessions</Text>
-              </View>
-              <View style={styles.headerActions}>
-                <TouchableOpacity style={styles.headerIconBtn} onPress={() => setIsScannerOpen(true)}>
-                  <Scan size={20} color="#fff" />
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: '#22c55e' }]} onPress={addNewBill}>
-                  <Plus size={22} color="#000" />
-                </TouchableOpacity>
-              </View>
-            </View>
+            {isScannerOpen ? (
+              <View style={{ height: 180, backgroundColor: '#000', overflow: 'hidden', borderBottomLeftRadius: 40, borderBottomRightRadius: 40 }}>
+                <ScanBarcodeModal
+                  visible={true}
+                  isInline={true}
+                  onClose={() => {
+                    setIsScannerOpen(false);
+                    updateSettings('app', { isScannerActive: false });
+                  }}
+                  onScanned={(product) => {
+                    handleAddProduct(product);
+                    showToast(`Scanned: ${product.name}`, 'success');
+                    // Only close if we need to show variants, else keep scanning
+                    let hasVariants = false;
+                    const siblings = products.filter(p => p.name.trim().toLowerCase() === product.name.trim().toLowerCase());
+                    if (siblings.length > 1) {
+                      hasVariants = true;
+                    } else {
+                      try {
+                        let variants = [];
+                        if (typeof product.variants === 'string') {
+                          variants = JSON.parse(product.variants);
+                        } else if (Array.isArray(product.variants)) {
+                          variants = product.variants;
+                        }
+                        if (variants && variants.length > 0) {
+                          hasVariants = true;
+                        }
+                      } catch (e) { }
+                    }
 
-            {/* Functional Tabs */}
-            <View style={styles.tabsContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20 }}>
-                {activeBills.map((bill) => (
-                  <TouchableOpacity
-                    key={bill.id}
-                    style={[styles.tabItem, bill.id === activeBillId && styles.activeTabItem, { flexDirection: 'row', gap: 8 }]}
-                    onPress={() => setActiveBillId(bill.id)}
-                  >
-                    <Text style={[styles.tabItemText, bill.id === activeBillId && styles.activeTabItemText]}>
-                      Bill #{bill.id}
-                    </Text>
-
-                    <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        closeBill(bill.id);
-                      }}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      style={{
-                        backgroundColor: bill.id === activeBillId ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
-                        borderRadius: 10,
-                        padding: 2
-                      }}
-                    >
-                      <X size={14} color={bill.id === activeBillId ? "#fff" : "rgba(255,255,255,0.5)"} />
+                    if (hasVariants) {
+                      setIsScannerOpen(false);
+                      updateSettings('app', { isScannerActive: false });
+                    }
+                  }}
+                />
+              </View>
+            ) : (
+              <>
+                <View style={styles.topBar}>
+                  <View>
+                    <Text style={styles.headerTitle}>Billing</Text>
+                    <Text style={styles.headerSubtitle}>{activeBills.length} Active Sessions</Text>
+                  </View>
+                  <View style={styles.headerActions}>
+                    <TouchableOpacity style={styles.headerIconBtn} onPress={() => { setIsScannerOpen(true); updateSettings('app', { isScannerActive: true }); }}>
+                      <Scan size={20} color="#fff" />
                     </TouchableOpacity>
+                    <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: '#22c55e' }]} onPress={addNewBill}>
+                      <Plus size={22} color="#000" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
 
-                    {bill.id === activeBillId && <View style={styles.activeIndicator} />}
+                {/* Functional Tabs */}
+                <View style={styles.tabsContainer}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20 }}>
+                    {activeBills.map((bill) => (
+                      <TouchableOpacity
+                        key={bill.id}
+                        style={[styles.tabItem, bill.id === activeBillId && styles.activeTabItem, { flexDirection: 'row', gap: 8 }]}
+                        onPress={() => setActiveBillId(bill.id)}
+                      >
+                        <Text style={[styles.tabItemText, bill.id === activeBillId && styles.activeTabItemText]}>
+                          Bill #{bill.id}
+                        </Text>
+
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            closeBill(bill.id);
+                          }}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          style={{
+                            backgroundColor: bill.id === activeBillId ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
+                            borderRadius: 10,
+                            padding: 2
+                          }}
+                        >
+                          <X size={14} color={bill.id === activeBillId ? "#fff" : "rgba(255,255,255,0.5)"} />
+                        </TouchableOpacity>
+
+                        {bill.id === activeBillId && <View style={styles.activeIndicator} />}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  <TouchableOpacity
+                    style={styles.billHistoryBtn}
+                    onPress={() => setShowBillSelector(!showBillSelector)}
+                  >
+                    <ChevronDown size={20} color="rgba(255,255,255,0.6)" />
                   </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <TouchableOpacity
-                style={styles.billHistoryBtn}
-                onPress={() => setShowBillSelector(!showBillSelector)}
-              >
-                <ChevronDown size={20} color="rgba(255,255,255,0.6)" />
-              </TouchableOpacity>
-            </View>
+                </View>
+              </>
+            )}
           </SafeAreaView>
         </LinearGradient>
 
@@ -1013,7 +1067,10 @@ export default function BillingPage({ navigation, route }) {
               onRowClick={setSelectedItemId}
               onDiscountClick={(id) => { setSelectedItemId(id); setModals(m => ({ ...m, itemDiscount: true })); }}
               onAddQuickItem={handleAddProduct}
-              onScanClick={() => setIsScannerOpen(true)}
+              onScanClick={() => {
+                setIsScannerOpen(true);
+                updateSettings('app', { isScannerActive: true });
+              }}
               additionalCharges={currentBill.additionalCharges || 0}
               loyaltyDiscount={currentBill.loyaltyPointsDiscount || 0}
               remarks={currentBill.remarks || ''}
@@ -1182,16 +1239,7 @@ export default function BillingPage({ navigation, route }) {
           )
         }
 
-        {/* Barcode Scanner Modal */}
-        <ScanBarcodeModal
-          visible={isScannerOpen}
-          onClose={() => setIsScannerOpen(false)}
-          onScanned={(product) => {
-            handleAddProduct(product);
-            setIsScannerOpen(false); // Close to allow variant selection logic to proceed visible to user
-            showToast(`Scanned: ${product.name}`, 'success');
-          }}
-        />
+        {/* Scanner Modal removed from here: it's now rendered INLINE inside styles.content */}
 
         <ConfirmationModal
           isOpen={modals.clearCartConfirm}

@@ -9,6 +9,19 @@ export const ProductProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Normalization helper for variants
+  const normalizeVariants = (variants) => {
+    return (variants || []).map(v => ({
+      ...v,
+      name: String(v.name || v.detail || ''),
+      sku: String(v.sku || ''),
+      cost_price: parseFloat((v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)) || 0,
+      price: (v.price !== null && v.price !== undefined && v.price !== '') ? parseFloat(v.price) : null,
+      stock: parseInt((v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock : ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty : ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))) || 0,
+      tax_rate: parseFloat(v.tax_rate || v.taxRate || 0) || 0,
+    }));
+  };
+
   // Initial load from SQLite
   useEffect(() => {
     const loadProducts = async () => {
@@ -39,16 +52,18 @@ export const ProductProvider = ({ children }) => {
       const id = data.id || Date.now().toString();
       const sku = data.sku || data.barcode || "";
 
+      const normalizedVariants = normalizeVariants(data.variants);
       db.runSync(
         `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, data.name, sku, data.category, data.price, data.costPrice || 0, data.stock || 0, data.minStock || 0, data.unit, data.tax_rate, JSON.stringify(data.variants || []), data.variant || null, new Date().toISOString()]
+        [id, data.name, sku, data.category, data.price, data.costPrice || 0, data.stock || 0, data.minStock || 0, data.unit, data.tax_rate, JSON.stringify(normalizedVariants), data.variant || null, new Date().toISOString()]
       );
 
       const newProduct = {
         ...data,
         id,
         sku,
+        variants: normalizedVariants,
         cost_price: data.costPrice || 0,
         tax_rate: data.tax_rate || 0
       };
@@ -75,8 +90,15 @@ export const ProductProvider = ({ children }) => {
 
   const updateProduct = async (id, data) => {
     try {
-      const sku = data.barcode || data.sku || ""; // Priority to barcode field from edit form
+      const sku = data.barcode || data.sku || "";
       console.log(`[ProductContext] Update Product ID: ${id}, SKU: ${sku}`);
+
+      // ─── Normalize variants: coerce all numeric fields from strings to numbers ───
+      // Form inputs (TextInput) always return strings; we must coerce before DB + Sync.
+      const normalizedVariants = normalizeVariants(data.variants);
+
+      const costPrice = parseFloat(data.cost_price || data.costPrice || 0) || 0;
+      const minStock = parseInt(data.minStock ?? data.min_stock ?? 0) || 0;
 
       db.runSync(
         `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, cost_price = ?, stock = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
@@ -85,12 +107,12 @@ export const ProductProvider = ({ children }) => {
           sku,
           data.category,
           data.price,
-          data.costPrice || 0,
+          costPrice,
           data.stock,
-          data.minStock || 0,
+          minStock,
           data.unit,
           data.tax_rate || 0,
-          JSON.stringify(data.variants || []),
+          JSON.stringify(normalizedVariants),
           data.variant || null,
           new Date().toISOString(),
           id
@@ -101,22 +123,33 @@ export const ProductProvider = ({ children }) => {
         ...p,
         ...data,
         sku,
-        cost_price: data.costPrice !== undefined ? data.costPrice : p.cost_price
+        variants: normalizedVariants,
+        cost_price: costPrice,
+        min_stock: minStock,
       } : p));
 
-      // [AutoSave]
+      // [AutoSave] — triggers local file + Drive snapshot sync
       triggerAutoSave();
 
-      // [Sync]
+      // [Sync Event] — build finalProduct from data directly.
+      // IMPORTANT: do NOT depend on products.find() because React state
+      // may still hold the old snapshot at this point in the async call.
       let synced = false;
       try {
         const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-        // Construct full updated object
-        const oldProduct = products.find(p => p.id === id);
-        if (oldProduct) {
-          const finalProduct = { ...oldProduct, ...data, sku };
-          synced = await SyncService.createAndUploadEvent(EventTypes.PRODUCT_UPDATED, finalProduct);
-        }
+        const finalProduct = {
+          ...data,
+          id,
+          sku,
+          variants: normalizedVariants,
+          cost_price: costPrice,
+          costPrice: costPrice,
+          min_stock: minStock,
+          minStock: minStock,
+          tax_rate: data.tax_rate || 0,
+          updated_at: new Date().toISOString(),
+        };
+        synced = await SyncService.createAndUploadEvent(EventTypes.PRODUCT_UPDATED, finalProduct);
       } catch (e) {
         console.log('Sync Update Product Error:', e);
       }
@@ -223,7 +256,7 @@ export const ProductProvider = ({ children }) => {
           stock: parseInt(p.stock || 0),
           unit: p.unit || 'pcs',
           tax_rate: parseFloat(p.taxRate || p.tax_rate || 0),
-          variants: p.variants || [],
+          variants: normalizeVariants(p.variants),
           variant: p.variant || null,
           created_at: new Date().toISOString()
         };

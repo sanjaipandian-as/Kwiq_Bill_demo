@@ -686,6 +686,25 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
     // 2. Restore Products
     if (products && Array.isArray(products)) {
       updateRestoreProgress(`Restoring ${products.length} products...`, 0.52);
+
+      const normalizeVariants = (v) => {
+        try {
+          const list = (typeof v === 'string' ? JSON.parse(v) : (v || []));
+          if (!Array.isArray(list)) return JSON.stringify([]);
+          return JSON.stringify(list.map(item => ({
+            ...item,
+            name: String(item.name || item.detail || ''),
+            sku: String(item.sku || ''),
+            cost_price: parseFloat((item.cost_price !== undefined && item.cost_price !== null && item.cost_price !== '') ? item.cost_price : ((item.costPrice !== undefined && item.costPrice !== null && item.costPrice !== '') ? item.costPrice : 0)) || 0,
+            price: (item.price !== null && item.price !== undefined && item.price !== '') ? parseFloat(item.price) : null,
+            stock: parseInt((item.stock !== undefined && item.stock !== null && item.stock !== '') ? item.stock : ((item.qty !== undefined && item.qty !== null && item.qty !== '') ? item.qty : ((item.quantity !== undefined && item.quantity !== null && item.quantity !== '') ? item.quantity : 0))) || 0,
+            tax_rate: parseFloat(item.tax_rate || item.taxRate || 0) || 0,
+          })));
+        } catch (e) {
+          return JSON.stringify([]);
+        }
+      };
+
       await db.withTransactionAsync(async () => {
         for (const p of products) {
           await db.runAsync(
@@ -701,8 +720,8 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
               p.stock || 0,
               p.min_stock || p.minStock || 0,
               p.unit || 'pc',
-              p.tax_rate || 0,
-              (typeof p.variants === 'string' ? p.variants : JSON.stringify(p.variants || [])),
+              p.tax_rate || p.taxRate || 0,
+              normalizeVariants(p.variants),
               p.variant,
               p.created_at,
               p.updated_at
