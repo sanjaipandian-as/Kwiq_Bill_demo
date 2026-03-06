@@ -59,6 +59,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
   const [form, setForm] = useState(initialState);
   const [newVariant, setNewVariant] = useState('');
   const [newVariantPrice, setNewVariantPrice] = useState('');
+  const [newVariantCostPrice, setNewVariantCostPrice] = useState('');
   const [newVariantStock, setNewVariantStock] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [newVariantSku, setNewVariantSku] = useState('');
@@ -77,8 +78,9 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
               ...v,
               name: v.name || '',
               price: v.price !== undefined && v.price !== null ? String(v.price) : '',
+              cost_price: (v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? String(v.cost_price) : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? String(v.costPrice) : ''),
               options: Array.isArray(v.options) ? v.options : [],
-              stock: v.stock !== undefined && v.stock !== null ? String(v.stock) : '',
+              stock: (v.stock !== undefined && v.stock !== null && v.stock !== '') ? String(v.stock) : ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? String(v.qty) : ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? String(v.quantity) : '')),
               sku: v.sku || ''
             };
           });
@@ -117,6 +119,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
       const variantObj = {
         name: newVariant.trim(),
         options: [newVariant.trim()],
+        cost_price: newVariantCostPrice.trim() !== '' ? parseFloat(newVariantCostPrice) : 0,
         price: newVariantPrice.trim() !== '' ? parseFloat(newVariantPrice) : null,
         stock: newVariantStock.trim() !== '' ? parseInt(newVariantStock) : 0,
         sku: newVariantSku.trim() || `SKU-${Date.now()}`
@@ -128,10 +131,11 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
       }));
       setNewVariant('');
       setNewVariantPrice('');
+      setNewVariantCostPrice('');
       setNewVariantStock('');
       setNewVariantSku('');
     }
-  }, [newVariant, newVariantPrice, newVariantStock, newVariantSku]);
+  }, [newVariant, newVariantPrice, newVariantCostPrice, newVariantStock, newVariantSku]);
 
   const handleRemoveVariant = useCallback((index) => {
     setForm(prev => ({
@@ -289,7 +293,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                   <Text style={styles.marginLabel}>PROJECTED MARGIN</Text>
                   <Text style={styles.marginDesc}>{margin > 0 ? 'Profitable margin' : 'Low or negative margin'}</Text>
                 </View>
-                <Text style={[styles.marginValue, { color: margin > 0 ? '#10b981' : '#ef4444' }]}>
+                <Text style={[styles.marginValue, { color: '#fff' }]}>
                   {isNaN(margin) ? '0' : margin.toFixed(1)}%
                 </Text>
               </View>
@@ -345,7 +349,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                   />
                   {form.barcode?.length > 4 && (
                     <TouchableOpacity
-                      style={[styles.scanAction, { backgroundColor: '#3b82f6' }]}
+                      style={styles.scanAction}
                       onPress={() => printBarcode(form.name || 'Product', form.barcode, settings)}
                     >
                       <Printer size={20} color="#fff" />
@@ -366,7 +370,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
               <View style={styles.variantForm}>
                 <View style={styles.variantLabelRow}>
                   <Text style={[styles.microLabel, { flex: 2 }]}>VARIANT DETAIL</Text>
-                  <Text style={[styles.microLabel, { flex: 1 }]}>PRICE (₹)</Text>
+                  <Text style={[styles.microLabel, { flex: 1 }]}>SELL PRICE (₹)</Text>
                 </View>
                 <View style={styles.variantRow}>
                   <TextInput
@@ -387,10 +391,19 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                 </View>
 
                 <View style={[styles.variantLabelRow, { marginTop: 14 }]}>
+                  <Text style={[styles.microLabel, { flex: 1 }]}>COST PRICE (₹)</Text>
                   <Text style={[styles.microLabel, { flex: 1 }]}>STOCK QTY</Text>
-                  <View style={{ width: 60 }} />
+                  <View style={{ width: 50 }} />
                 </View>
                 <View style={styles.variantRow}>
+                  <TextInput
+                    style={[styles.variantInput, { flex: 1 }]}
+                    placeholder="e.g. 400"
+                    keyboardType="numeric"
+                    value={newVariantCostPrice}
+                    onChangeText={setNewVariantCostPrice}
+                    placeholderTextColor="#cbd5e1"
+                  />
                   <TextInput
                     style={[styles.variantInput, { flex: 1 }]}
                     placeholder="e.g. 50"
@@ -408,16 +421,43 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
               <View style={styles.variantsContainer}>
                 {form.variants.map((v, index) => {
                   const displayName = v.name || (v.options && v.options[0]) || 'Variant';
+                  let costVal = '';
+                  if (v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') {
+                    costVal = String(v.cost_price);
+                  } else if (v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') {
+                    costVal = String(v.costPrice);
+                  }
+                  const priceVal = parseFloat(v.price || 0) || 0;
+                  const costNum = parseFloat(costVal || 0) || 0;
+                  const vMargin = priceVal > 0 ? (((priceVal - costNum) / priceVal) * 100).toFixed(1) : null;
                   return (
                     <View key={index} style={[styles.variantCard, { alignItems: 'flex-start' }]}>
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.variantName, { marginBottom: 12 }]}>{displayName.toUpperCase()}</Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <Text style={styles.variantName}>{displayName.toUpperCase()}</Text>
+                          {vMargin !== null && (
+                            <View style={styles.variantMarginBadge}>
+                              <Text style={styles.variantMarginBadgeText}>{vMargin}% margin</Text>
+                            </View>
+                          )}
+                        </View>
 
-                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
                           <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 6, letterSpacing: 0.5 }}>PRICE (₹)</Text>
+                            <Text style={styles.variantFieldLabel}>COST PRICE (₹)</Text>
                             <TextInput
-                              style={{ height: 44, backgroundColor: '#f8fafc', borderRadius: 12, paddingHorizontal: 12, fontSize: 13, fontWeight: '700', color: '#0f172a', borderWidth: 1, borderColor: '#e2e8f0' }}
+                              style={styles.variantFieldInput}
+                              value={costVal}
+                              onChangeText={(val) => handleVariantChange(index, 'cost_price', val)}
+                              keyboardType="numeric"
+                              placeholder="0"
+                              placeholderTextColor="#cbd5e1"
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.variantFieldLabel}>SELL PRICE (₹)</Text>
+                            <TextInput
+                              style={styles.variantFieldInput}
                               value={v.price !== undefined && v.price !== null ? String(v.price) : ''}
                               onChangeText={(val) => handleVariantChange(index, 'price', val)}
                               keyboardType="numeric"
@@ -426,10 +466,10 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                             />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 6, letterSpacing: 0.5 }}>STOCK</Text>
+                            <Text style={styles.variantFieldLabel}>STOCK</Text>
                             <TextInput
-                              style={{ height: 44, backgroundColor: '#f8fafc', borderRadius: 12, paddingHorizontal: 12, fontSize: 13, fontWeight: '700', color: '#0f172a', borderWidth: 1, borderColor: '#e2e8f0' }}
-                              value={v.stock !== undefined && v.stock !== null ? String(v.stock) : ''}
+                              style={styles.variantFieldInput}
+                              value={(v.stock || v.qty || v.quantity) != null ? String(v.stock || v.qty || v.quantity) : ''}
                               onChangeText={(val) => handleVariantChange(index, 'stock', val)}
                               keyboardType="numeric"
                               placeholder="0"
@@ -438,8 +478,8 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                           </View>
                         </View>
                       </View>
-                      <TouchableOpacity onPress={() => handleRemoveVariant(index)} style={[styles.deleteVarBtn, { marginTop: 0, alignSelf: 'center', marginLeft: 16 }]}>
-                        <Trash2 size={18} color="#ef4444" />
+                      <TouchableOpacity onPress={() => handleRemoveVariant(index)} style={[styles.deleteVarBtn, { marginTop: 0, alignSelf: 'center', marginLeft: 10 }]}>
+                        <Trash2 size={18} color="#000" />
                       </TouchableOpacity>
                     </View>
                   );
@@ -535,13 +575,17 @@ const styles = StyleSheet.create({
   microLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5 },
   variantRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   variantInput: { height: 50, backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 14, fontSize: 14, fontWeight: '700', color: '#000', borderWidth: 1.5, borderColor: '#e2e8f0' },
-  addIconBtn: { width: 50, height: 50, borderRadius: 14, backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center', shadowColor: '#10b981', shadowOpacity: 0.2, shadowRadius: 8, elevation: 3 },
-  variantsContainer: { gap: 10 },
-  variantCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 16, borderRadius: 18, borderWidth: 1.5, borderColor: '#000' },
+  addIconBtn: { width: 50, height: 50, borderRadius: 14, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+  variantsContainer: { gap: 12 },
+  variantCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 16, borderRadius: 18, borderWidth: 1.5, borderColor: '#e5e5e5' },
   variantName: { fontSize: 13, fontWeight: '900', color: '#000', letterSpacing: 0.5 },
   variantMeta: { fontSize: 12, fontWeight: '600', color: '#64748b', marginTop: 2 },
-  deleteVarBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#fef2f2' },
-  footer: { flexDirection: 'row', paddingHorizontal: 24, paddingTop: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 24, borderTopWidth: 1.5, borderColor: '#f1f5f9', gap: 12, backgroundColor: '#fff' },
+  variantFieldLabel: { fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 6, letterSpacing: 0.5 },
+  variantFieldInput: { height: 44, backgroundColor: '#f5f5f5', borderRadius: 12, paddingHorizontal: 12, fontSize: 13, fontWeight: '700', color: '#000', borderWidth: 1.5, borderColor: '#eee' },
+  variantMarginBadge: { backgroundColor: '#000', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  variantMarginBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
+  deleteVarBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center' },
+  footer: { flexDirection: 'row', paddingHorizontal: 24, paddingTop: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 24, borderTopWidth: 1.5, borderColor: '#eee', gap: 12, backgroundColor: '#fff' },
   ghostBtn: {
     flex: 1,
     height: 56,
@@ -549,11 +593,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 18,
     borderWidth: 2,
-    borderColor: '#fee2e2',
+    borderColor: '#ddd',
     backgroundColor: '#fff'
   },
-  ghostBtnText: { color: '#ef4444', fontWeight: '900', fontSize: 14, letterSpacing: 1 },
-  primaryBtn: { flex: 2, height: 56, backgroundColor: '#10b981', borderRadius: 18, alignItems: 'center', justifyContent: 'center', shadowColor: '#10b981', shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
+  ghostBtnText: { color: '#000', fontWeight: '900', fontSize: 14, letterSpacing: 1 },
+  primaryBtn: { flex: 2, height: 56, backgroundColor: '#000', borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   primaryBtnText: { color: '#fff', fontWeight: '900', fontSize: 15, letterSpacing: 0.5 },
   pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   pickerContent: { backgroundColor: '#fff', borderTopLeftRadius: 36, borderTopRightRadius: 36, padding: 24, paddingBottom: 60 },

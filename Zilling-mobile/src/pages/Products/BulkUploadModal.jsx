@@ -121,14 +121,14 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
 
             // Add variant columns for the template (3 example sets)
             const variantExamples = [
-                { detail: 'Red', price: '160', stock: '25' },
-                { detail: 'Blue', price: '170', stock: '15' },
-                { detail: 'Green', price: '155', stock: '20' },
+                { detail: 'Red', costPrice: '140', price: '160', stock: '25' },
+                { detail: 'Blue', costPrice: '145', price: '170', stock: '15' },
+                { detail: 'Green', costPrice: '135', price: '155', stock: '20' },
             ];
             for (let i = 0; i < TEMPLATE_VARIANT_EXAMPLES; i++) {
-                headers.push(`Variant ${i + 1} Detail`, `Variant ${i + 1} Price (₹)`, `Variant ${i + 1} Stock`);
-                const ex = variantExamples[i] || { detail: '', price: '', stock: '' };
-                exampleRow.push(ex.detail, ex.price, ex.stock);
+                headers.push(`Variant ${i + 1} Detail`, `Variant ${i + 1} Cost Price (₹)`, `Variant ${i + 1} Price (₹)`, `Variant ${i + 1} Stock`);
+                const ex = variantExamples[i] || { detail: '', costPrice: '', price: '', stock: '' };
+                exampleRow.push(ex.detail, ex.costPrice, ex.price, ex.stock);
             }
 
             const ws = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
@@ -243,7 +243,8 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                 let vi = 1;
                                 while (true) {
                                     const vDetail = getVal([`variant${vi}detail`, `v${vi}detail`, `variant${vi}name`, `variant${vi}`]);
-                                    const vPrice = getVal([`variant${vi}price`, `v${vi}price`, `variant${vi}pricers`]);
+                                    const vCostPrice = getVal([`variant${vi}costpricers`, `variant${vi}costprice`, `v${vi}costprice`, `variant${vi}cost`]);
+                                    const vPrice = getVal([`variant${vi}pricers`, `variant${vi}price`, `v${vi}price`]);
                                     const vStock = getVal([`variant${vi}stock`, `v${vi}stock`, `variant${vi}qty`]);
 
                                     // Stop when no variant detail is found
@@ -253,6 +254,7 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                         variants.push({
                                             name: vDetail.toString().trim(),
                                             options: [vDetail.toString().trim()],
+                                            cost_price: vCostPrice !== undefined ? parseFloat(vCostPrice) : 0,
                                             price: vPrice !== undefined ? parseFloat(vPrice) : null,
                                             stock: vStock !== undefined ? parseInt(vStock) : 0,
                                             sku: `SKU-${Date.now()}-v${vi}`,
@@ -367,6 +369,7 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                     const parsedVariants = (item.variants || []).map(v => ({
                         name: v.name || '',
                         options: v.options || [v.name || ''],
+                        cost_price: parseFloat(v.cost_price || 0),
                         price: v.price !== null && v.price !== undefined ? parseFloat(v.price) : null,
                         stock: parseInt(v.stock || 0),
                         sku: v.sku || `SKU-${Date.now()}`,
@@ -485,9 +488,13 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                     </View>
 
                     <ScrollView
-                        style={{ flex: 1 }}
+                        style={{ flex: 1, minHeight: 0 }}
                         contentContainerStyle={s.content}
-                        showsVerticalScrollIndicator={false}
+                        showsVerticalScrollIndicator={true}
+                        scrollEnabled={true}
+                        nestedScrollEnabled={true}
+                        bounces={true}
+                        keyboardShouldPersistTaps="handled"
                     >
 
                         {/* ── STEP 1: Template & Upload ── */}
@@ -544,7 +551,7 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                             </View>
                                         </View>
                                         <Text style={s.formatCardDesc}>
-                                            For each variant, add 3 columns:
+                                            For each variant, add 4 columns:
                                         </Text>
                                         <View style={s.variantFormatRow}>
                                             <View style={s.variantFormatItem}>
@@ -553,15 +560,19 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                             </View>
                                             <View style={s.variantFormatItem}>
                                                 <Text style={s.variantFormatNum}>2</Text>
-                                                <Text style={s.variantFormatLabel}>Variant N Price (₹)</Text>
+                                                <Text style={s.variantFormatLabel}>Variant N Cost Price (₹)</Text>
                                             </View>
                                             <View style={s.variantFormatItem}>
                                                 <Text style={s.variantFormatNum}>3</Text>
+                                                <Text style={s.variantFormatLabel}>Variant N Price (₹)</Text>
+                                            </View>
+                                            <View style={s.variantFormatItem}>
+                                                <Text style={s.variantFormatNum}>4</Text>
                                                 <Text style={s.variantFormatLabel}>Variant N Stock</Text>
                                             </View>
                                         </View>
                                         <Text style={s.variantExample}>
-                                            Example: Variant 1 Detail = "Red", Variant 2 Detail = "Blue" ...
+                                            Example: Variant 1 Detail = "Red", Variant 1 Cost Price = "140", Variant 1 Price = "160" ...
                                         </Text>
                                     </View>
                                 </View>
@@ -579,17 +590,11 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                     </View>
                                 </View>
 
-                                {/* Upload Button */}
-                                <TouchableOpacity style={s.uploadBtn} onPress={handleFilePick} activeOpacity={0.8}>
-                                    <View style={s.uploadIconCircle}>
-                                        <ArrowUpCircle size={24} color="#fff" />
-                                    </View>
-                                    <View>
-                                        <Text style={s.uploadBtnTitle}>SELECT FILE TO UPLOAD</Text>
-                                        <Text style={s.uploadBtnSub}>Choose .xlsx, .csv or .json file</Text>
-                                    </View>
-                                    <ChevronRight size={20} color="rgba(255,255,255,0.5)" />
-                                </TouchableOpacity>
+                                {/* Upload hint text instead of button - button is in footer */}
+                                <View style={s.uploadHint}>
+                                    <ArrowUpCircle size={16} color="#000" />
+                                    <Text style={s.uploadHintText}>Your file will be validated before import</Text>
+                                </View>
                             </View>
                         )}
 
@@ -786,9 +791,19 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                     {/* ── Footer ── */}
                     <View style={s.footer}>
                         {step === 'template' && (
-                            <TouchableOpacity style={s.ghostBtn} onPress={handleClose}>
-                                <Text style={s.ghostBtnText}>CANCEL</Text>
-                            </TouchableOpacity>
+                            <>
+                                <TouchableOpacity style={s.ghostBtn} onPress={handleClose}>
+                                    <Text style={s.ghostBtnText}>CANCEL</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={s.uploadBtn} onPress={handleFilePick} activeOpacity={0.8}>
+                                    <ArrowUpCircle size={20} color="#fff" />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={s.uploadBtnTitle}>CHOOSE FILE</Text>
+                                        <Text style={s.uploadBtnSub}>.xlsx · .csv · .json</Text>
+                                    </View>
+                                    <ChevronRight size={18} color="rgba(255,255,255,0.5)" />
+                                </TouchableOpacity>
+                            </>
                         )}
                         {step === 'preview' && (
                             <>
@@ -831,8 +846,10 @@ const s = StyleSheet.create({
         backgroundColor: '#fff',
         borderTopLeftRadius: 36,
         borderTopRightRadius: 36,
-        height: '92%',
+        height: '95%',
         width: '100%',
+        flexDirection: 'column',
+        display: 'flex',
     },
     handle: { width: 40, height: 5, backgroundColor: '#000', borderRadius: 5, alignSelf: 'center', marginTop: 12 },
 
@@ -841,7 +858,8 @@ const s = StyleSheet.create({
     subtitle: { fontSize: 13, color: '#646464', fontWeight: '600', marginTop: 2 },
     closeBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#e5e5e5' },
 
-    content: { paddingHorizontal: 24, paddingBottom: 20 },
+    content: { paddingHorizontal: 20, paddingBottom: 40 },
+
 
     // Template Section
     templateSection: {
@@ -946,18 +964,26 @@ const s = StyleSheet.create({
     infoText: { fontSize: 12, color: '#000', lineHeight: 18 },
     infoBold: { fontWeight: '900' },
 
-    // Upload Button
+    // Upload hint (replaces the in-scroll button)
+    uploadHint: {
+        flexDirection: 'row', alignItems: 'center', gap: 8,
+        backgroundColor: '#f5f5f5', borderRadius: 14,
+        paddingHorizontal: 16, paddingVertical: 12,
+        borderWidth: 1, borderColor: '#e0e0e0',
+    },
+    uploadHintText: { fontSize: 13, fontWeight: '700', color: '#444', flex: 1 },
+
+    // Upload Button (now in footer)
     uploadBtn: {
+        flex: 2,
         backgroundColor: '#000',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 14,
-        padding: 16,
-        borderRadius: 20,
-        shadowColor: '#000',
-        shadowOpacity: 0.2,
-        shadowRadius: 15,
-        elevation: 6,
+        gap: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 16,
+        elevation: 4,
     },
     uploadIconCircle: { width: 44, height: 44, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
     uploadBtnTitle: { color: '#fff', fontWeight: '900', fontSize: 14, letterSpacing: 0.3 },

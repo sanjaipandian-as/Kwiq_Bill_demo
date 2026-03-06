@@ -5,14 +5,14 @@ import { useAuth } from '../context/AuthContext';
 import { Cloud, CheckCircle2 } from 'lucide-react-native';
 
 const SyncStatusIndicator = () => {
-    const { isUploading, syncStatus, queueLength, loading: settingsLoading } = useSettings();
+    const { isUploading, syncStatus, queueLength, loading: settingsLoading, settings } = useSettings();
     const { user, isLoading } = useAuth();
     const translateY = useRef(new Animated.Value(-150)).current;
 
     // Hide the floating pill entirely if the full-screen DataSyncPage is active!
     // This happens during initial Boot (isLoading or settingsLoading) 
     // or during Login sync (!user).
-    const isFullScreenSyncActive = !user || isLoading || settingsLoading;
+    const isFullScreenSyncActive = !user || isLoading || settingsLoading || settings?.app?.isScannerActive;
 
     useEffect(() => {
         if (isUploading && !isFullScreenSyncActive) {

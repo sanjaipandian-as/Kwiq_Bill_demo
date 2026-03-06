@@ -393,7 +393,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
 
     // Cart Section
-    cartSection: { flex: 0.8, marginBottom: 15 },
+    cartSection: { flexShrink: 1, maxHeight: '45%', marginBottom: 15 },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
     sectionTitle: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5 },
 
@@ -476,7 +476,7 @@ const styles = StyleSheet.create({
 
     // Suggestions Section
     suggestionSection: {
-        flex: 1.2,
+        flex: 1,
         backgroundColor: '#fff',
         marginHorizontal: -20,
         paddingHorizontal: 20,

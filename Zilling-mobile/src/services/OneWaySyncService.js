@@ -55,6 +55,23 @@ function normalizeItems(raw) {
 }
 
 /**
+ * Normalizes variants: ensures consistent snake_case fields (cost_price, tax_rate, etc.)
+ * and coercing numeric types. Handles both camelCase and snake_case inputs.
+ */
+function normalizeVariants(raw) {
+    const list = normalizeItems(raw);
+    return list.map(v => ({
+        ...v,
+        name: String(v.name || v.detail || ''),
+        sku: String(v.sku || ''),
+        price: (v.price !== null && v.price !== undefined && v.price !== '') ? Number(v.price) : null,
+        cost_price: Number((v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)) || 0,
+        stock: Number((v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock : ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty : ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))) || 0,
+        tax_rate: Number(v.tax_rate || v.taxRate || 0),
+    }));
+}
+
+/**
  * Normalizes payments: same logic as items.
  */
 function normalizePayments(raw) {
@@ -139,7 +156,7 @@ function normalizeProductPayload(payload) {
         min_stock: parseInt(payload.minStock || payload.min_stock) || 0,
         unit: String(payload.unit || 'pc'),
         tax_rate: Number(payload.tax_rate || payload.taxRate || 0),
-        variants: JSON.stringify(normalizeItems(payload.variants)),
+        variants: JSON.stringify(normalizeVariants(payload.variants)),
         variant: String(payload.variant || ''),
         created_at: String(payload.created_at || new Date().toISOString()),
         updated_at: String(payload.updated_at || new Date().toISOString()),
@@ -233,14 +250,23 @@ function ensureCustomerExists(customerId, customerName) {
 /**
  * Sync Service responsible for Event Sourcing logic.
  */
+// In-memory cache: folder lookup costs 2 Drive API calls (3-5s) on every upload.
+// We cache it once per app session to avoid repeated latency.
+let _cachedEventsFolderId = null;
+let _cachedSyncKey = null;
+
 export const SyncService = {
 
     /**
      * Initialize or verify folder structure
      */
     async getEventsFolderId(accessToken) {
+        if (_cachedEventsFolderId) {
+            return _cachedEventsFolderId;
+        }
         const rootId = await getOrCreateFolder(accessToken, 'Kwiqbill');
         const eventsId = await getOrCreateFolder(accessToken, 'events', rootId);
+        _cachedEventsFolderId = eventsId; // cache for session
         return eventsId;
     },
 
@@ -256,61 +282,70 @@ export const SyncService = {
         return deviceId;
     },
 
+
     /**
      * Create and Dispatch an Event
-     *
+     */
     async createAndUploadEvent(type, payload) {
         const eventId = generateUUID();
         const timestamp = new Date().toISOString();
-        const deviceId = await this.getDeviceId();
 
         const envelope = {
             eventId,
             type,
             createdAt: timestamp,
-            deviceId,
+            deviceId: await this.getDeviceId(),
             payload
         };
 
         const fileName = `event_${timestamp}_${type}_${eventId}.json`;
+        console.log(`[Sync] Dispatching event: ${type} (${eventId.slice(0, 8)})`);
 
-        console.log(`[Sync] dispatching event: ${fileName}`);
-
-        // 1. Save to local queue first (Optimistic approach / Offline support)
+        // 1. Save locally first — data is never lost even if upload fails/times out
         await this.addToQueue({ fileName, content: envelope });
 
-        // 2. Try to upload immediately - with a racing timeout to prevent UI hanging
+        // 2. Upload to Drive non-blocking, with 25s timeout
+        //    (8s was too tight: folder lookup alone takes 3-5s on first call)
         try {
             const uploadPromise = (async () => {
-                const accessToken = await getAccessToken();
-                if (!accessToken) throw new Error("No access token");
+                // Parallelize: get token + encryption key at the same time
+                const [accessToken, userStr] = await Promise.all([
+                    getAccessToken(),
+                    AsyncStorage.getItem('user'),
+                ]);
 
-                // Get encryption key
-                const userStr = await AsyncStorage.getItem('user');
-                const user = userStr ? JSON.parse(userStr) : null;
-                const syncKey = user?.email || "";
+                if (!accessToken) throw new Error('No access token — user not signed in');
+
+                // Cache encryption key in memory to skip AsyncStorage on subsequent calls
+                if (!_cachedSyncKey && userStr) {
+                    const user = JSON.parse(userStr);
+                    _cachedSyncKey = user?.email || '';
+                }
+                const syncKey = _cachedSyncKey || '';
 
                 let content = JSON.stringify(envelope);
                 if (syncKey) {
                     content = CryptoJS.AES.encrypt(content, syncKey).toString();
                 }
 
+                // Folder ID is cached after first call — near-zero cost on subsequent uploads
                 const folderId = await this.getEventsFolderId(accessToken);
                 await uploadFileToFolder(accessToken, folderId, fileName, content);
 
-                // If successful, remove from queue
                 await this.removeFromQueue(eventId);
-                console.log(`[Sync] Event uploaded successfully: ${fileName}`);
+                console.log(`[Sync] ✓ Event uploaded: ${type}`);
                 return true;
             })();
 
+            // 25 seconds — enough for slow connections + first-time folder creation
             const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Upload Timeout")), 8000)
+                setTimeout(() => reject(new Error('Upload Timeout (25s)')), 25000)
             );
 
             return await Promise.race([uploadPromise, timeoutPromise]);
         } catch (error) {
-            console.log(`[Sync] Upload delayed/failed (Offline or Timeout): ${error.message}`);
+            // Event is already in the local queue — retryQueue() will upload it next time
+            console.log(`[Sync] Upload queued for retry: ${error.message}`);
             return false;
         }
     },
@@ -318,6 +353,7 @@ export const SyncService = {
     /**
      * "Turn Sync On" - Fetch, Filter, Apply
      */
+
     async syncDown(onProgress = () => { }) {
         try {
             const updateStatus = (msg, progress, stats) => {

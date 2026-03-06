@@ -13,7 +13,7 @@ export const CategoryFilter = ({ categories = [], selectedCategory, onCategoryCh
                     style={[styles.chip, !selectedCategory && styles.chipActive]}
                     onPress={() => onCategoryChange(null)}
                 >
-                    <Text style={[styles.chipText, !selectedCategory && styles.chipTextActive]}>All</Text>
+                    <Text style={[styles.chipText, !selectedCategory && styles.chipTextActive]}>All Items</Text>
                 </TouchableOpacity>
                 {categories.map((cat, index) => (
                     <TouchableOpacity
@@ -33,33 +33,32 @@ export const CategoryFilter = ({ categories = [], selectedCategory, onCategoryCh
 
 const styles = StyleSheet.create({
     container: {
-        marginBottom: 8,
+        marginBottom: 4,
     },
     scrollContent: {
-        paddingHorizontal: 24,
-        gap: 10,
-        paddingBottom: 8
+        paddingHorizontal: 20,
+        gap: 8,
+        paddingBottom: 6
     },
     chip: {
-        paddingHorizontal: 20,
+        paddingHorizontal: 18,
         paddingVertical: 10,
-        borderRadius: 100,
-        backgroundColor: '#f8fafc',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        elevation: 0,
+        borderRadius: 10,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.12)',
     },
     chipActive: {
-        backgroundColor: '#0f172a',
-        borderColor: '#0f172a',
+        backgroundColor: '#fff',
+        borderColor: '#fff',
     },
     chipText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#64748b',
+        fontSize: 14,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.5)',
     },
     chipTextActive: {
-        color: '#fff',
-        fontWeight: '700'
+        color: '#000',
+        fontWeight: '800'
     }
 });
