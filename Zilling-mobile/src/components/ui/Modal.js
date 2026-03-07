@@ -33,7 +33,7 @@ export const Modal = ({ isOpen, onClose, title, children, scrollable = true }) =
                                 <View style={styles.header}>
                                     <Text style={styles.title}>{title}</Text>
                                     <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                                        <X size={20} color="#64748b" />
+                                        <X size={20} color="#000" />
                                     </TouchableOpacity>
                                 </View>
                                 {scrollable ? (
@@ -97,9 +97,19 @@ const styles = StyleSheet.create({
         color: '#0f172a',
     },
     closeBtn: {
-        padding: 8,
-        backgroundColor: '#f1f5f9',
-        borderRadius: 12,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#fff',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
     },
     body: {
         flexShrink: 1,

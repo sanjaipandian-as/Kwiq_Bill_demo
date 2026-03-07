@@ -25,8 +25,8 @@ const LowStockPage = ({ navigation }) => {
             <View style={styles.card}>
                 <View style={styles.cardHeader}>
                     <View style={styles.headerLeft}>
-                        <View style={[styles.iconBox, { backgroundColor: '#fef2f2' }]}>
-                            <AlertTriangle size={20} color="#dc2626" />
+                        <View style={[styles.iconBox, { backgroundColor: '#000' }]}>
+                            <AlertTriangle size={20} color="#fff" />
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
@@ -34,7 +34,7 @@ const LowStockPage = ({ navigation }) => {
                         </View>
                     </View>
                     <View style={styles.stockBadge}>
-                        <Text style={styles.stockText}>{item.stock || 0} left</Text>
+                        <Text style={styles.stockText}>{item.stock || 0} units left</Text>
                     </View>
                 </View>
             </View>
@@ -45,7 +45,7 @@ const LowStockPage = ({ navigation }) => {
         <View style={styles.container}>
             {/* Header Gradient */}
             <LinearGradient
-                colors={['#1e293b', '#1e293b']}
+                colors={['#000', '#000']}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 style={styles.headerGradient}
             >
@@ -108,10 +108,10 @@ const styles = StyleSheet.create({
     name: { fontSize: 16, fontWeight: '700', color: '#1e293b' },
     category: { fontSize: 12, color: '#64748b', marginTop: 2 },
 
-    stockBadge: { backgroundColor: '#fef2f2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#fee2e2' },
-    stockText: { fontSize: 13, fontWeight: '800', color: '#dc2626' },
+    stockBadge: { backgroundColor: '#000', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#000' },
+    stockText: { fontSize: 13, fontWeight: '800', color: '#fff' },
 
     emptyState: { alignItems: 'center', marginTop: 60 },
-    emptyText: { fontSize: 18, color: '#10b981', marginTop: 16, fontWeight: '700' },
+    emptyText: { fontSize: 18, color: '#000', marginTop: 16, fontWeight: '700' },
     emptySub: { fontSize: 14, color: '#64748b', marginTop: 4 },
 });

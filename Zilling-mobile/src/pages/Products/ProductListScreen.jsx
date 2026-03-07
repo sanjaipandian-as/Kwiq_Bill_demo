@@ -370,107 +370,130 @@ const vstyles = StyleSheet.create({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ─── Variant Margin Modal ────────────────────────────────────────
-// Shows the margin breakdown for a SINGLE variant of a product.
-const VariantMarginModal = ({ visible, onClose, variant, productName }) => {
-  if (!variant) return null;
-  const cost = parseFloat((variant.cost_price !== undefined && variant.cost_price !== null && variant.cost_price !== '') ? variant.cost_price : ((variant.costPrice !== undefined && variant.costPrice !== null && variant.costPrice !== '') ? variant.costPrice : 0)) || 0;
-  const price = parseFloat(variant.price || 0) || 0;
+// ─── Multi-Variant Margin Modal ────────────────────────────────────────
+// Shows the margin breakdown for ALL variants, allowing easy switching.
+const MultiVariantMarginModal = ({ visible, onClose, product }) => {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const variants = useMemo(() => {
+    if (!product) return [];
+    try {
+      const v = typeof product.variants === 'string' ? JSON.parse(product.variants) : (product.variants || []);
+      return Array.isArray(v) ? v : [];
+    } catch (e) { return []; }
+  }, [product]);
+
+  useEffect(() => {
+    if (visible) setActiveIndex(0);
+  }, [visible]);
+
+  if (!product) return null;
+
+  const currentVar = variants.length > 0 ? variants[activeIndex] : product;
+  const cost = parseFloat(currentVar.cost_price ?? currentVar.costPrice ?? 0) || 0;
+  const price = parseFloat(currentVar.price ?? 0) || 0;
   const margin = price - cost;
   const marginPct = price > 0 ? (margin / price) * 100 : 0;
 
-  const radius = 70;
-  const stroke = 12;
+  const radius = 80;
+  const stroke = 14;
   const normalizedRadius = radius - stroke * 2;
   const circumference = normalizedRadius * 2 * Math.PI;
   const strokeDashoffset = circumference - (Math.max(0, Math.min(100, marginPct)) / 100) * circumference;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={vmStyles.overlay}>
         <TouchableOpacity style={vmStyles.backdrop} activeOpacity={1} onPress={onClose} />
         <View style={vmStyles.card}>
-          {/* Top */}
+          <View style={vmStyles.handle} />
+
           <View style={vmStyles.cardHeader}>
-            <View style={vmStyles.headerLeft}>
-              <Text style={vmStyles.variantLabel} numberOfLines={1}>{productName}</Text>
-              <Text style={vmStyles.variantName} numberOfLines={1}>{variant.name}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={vmStyles.variantLabel}>Detailed Analysis</Text>
+              <Text style={vmStyles.variantName} numberOfLines={1}>{product.name}</Text>
             </View>
             <TouchableOpacity style={vmStyles.closeBtn} onPress={onClose}>
-              <X size={20} color="#000" strokeWidth={2.5} />
+              <X size={22} color="#000" strokeWidth={2.5} />
             </TouchableOpacity>
           </View>
 
-          {/* Donut */}
-          <View style={vmStyles.chartRow}>
-            <View style={vmStyles.svgWrap}>
-              <Svg height={radius * 2} width={radius * 2}>
-                <Circle stroke="#f0f0f0" fill="transparent" strokeWidth={stroke} r={normalizedRadius} cx={radius} cy={radius} />
-                <Circle
-                  stroke={marginPct > 0 ? '#000' : '#ccc'}
-                  fill="transparent"
-                  strokeWidth={stroke}
-                  strokeDasharray={`${circumference} ${circumference}`}
-                  strokeDashoffset={strokeDashoffset}
-                  strokeLinecap="round"
-                  r={normalizedRadius} cx={radius} cy={radius}
-                  transform={`rotate(-90 ${radius} ${radius})`}
-                />
-              </Svg>
-              <View style={vmStyles.chartCenter}>
-                <Text style={vmStyles.chartPct}>{marginPct.toFixed(1)}%</Text>
-                <Text style={vmStyles.chartSub}>margin</Text>
+          {/* Variant Selector */}
+          {variants.length > 0 && (
+            <View style={vmStyles.selectorWrapper}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={vmStyles.selectorInner}>
+                {variants.map((v, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={[vmStyles.selectorPill, activeIndex === i && vmStyles.selectorPillActive]}
+                    onPress={() => setActiveIndex(i)}
+                  >
+                    <Text style={[vmStyles.selectorText, activeIndex === i && vmStyles.selectorTextActive]}>
+                      {v.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Chart Section */}
+            <View style={vmStyles.chartContainer}>
+              <View style={vmStyles.svgWrap}>
+                <Svg height={radius * 2} width={radius * 2}>
+                  <Circle stroke="#f1f5f9" fill="transparent" strokeWidth={stroke} r={normalizedRadius} cx={radius} cy={radius} />
+                  <Circle
+                    stroke="#000"
+                    fill="transparent"
+                    strokeWidth={stroke}
+                    strokeDasharray={`${circumference} ${circumference}`}
+                    strokeDashoffset={strokeDashoffset}
+                    strokeLinecap="round"
+                    r={normalizedRadius} cx={radius} cy={radius}
+                    transform={`rotate(-90 ${radius} ${radius})`}
+                  />
+                </Svg>
+                <View style={vmStyles.chartCenter}>
+                  <Text style={vmStyles.chartPct}>{marginPct.toFixed(1)}%</Text>
+                  <Text style={vmStyles.chartSub}>MARGIN</Text>
+                </View>
+              </View>
+
+              <View style={vmStyles.metricsGrid}>
+                <View style={vmStyles.metricItem}>
+                  <Text style={vmStyles.metricLabel}>COST PRICE</Text>
+                  <Text style={vmStyles.metricValue}>₹{cost.toLocaleString()}</Text>
+                </View>
+                <View style={[vmStyles.metricItem, { borderTopWidth: 1, borderColor: '#f1f5f9' }]}>
+                  <Text style={vmStyles.metricLabel}>SELL PRICE</Text>
+                  <Text style={vmStyles.metricValue}>₹{price.toLocaleString()}</Text>
+                </View>
               </View>
             </View>
 
-            {/* Breakdown */}
-            <View style={vmStyles.breakdown}>
-              <View style={vmStyles.breakRow}>
-                <Text style={vmStyles.breakLabel}>Cost Price</Text>
-                <Text style={vmStyles.breakValue}>₹{cost.toLocaleString()}</Text>
+            {/* Profit Potential */}
+            <View style={vmStyles.profitCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={vmStyles.profitLabel}>PROFIT PER UNIT</Text>
+                <Text style={vmStyles.profitValue}>₹{margin.toLocaleString()}</Text>
+                <Text style={vmStyles.profitSub}>Current stock: {currentVar.stock || 0} units</Text>
               </View>
-              <View style={vmStyles.separator} />
-              <View style={vmStyles.breakRow}>
-                <Text style={vmStyles.breakLabel}>Sell Price</Text>
-                <Text style={vmStyles.breakValue}>₹{price.toLocaleString()}</Text>
+              <View style={vmStyles.profitBadge}>
+                <TrendingUp size={24} color="#fff" strokeWidth={2.5} />
               </View>
-              <View style={vmStyles.separator} />
-              <View style={vmStyles.breakRow}>
-                <Text style={vmStyles.breakLabel}>Profit / Unit</Text>
-                <Text style={[vmStyles.breakValue, { color: margin >= 0 ? '#000' : '#666' }]}>₹{margin.toFixed(2)}</Text>
-              </View>
-              <View style={vmStyles.separator} />
-              <View style={vmStyles.breakRow}>
-                <Text style={vmStyles.breakLabel}>Stock</Text>
-                <Text style={vmStyles.breakValue}>{variant.stock || 0} pcs</Text>
-              </View>
-              {variant.stock > 0 && (
-                <>
-                  <View style={vmStyles.separator} />
-                  <View style={vmStyles.breakRow}>
-                    <Text style={vmStyles.breakLabel}>Total Value</Text>
-                    <Text style={[vmStyles.breakValue, { fontWeight: '900' }]}>₹{(price * (variant.stock || 0)).toLocaleString()}</Text>
-                  </View>
-                </>
-              )}
             </View>
-          </View>
 
-          {/* Profit Banner */}
-          <View style={vmStyles.profitBanner}>
-            <View>
-              <Text style={vmStyles.profitBannerLabel}>TOTAL PROFIT POTENTIAL</Text>
-              <Text style={vmStyles.profitBannerAmt}>₹{(margin * (variant.stock || 1)).toFixed(2)}</Text>
-              <Text style={vmStyles.profitBannerSub}>based on {variant.stock || 1} units in stock</Text>
+            {/* Total Potential */}
+            <View style={vmStyles.totalStrip}>
+              <Text style={vmStyles.totalStripLabel}>MAX PROFIT POTENTIAL</Text>
+              <Text style={vmStyles.totalStripValue}>₹{(margin * (currentVar.stock || 0)).toLocaleString()}</Text>
             </View>
-            <View style={vmStyles.profitIcon}>
-              <TrendingUp size={22} color="#fff" />
-            </View>
-          </View>
 
-          <TouchableOpacity style={vmStyles.doneBtn} onPress={onClose}>
-            <Text style={vmStyles.doneBtnText}>CLOSE</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={vmStyles.doneBtn} onPress={onClose}>
+              <Text style={vmStyles.doneBtnText}>CLOSE ANALYSIS</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -478,35 +501,45 @@ const VariantMarginModal = ({ visible, onClose, variant, productName }) => {
 };
 
 const vmStyles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
-  card: { width: '88%', backgroundColor: '#fff', borderRadius: 24, padding: 22, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 24, elevation: 12 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  headerLeft: { flex: 1, marginRight: 12 },
-  variantLabel: { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
-  variantName: { fontSize: 20, fontWeight: '900', color: '#000' },
-  closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center' },
+  overlay: { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
+  card: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, height: '80%', padding: 24 },
+  handle: { width: 40, height: 4, backgroundColor: '#e2e8f0', borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  variantLabel: { fontSize: 11, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.2 },
+  variantName: { fontSize: 22, fontWeight: '900', color: '#000', marginTop: 2 },
+  closeBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' },
 
-  chartRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginBottom: 18 },
+  selectorWrapper: { marginBottom: 24, marginHorizontal: -24 },
+  selectorInner: { paddingHorizontal: 24, gap: 10 },
+  selectorPill: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#f1f5f9' },
+  selectorPillActive: { backgroundColor: '#000', borderColor: '#000' },
+  selectorText: { fontSize: 14, fontWeight: '700', color: '#64748b' },
+  selectorTextActive: { color: '#fff' },
+
+  chartContainer: { flexDirection: 'row', alignItems: 'center', gap: 24, padding: 20, backgroundColor: '#f8fafc', borderRadius: 24, marginBottom: 20, borderWidth: 1.5, borderColor: '#f1f5f9' },
   svgWrap: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
   chartCenter: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  chartPct: { fontSize: 20, fontWeight: '900', color: '#000' },
-  chartSub: { fontSize: 10, fontWeight: '700', color: '#999', textTransform: 'uppercase' },
+  chartPct: { fontSize: 24, fontWeight: '900', color: '#000' },
+  chartSub: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
 
-  breakdown: { flex: 1, gap: 6 },
-  breakRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  breakLabel: { fontSize: 13, fontWeight: '600', color: '#888' },
-  breakValue: { fontSize: 14, fontWeight: '800', color: '#000' },
-  separator: { height: 1, backgroundColor: '#f0f0f0' },
+  metricsGrid: { flex: 1 },
+  metricItem: { paddingVertical: 10 },
+  metricLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.8, marginBottom: 4 },
+  metricValue: { fontSize: 18, fontWeight: '900', color: '#000' },
 
-  profitBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#000', borderRadius: 16, padding: 18, marginBottom: 14 },
-  profitBannerLabel: { fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5, marginBottom: 4 },
-  profitBannerAmt: { fontSize: 24, fontWeight: '900', color: '#fff' },
-  profitBannerSub: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.45)', marginTop: 2 },
-  profitIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  profitCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#000', padding: 24, borderRadius: 24, marginBottom: 12 },
+  profitLabel: { fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.45)', letterSpacing: 1, marginBottom: 6 },
+  profitValue: { fontSize: 28, fontWeight: '900', color: '#fff' },
+  profitSub: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.4)', marginTop: 4 },
+  profitBadge: { width: 56, height: 56, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
 
-  doneBtn: { height: 50, backgroundColor: '#f5f5f5', borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  doneBtnText: { fontSize: 14, fontWeight: '800', color: '#000', letterSpacing: 0.5 },
+  totalStrip: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 18, borderRadius: 18, borderWidth: 1.5, borderColor: '#f1f5f9', marginBottom: 24 },
+  totalStripLabel: { fontSize: 11, fontWeight: '900', color: '#64748b', letterSpacing: 0.5 },
+  totalStripValue: { fontSize: 16, fontWeight: '900', color: '#000' },
+
+  doneBtn: { height: 60, backgroundColor: '#ffffff', borderRadius: 20, borderWidth: 2, borderColor: '#000', alignItems: 'center', justifyContent: 'center' },
+  doneBtnText: { fontSize: 14, fontWeight: '900', color: '#000', letterSpacing: 1 }
 });
 
 // ─────────────────────────────────────────────────────────────────
@@ -650,8 +683,8 @@ const ProductsListScreen = ({ navigation }) => {
     const isExpanded = expandedId === item.id;
     const marginPct = item.price > 0 ? ((item.price - (item.cost_price || item.costPrice || 0)) / item.price * 100) : 0;
 
-    // Dynamic Avatar Colors for messy organic feel
-    const avatarColors = ['#bfdbfe', '#bbf7d0', '#fef08a', '#fbcfe8', '#e9d5ff', '#fed7aa', '#a7f3d0', '#fecaca'];
+    // Grayscale Avatar Colors for premium feel
+    const avatarColors = ['#f8fafc', '#f1f5f9', '#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b', '#475569', '#334155'];
     const charCode = item.name ? item.name.charCodeAt(0) : 0;
     const avatarBg = avatarColors[charCode % avatarColors.length];
 
@@ -663,24 +696,31 @@ const ProductsListScreen = ({ navigation }) => {
         style={[styles.productCard, selected && styles.productCardSelected]}
         onPress={() => selectionMode ? toggleSelect(item.id) : setExpandedId(isExpanded ? null : item.id)}
         onLongPress={() => { setSelectionMode(true); toggleSelect(item.id); }}
-        activeOpacity={0.85}
+        activeOpacity={0.9}
       >
         {/* Main Row */}
         <View style={styles.cardRow}>
           {/* Checkbox / Icon */}
-          <View style={styles.cardLeft}>
+          <View style={[styles.cardLeft, { alignItems: 'center' }]}>
             {selectionMode ? (
               <View style={[styles.checkbox, selected && styles.checkboxActive]}>
                 {selected && <CheckSquare size={16} color="#fff" strokeWidth={3} />}
               </View>
             ) : (
-              <View style={[styles.productIcon, { backgroundColor: avatarBg, borderColor: avatarBg }]}>
-                {item.name ? (
-                  <Text style={{ fontSize: 24, fontWeight: '900', color: '#0f172a', opacity: 0.8 }}>{item.name.charAt(0).toUpperCase()}</Text>
-                ) : (
-                  <Package size={24} color="#334155" strokeWidth={1.5} />
-                )}
-              </View>
+              <>
+                <View style={[styles.productIcon, { backgroundColor: avatarBg, borderColor: avatarBg }]}>
+                  {item.name ? (
+                    <Text style={{ fontSize: 24, fontWeight: '900', color: '#0f172a', opacity: 0.8 }}>{item.name.charAt(0).toUpperCase()}</Text>
+                  ) : (
+                    <Package size={24} color="#334155" strokeWidth={1.5} />
+                  )}
+                </View>
+                <View style={[styles.variantBadge, { marginTop: 6, minWidth: 46 }]}>
+                  <Text style={[styles.variantBadgeText, { textAlign: 'center' }]}>
+                    {variants.length > 0 ? `${variants.length} Var` : 'N/A'}
+                  </Text>
+                </View>
+              </>
             )}
           </View>
 
@@ -688,7 +728,6 @@ const ProductsListScreen = ({ navigation }) => {
           <View style={styles.cardCenter}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8, paddingRight: 4 }}>
               <Text style={[styles.productName, { marginBottom: 0 }]} numberOfLines={1}>{item.name}</Text>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: inStock ? (isLowStock ? '#f59e0b' : '#34d399') : '#f87171' }} />
             </View>
             <View style={styles.tagRow}>
               {item.sku ? (
@@ -704,8 +743,8 @@ const ProductsListScreen = ({ navigation }) => {
                 </View>
               ) : null}
               {isLowStock && (
-                <View style={styles.lowTag}>
-                  <Text style={styles.lowTagText}>LOW STOCK</Text>
+                <View style={[styles.lowTag, { backgroundColor: '#000' }]}>
+                  <Text style={[styles.lowTagText, { color: '#fff' }]}>LOW STOCK</Text>
                 </View>
               )}
             </View>
@@ -717,16 +756,17 @@ const ProductsListScreen = ({ navigation }) => {
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
               {marginPct > 0 && (
-                <Text style={{ fontSize: 10, fontWeight: '800', color: '#059669', backgroundColor: '#d1fae5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' }}>
-                  +{marginPct.toFixed(0)}%
+                <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff', backgroundColor: '#000', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' }}>
+                  {marginPct.toFixed(0)}% Margin
                 </Text>
               )}
-              <Text style={[styles.stockMain, !inStock && { color: '#ef4444', backgroundColor: '#fee2e2' }]}>
+              <Text style={[styles.stockMain, !inStock && { color: '#fff', backgroundColor: '#000' }]}>
                 {item.stock} {item.unit || 'pcs'}
               </Text>
             </View>
             {/* Quick Action Buttons */}
             <View style={styles.quickActions}>
+              {/* Standard Margin is always shown first */}
               <TouchableOpacity
                 style={styles.quickActionBtn}
                 onPress={(e) => {
@@ -736,11 +776,40 @@ const ProductsListScreen = ({ navigation }) => {
                 }}
                 activeOpacity={0.7}
               >
-                <TrendingUp size={16} color="#334155" strokeWidth={2} />
+                <TrendingUp size={16} color="#000" strokeWidth={2.2} />
               </TouchableOpacity>
+
+              {variants.length > 0 ? (
+                /* Layers icon only for Multi-Variant Analysis */
+                <TouchableOpacity
+                  style={styles.quickActionBtn}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setVariantsProduct(item);
+                    setVariantMarginVisible(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Layers size={16} color="#000" strokeWidth={2.2} />
+                </TouchableOpacity>
+              ) : (
+                /* Plus icon to quickly add variants if none exist */
+                <TouchableOpacity
+                  style={styles.quickActionBtn}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setVariantsProduct(item);
+                    setVariantsVisible(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Plus size={16} color="#000" strokeWidth={2.5} />
+                </TouchableOpacity>
+              )}
+
               <View style={[styles.quickActionBtn, styles.expandToggleBtn, isExpanded && styles.expandToggleBtnActive]}>
                 <ChevronDown
-                  size={16} color={isExpanded ? '#fff' : '#334155'} strokeWidth={2.5}
+                  size={16} color={isExpanded ? '#fff' : '#000'} strokeWidth={2.5}
                   style={{ transform: [{ rotate: isExpanded ? '180deg' : '0deg' }] }}
                 />
               </View>
@@ -960,13 +1029,13 @@ const ProductsListScreen = ({ navigation }) => {
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   {lowStockProducts.map((p) => (
-                    <TouchableOpacity key={p.id} style={styles.alertCard} onPress={() => handleEdit({ ...p, id: p._realId || p.id })}>
-                      <View style={styles.alertIconBox}>
-                        <Box size={18} color="#000" />
+                    <TouchableOpacity key={p.id} style={[styles.alertCard, { borderColor: '#000', backgroundColor: '#fff' }]} onPress={() => handleEdit({ ...p, id: p._realId || p.id })}>
+                      <View style={[styles.alertIconBox, { backgroundColor: '#000' }]}>
+                        <Box size={18} color="#fff" />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.alertName} numberOfLines={1}>{p.name}</Text>
-                        <Text style={styles.alertStock}>{p.alertLabel || `${p.stock} left`}</Text>
+                        <Text style={[styles.alertName, { color: '#000' }]} numberOfLines={1}>{p.name}</Text>
+                        <Text style={[styles.alertStock, { color: '#000', fontWeight: '900' }]}>{p.alertLabel || `${p.stock} left`}</Text>
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -1035,11 +1104,10 @@ const ProductsListScreen = ({ navigation }) => {
           showToast('Variants updated & synced ✓', 'success');
         }}
       />
-      <VariantMarginModal
+      <MultiVariantMarginModal
         visible={variantMarginVisible}
         onClose={() => setVariantMarginVisible(false)}
-        variant={variantMarginData.variant}
-        productName={variantMarginData.productName}
+        product={variantsProduct}
       />
     </View>
   );
@@ -1050,11 +1118,11 @@ export default ProductsListScreen;
 const styles = StyleSheet.create({
 
   // ─── CONTAINER ─────────────────────
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: '#ffffff' },
 
   // ─── HEADER ────────────────────────
   headerWrapper: {},
-  headerGradient: { borderBottomLeftRadius: 24, borderBottomRightRadius: 24, paddingBottom: 8 },
+  headerGradient: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: 8 },
   mainHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 22, paddingTop: 10, paddingBottom: 4 },
   mainTitle: { fontSize: 30, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
   subTitle: { fontSize: 14, color: 'rgba(255,255,255,0.45)', fontWeight: '600', marginTop: 2 },
@@ -1109,19 +1177,21 @@ const styles = StyleSheet.create({
   productCardSelected: { borderColor: '#000', borderWidth: 2, shadowOpacity: 0.12 },
 
   cardRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 18, paddingLeft: 16, paddingRight: 14 },
-  cardLeft: { marginRight: 14 },
-  productIcon: { width: 50, height: 50, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 4 },
+  cardLeft: { marginRight: 14, minWidth: 50 },
+  productIcon: { width: 50, height: 50, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 4 },
   cardCenter: { flex: 1, marginRight: 12, marginTop: 2 },
   productName: { fontSize: 17, fontWeight: '800', color: '#0f172a', marginBottom: 6, letterSpacing: -0.3 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   tag: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
   tagText: { fontSize: 11, fontWeight: '700', color: '#64748b' },
-  lowTag: { backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' },
-  lowTagText: { fontSize: 10, fontWeight: '800', color: '#ef4444', letterSpacing: 0.5 },
+  lowTag: { backgroundColor: '#000', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#000' },
+  lowTagText: { fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
+  variantBadge: { backgroundColor: '#000', paddingHorizontal: 4, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#000' },
+  variantBadgeText: { fontSize: 9, fontWeight: '900', color: '#fff' },
 
   cardRight: { alignItems: 'flex-end', minWidth: 90, marginTop: 2 },
-  priceMain: { fontSize: 18, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 },
-  stockMain: { fontSize: 12, fontWeight: '800', color: '#64748b', backgroundColor: '#f8fafc', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
+  priceMain: { fontSize: 18, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+  stockMain: { fontSize: 12, fontWeight: '900', color: '#000', backgroundColor: '#f5f5f5', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: '#eee' },
   quickActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
   quickActionBtn: { width: 34, height: 34, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 3 },
   expandToggleBtn: { backgroundColor: '#fff' },
@@ -1130,7 +1200,7 @@ const styles = StyleSheet.create({
   // ─── EXPANDED ──────────────────────
   expandedSection: { borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingHorizontal: 16, paddingBottom: 16, backgroundColor: '#f8fafc', borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
 
-  detailGrid: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 16, marginTop: 16, paddingVertical: 14, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 3 },
+  detailGrid: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 16, marginTop: 16, paddingVertical: 14, borderWidth: 1.5, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 3 },
   detailCell: { flex: 1, alignItems: 'center' },
   detailCellBorder: { borderLeftWidth: 1, borderLeftColor: '#f1f5f9' },
   detailCellLabel: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
@@ -1161,11 +1231,11 @@ const styles = StyleSheet.create({
   alertBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
   alertCard: {
     backgroundColor: '#fff', borderRadius: 14, padding: 14, marginRight: 10, flexDirection: 'row',
-    alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: '#eee', minWidth: 200
+    alignItems: 'center', gap: 12, borderWidth: 2, borderColor: '#000', minWidth: 200
   },
-  alertIconBox: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center' },
+  alertIconBox: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
   alertName: { fontSize: 14, fontWeight: '700', color: '#000' },
-  alertStock: { fontSize: 13, color: '#888', fontWeight: '600', marginTop: 2 },
+  alertStock: { fontSize: 13, color: '#000', fontWeight: '900', marginTop: 2 },
 
   // ─── CHECKBOX ──────────────────────
   checkbox: { width: 26, height: 26, borderRadius: 8, borderWidth: 2.5, borderColor: '#ddd', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },

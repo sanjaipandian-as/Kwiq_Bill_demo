@@ -15,7 +15,7 @@ import { useProducts } from '../context/ProductContext';
 import { addToBillingQueue } from '../services/billingQueue';
 import { useToast } from '../context/ToastContext';
 
-export default function ScanBarcodeModal({ visible, onClose, onScanned, isInline }) {
+export default function ScanBarcodeModal({ visible, onClose, onScanned, isInline, paused }) {
     const { products } = useProducts();
     const { showToast } = useToast();
 
@@ -54,7 +54,7 @@ export default function ScanBarcodeModal({ visible, onClose, onScanned, isInline
     }, [visible, permission]);
 
     const handleBarCodeScanned = ({ type, data }) => {
-        if (scanned) return;
+        if (scanned || paused) return;
         setScanned(true);
         console.log(`[Scanner] Scanned: ${data} (${type})`);
 
@@ -201,7 +201,7 @@ export default function ScanBarcodeModal({ visible, onClose, onScanned, isInline
                         hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
                         style={[styles.camCloseBtn, isInline && { width: 40, height: 40, borderRadius: 20 }]}
                     >
-                        <X size={isInline ? 20 : 24} color="white" />
+                        <X size={isInline ? 20 : 24} color="black" />
                     </Pressable>
                     <Text style={styles.camTitle}>Scan Product</Text>
                     <View style={{ width: 44 }} />
@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
         width: 44,
         height: 44,
         borderRadius: 22,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: '#ffffff',
         alignItems: 'center',
         justifyContent: 'center',
     },

@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Receipt, ChevronRight, AlertTriangle, Clock, TrendingUp, IndianRupee, Menu,
+  ChevronRight, AlertTriangle, Clock, TrendingUp, IndianRupee, Menu,
   Package, ArrowUpRight, Users, Settings, FileText, BarChart3, Scan, Check, CheckCircle2, ChevronDown, Trophy, Percent
 } from 'lucide-react-native';
 
@@ -255,13 +255,9 @@ export default function Dashboard() {
         >
           <SafeAreaView edges={['top']}>
             <View style={styles.topBar}>
-              <View style={styles.userRow}>
-                <Pressable onPress={() => setIsMenuOpen(true)} style={[styles.hamburger, storeLogo && styles.logoHamburger]}>
-                  {storeLogo ? (
-                    <Image source={{ uri: storeLogo }} style={styles.topLogo} resizeMode="contain" />
-                  ) : (
-                    <Menu size={24} color="#fff" />
-                  )}
+              <View style={styles.leftSection}>
+                <Pressable onPress={() => setIsMenuOpen(true)} style={styles.hamburger}>
+                  <Menu size={24} color="#fff" />
                 </Pressable>
                 <View>
                   <Text style={styles.greeting}>Hello,</Text>
@@ -269,9 +265,11 @@ export default function Dashboard() {
                 </View>
               </View>
 
-              <Pressable style={styles.scanBtn} onPress={() => setIsScannerOpen(true)}>
-                <Scan size={20} color="#000" />
-              </Pressable>
+              <View style={styles.rightActions}>
+                {storeLogo && (
+                  <Image source={{ uri: storeLogo }} style={styles.topLogo} resizeMode="contain" />
+                )}
+              </View>
             </View>
 
             {/* Date Filter Section - Full Width */}
@@ -339,7 +337,7 @@ export default function Dashboard() {
             <IconButton icon={BarChart3} label="Reports" color="#22c55e" onPress={() => navigation.navigate('Reports')} />
             <IconButton icon={Percent} label="GST" color="#22c55e" onPress={() => navigation.navigate('GST')} />
             <IconButton icon={Package} label="Products" color="#22c55e" onPress={() => navigation.navigate('Products')} />
-            <IconButton icon={Receipt} label="Expenses" color="#ef4444" onPress={() => setIsExpenseModalOpen(true)} />
+            <IconButton icon={IndianRupee} label="Expenses" color="#ef4444" onPress={() => setIsExpenseModalOpen(true)} />
             <IconButton icon={Settings} label="Settings" color="#ef4444" onPress={() => navigation.navigate('Settings')} />
           </View>
 
@@ -379,11 +377,11 @@ export default function Dashboard() {
           {metrics.featuredProduct && (
             <View style={[styles.contentCard, { backgroundColor: '#000', paddingVertical: 25 }]}>
               <View style={[styles.cardHeaderRow, { marginBottom: 20 }]}>
-                <Trophy size={20} color="#fbbf24" />
+                <Trophy size={20} color="#fff" />
                 <Text style={[styles.cardHeaderTitle, { color: '#fff' }]}>Best Selling Period Item</Text>
               </View>
               <View style={{ paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 20 }}>
-                <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: '#fbbf24', alignItems: 'center', justifyContent: 'center', elevation: 10 }}>
+                <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 10 }}>
                   <Text style={{ fontSize: 24, fontWeight: '900', color: '#000' }}>#1</Text>
                 </View>
                 <View style={{ flex: 1 }}>
@@ -438,7 +436,7 @@ export default function Dashboard() {
                       <Text style={styles.productRankText}>#{i + 1}</Text>
                     </View>
                     <View style={styles.productIconBg}>
-                      <Package size={20} color="#22c55e" />
+                      <Package size={20} color="#fff" />
                     </View>
                     <Text style={styles.productName} numberOfLines={2}>{p.name}</Text>
                     <View style={styles.productStats}>
@@ -491,7 +489,7 @@ export default function Dashboard() {
           {/* Recent Expenses Card */}
           <View style={styles.contentCard}>
             <View style={styles.cardHeaderRow}>
-              <Receipt size={18} color="#ef4444" />
+              <IndianRupee size={18} color="#ef4444" />
               <Text style={styles.cardHeaderTitle}>Recent Expenses</Text>
             </View>
             {expenses.length > 0 ? (
@@ -499,7 +497,7 @@ export default function Dashboard() {
                 {expenses.slice(0, 5).map((exp, idx) => (
                   <View key={exp.id || `exp-${idx}`} style={styles.expenseCard}>
                     <View style={styles.expenseIconWrapper}>
-                      <Receipt size={18} color="#ef4444" />
+                      <IndianRupee size={18} color="#ef4444" />
                     </View>
                     <View style={styles.expenseCardInfo}>
                       <Text style={styles.expenseTitle}>{exp.title}</Text>
@@ -515,7 +513,7 @@ export default function Dashboard() {
               </View>
             ) : (
               <View style={styles.emptyState}>
-                <Receipt size={32} color="#cbd5e1" />
+                <IndianRupee size={32} color="#cbd5e1" />
                 <Text style={styles.emptyStateText}>No expenses yet</Text>
               </View>
             )}
@@ -532,8 +530,8 @@ export default function Dashboard() {
                 const isPaid = (tx.status || 'PAID').toUpperCase() === 'PAID';
                 return (
                   <View key={tx.id ? tx.id.toString() : `tx-${idx}`} style={styles.txnCard}>
-                    <View style={[styles.txnIconWrapper, { backgroundColor: isPaid ? '#dcfce7' : '#fee2e2' }]}>
-                      <Receipt size={20} color={isPaid ? '#22c55e' : '#ef4444'} />
+                    <View style={[styles.txnIconWrapper, { backgroundColor: isPaid ? '#000' : '#f1f5f9' }]}>
+                      <IndianRupee size={20} color={isPaid ? '#fff' : '#000'} />
                     </View>
                     <View style={styles.txnCardInfo}>
                       <Text style={styles.txnCardCustomer}>{tx.customerName || 'Guest'}</Text>
@@ -545,10 +543,10 @@ export default function Dashboard() {
                     </View>
                     <View style={styles.txnCardRight}>
                       <Text style={styles.txnCardAmount}>₹{(tx.total || 0).toLocaleString()}</Text>
-                      <View style={[styles.txnStatusBadge, { backgroundColor: isPaid ? '#dcfce7' : '#fee2e2', borderColor: isPaid ? '#dcfce7' : '#fee2e2' }]}>
-                        <View style={[styles.statusDot, { backgroundColor: isPaid ? '#15803d' : '#b91c1c' }]} />
-                        <Text style={[styles.txnStatusText, { color: isPaid ? '#15803d' : '#b91c1c' }]}>
-                          {isPaid ? 'PAID' : 'UNPAID'}
+                      <View style={[styles.txnStatusBadge, { backgroundColor: isPaid ? '#000' : '#f1f5f9', borderColor: isPaid ? '#000' : '#e2e8f0' }]}>
+                        <View style={[styles.statusDot, { backgroundColor: isPaid ? '#fff' : '#000' }]} />
+                        <Text style={[styles.txnStatusText, { color: isPaid ? '#fff' : '#000' }]}>
+                          {isPaid ? 'PAID' : 'DUE'}
                         </Text>
                       </View>
                     </View>
@@ -614,13 +612,12 @@ const styles = StyleSheet.create({
   headerWrapper: { backgroundColor: '#fff' },
   headerGradient: { paddingBottom: 40, borderBottomLeftRadius: 40, borderBottomRightRadius: 40 },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, marginBottom: 20 },
-  userRow: { flexDirection: 'row', alignItems: 'center', gap: 15 },
+  leftSection: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   greeting: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '600' },
   userName: { fontSize: 20, fontWeight: '800', color: '#fff' },
+  rightActions: { flexDirection: 'row', alignItems: 'center' },
   hamburger: { backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 12 },
-  logoHamburger: { padding: 0, backgroundColor: 'transparent', overflow: 'hidden' },
-  topLogo: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#fff' },
-  scanBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  topLogo: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff' },
 
   // Date Filter Section - Full Width
   dateFilterSection: {
@@ -840,14 +837,14 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 14,
-    backgroundColor: '#dcfce7',
+    backgroundColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
   },
   productName: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1e293b',
+    color: '#000',
     textAlign: 'center',
     minHeight: 36,
   },
@@ -857,13 +854,14 @@ const styles = StyleSheet.create({
   },
   productQty: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#22c55e',
+    fontWeight: '900',
+    color: '#000',
   },
   productLabel: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#94a3b8',
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
   },
 
   // Customer Cards - Improved Design
@@ -896,14 +894,14 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#dbeafe',
+    backgroundColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
   },
   customerAvatarText: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#2563eb',
+    fontWeight: '900',
+    color: '#fff',
   },
   customerName: {
     fontSize: 13,
@@ -917,13 +915,14 @@ const styles = StyleSheet.create({
   },
   customerAmountValue: {
     fontSize: 15,
-    fontWeight: '800',
-    color: '#2563eb',
+    fontWeight: '900',
+    color: '#000',
   },
   customerAmountLabel: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#94a3b8',
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
   },
 
   // Expense Cards - Modern Design

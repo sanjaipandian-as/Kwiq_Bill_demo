@@ -48,18 +48,20 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const { width } = Dimensions.get('window');
 
 // --- Premium Component: Stat Card ---
-const ModernStat = ({ label, value, subValue, icon: Icon, color = "#000", isPrimary = false, flex = 1 }) => (
+const ModernStat = ({ label, value, subValue, icon: Icon, isPrimary = false, flex = 1 }) => (
     <View style={[styles.statCard, isPrimary && styles.primaryStatCard, { flex }]}>
         <View style={styles.statHeader}>
-            <View style={[styles.statIconContainer, { backgroundColor: isPrimary ? 'rgba(255,255,255,0.2)' : color + '10' }]}>
-                <Icon size={16} color={isPrimary ? '#fff' : color} />
+            <View style={[styles.statIconContainer, { backgroundColor: isPrimary ? 'rgba(255,255,255,0.15)' : '#000' }]}>
+                <Icon size={16} color={isPrimary ? '#fff' : '#fff'} />
             </View>
-            <Text style={[styles.statLabel, isPrimary && { color: 'rgba(255,255,255,0.7)' }]}>{label}</Text>
+            <Text style={[styles.statLabel, isPrimary && { color: 'rgba(255,255,255,0.6)' }]}>{label}</Text>
         </View>
         <View style={styles.statBody}>
             <Text style={[styles.statValue, isPrimary && { color: '#fff' }]}>₹{value}</Text>
             {subValue && (
-                <Text style={[styles.statSubText, isPrimary && { color: '#4ade80' }]}>• {subValue}</Text>
+                <View style={styles.statSubRow}>
+                    <Text style={[styles.statSubText, isPrimary && { color: 'rgba(255,255,255,0.5)' }]}>{subValue}</Text>
+                </View>
             )}
         </View>
     </View>
@@ -235,15 +237,34 @@ export default function GSTPage() {
             // Write file to local storage
             await FileSystem.writeAsStringAsync(fileUri, wbout, { encoding: 'base64' });
 
-            // Share the file
+            // Handle Download/Save to Storage
+            if (Platform.OS === 'android' && FileSystem.StorageAccessFramework) {
+                try {
+                    const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+                    if (permissions.granted) {
+                        const newUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                            permissions.directoryUri,
+                            fileName,
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                        );
+                        await FileSystem.writeAsStringAsync(newUri, wbout, { encoding: FileSystem.EncodingType.Base64 });
+                        Alert.alert("Success", "GST report downloaded successfully to your selected folder.");
+                        return;
+                    }
+                } catch (safError) {
+                    console.warn('SAF Error, falling back to Share:', safError);
+                }
+            }
+
+            // Fallback for iOS or if SAF is denied/fails
             if (await Sharing.isAvailableAsync()) {
                 await Sharing.shareAsync(fileUri, {
                     mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    dialogTitle: 'Download GST Report',
+                    dialogTitle: 'Save GST Report',
                     UTI: 'com.microsoft.excel.xlsx'
                 });
             } else {
-                Alert.alert("Success", "Report saved to: " + fileUri);
+                Alert.alert("Success", "Report saved to temporary storage: " + fileUri);
             }
         } catch (error) {
             console.error("Export Error:", error);
@@ -303,37 +324,33 @@ export default function GSTPage() {
                     </Pressable>
                 </View>
 
-                {/* Main Filter Bar */}
+                {/* Main Filter Bar - Liquid Pilled Selection */}
                 <View style={styles.mainFilterBar}>
-                    <View style={styles.activeFilterGroup}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+                        {['Today', 'Yesterday', 'This Week', 'This Month'].map(p => (
+                            <Pressable
+                                key={p}
+                                style={[styles.filterPill, period === p && styles.activeFilterPill]}
+                                onPress={() => changePeriod(p)}
+                            >
+                                <Text style={[styles.filterPillText, period === p && styles.activeFilterPillText]}>
+                                    {p === 'This Week' ? 'Week' : p === 'This Month' ? 'Month' : p}
+                                </Text>
+                            </Pressable>
+                        ))}
                         <Pressable
-                            style={[styles.mainChip, period === 'Today' && styles.activeMainChip]}
-                            onPress={() => changePeriod('Today')}
-                        >
-                            <Text style={[styles.mainChipText, period === 'Today' && styles.activeMainChipText]}>Today</Text>
-                        </Pressable>
-
-                        {period !== 'Today' && (
-                            <View style={styles.activeLabelBox}>
-                                <Text style={styles.activeLabelText}>{getPeriodLabel()}</Text>
-                                <Pressable onPress={() => changePeriod('Today')} style={styles.clearBtnAlt}>
-                                    <X size={12} color="#000" strokeWidth={3} />
-                                </Pressable>
-                            </View>
-                        )}
-                    </View>
-
-                    <View style={styles.filterGroupRight}>
-                        <Pressable
-                            style={[styles.filterActionBtn, period === 'Custom' && styles.filterActionBtnActive]}
+                            style={[styles.filterPill, period === 'Custom' && styles.activeFilterPill]}
                             onPress={() => setIsCalendarOpen(true)}
                         >
-                            <Calendar size={16} color={period === 'Custom' ? '#fff' : '#000'} />
+                            <Calendar size={14} color={period === 'Custom' ? '#fff' : '#64748b'} style={{ marginRight: 6 }} />
+                            <Text style={[styles.filterPillText, period === 'Custom' && styles.activeFilterPillText]}>
+                                {period === 'Custom' ? getPeriodLabel() : 'Custom'}
+                            </Text>
                         </Pressable>
-                        <Pressable style={styles.filterActionBtn} onPress={() => setIsFilterOpen(true)}>
-                            <Filter size={16} color="#000" />
-                        </Pressable>
-                    </View>
+                    </ScrollView>
+                    <Pressable style={styles.filterTrigger} onPress={() => setIsFilterOpen(true)}>
+                        <Filter size={18} color="#000" />
+                    </Pressable>
                 </View>
 
                 <ScrollView
@@ -372,16 +389,14 @@ export default function GSTPage() {
                             <ModernStat
                                 label="SGST"
                                 value={gstData.sgst}
-                                subValue="State"
+                                subValue="State Component"
                                 icon={Building2}
-                                color="#ef4444"
                             />
                             <ModernStat
                                 label="CGST"
                                 value={gstData.cgst}
-                                subValue="Central"
+                                subValue="Central Component"
                                 icon={Landmark}
-                                color="#3b82f6"
                             />
                         </View>
 
@@ -391,7 +406,6 @@ export default function GSTPage() {
                                 value={gstData.igst}
                                 subValue="Inter-state Transactions"
                                 icon={Globe}
-                                color="#f59e0b"
                             />
                         </View>
                     </View>
@@ -535,168 +549,173 @@ export default function GSTPage() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#fff' },
+    container: { flex: 1, backgroundColor: '#ffffff' },
     safeArea: { flex: 1 },
 
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 24,
-        paddingBottom: 15,
+        paddingBottom: 20,
         backgroundColor: '#fff',
         gap: 16
     },
     iconBtn: {
-        width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9'
-    },
-    headerMain: { flex: 1 },
-    headerTitle: { fontSize: 20, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
-    headerSubtitle: { fontSize: 13, fontWeight: '600', color: '#94a3b8', marginTop: 1 },
-
-    // Main Filter Bar
-    mainFilterBar: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 24,
-        paddingVertical: 18,
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderColor: '#f1f5f9'
-    },
-    activeFilterGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    mainChip: {
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 12,
-        backgroundColor: '#f1f5f9',
-    },
-    activeMainChip: {
-        backgroundColor: '#000',
-    },
-    mainChipText: { fontSize: 13, fontWeight: '900', color: '#64748b' },
-    activeMainChipText: { color: '#fff' },
-    activeLabelBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        backgroundColor: '#f8fafc',
-        borderRadius: 12,
-        borderWidth: 1.5,
-        borderColor: '#000'
-    },
-    activeLabelText: { fontSize: 12, fontWeight: '900', color: '#000' },
-    clearBtnAlt: { padding: 2 },
-
-    filterGroupRight: { flexDirection: 'row', gap: 10 },
-    filterActionBtn: {
-        width: 42,
-        height: 42,
-        borderRadius: 12,
+        width: 48,
+        height: 48,
+        borderRadius: 16,
         backgroundColor: '#fff',
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
-        elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5
+        borderWidth: 1.5,
+        borderColor: '#f1f5f9',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 5,
+        elevation: 2
     },
-    filterActionBtnActive: {
+    headerMain: { flex: 1 },
+    headerTitle: { fontSize: 24, fontWeight: '900', color: '#000', letterSpacing: -0.8 },
+    headerSubtitle: { fontSize: 13, fontWeight: '700', color: '#94a3b8', marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.5 },
+
+    // Main Filter Bar - Liquid Style
+    mainFilterBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        backgroundColor: '#fff',
+        gap: 12
+    },
+    filterScroll: { gap: 8, paddingRight: 20 },
+    filterPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 14,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1.5,
+        borderColor: '#f1f5f9'
+    },
+    activeFilterPill: {
         backgroundColor: '#000',
         borderColor: '#000'
     },
+    filterPillText: { fontSize: 13, fontWeight: '800', color: '#64748b' },
+    activeFilterPillText: { color: '#fff' },
+    filterTrigger: {
+        width: 44,
+        height: 44,
+        borderRadius: 14,
+        backgroundColor: '#fff',
+        borderWidth: 1.5,
+        borderColor: '#000',
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
 
-    scrollContent: { paddingBottom: 40 },
+    scrollContent: { paddingBottom: 120 },
 
     heroCard: {
-        marginHorizontal: 24,
+        marginHorizontal: 20,
         backgroundColor: '#000',
-        borderRadius: 28,
+        borderRadius: 32,
         padding: 24,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 15 },
+        shadowOpacity: 0.25,
+        shadowRadius: 25,
+        elevation: 15,
         marginBottom: 30,
-        marginTop: 20
+        marginTop: 10
     },
     heroHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 },
-    heroLabel: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: 1 },
-    heroAmount: { fontSize: 36, fontWeight: '900', color: '#fff', marginTop: 4 },
-    heroIconBox: { width: 50, height: 50, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
-    heroFooter: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 20, padding: 16, alignItems: 'center' },
+    heroLabel: { fontSize: 11, fontWeight: '900', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1.5 },
+    heroAmount: { fontSize: 40, fontWeight: '900', color: '#fff', marginTop: 4, letterSpacing: -1 },
+    heroIconBox: { width: 56, height: 56, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+    heroFooter: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
     heroStatItem: { flex: 1 },
-    heroStatLabel: { fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.5)', marginBottom: 4 },
-    heroStatValue: { fontSize: 14, fontWeight: '900', color: '#fff' },
-    heroStatDivider: { width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 15 },
+    heroStatLabel: { fontSize: 9, fontWeight: '900', color: 'rgba(255,255,255,0.4)', marginBottom: 4, letterSpacing: 0.5 },
+    heroStatValue: { fontSize: 16, fontWeight: '900', color: '#fff' },
+    heroStatDivider: { width: 1.5, height: 24, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 15 },
 
-    sectionHeader: { fontSize: 12, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1.5, textTransform: 'uppercase', marginHorizontal: 24, marginBottom: 16, marginTop: 10 },
-    sectionHeaderNoTop: { fontSize: 12, fontWeight: '900', color: '#cbd5e1', letterSpacing: 1.5, textTransform: 'uppercase' },
+    sectionHeader: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5, textTransform: 'uppercase', marginHorizontal: 24, marginBottom: 16, marginTop: 10 },
+    sectionHeaderNoTop: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5, textTransform: 'uppercase' },
     sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 24, marginBottom: 16 },
 
-    taxGroup: { marginHorizontal: 24, gap: 12 },
+    taxGroup: { marginHorizontal: 20, gap: 12 },
     statsGrid: { flexDirection: 'row', gap: 12 },
     fullWidthStat: { marginTop: 0 },
     statCard: {
         backgroundColor: '#fff',
         borderRadius: 24,
-        padding: 18,
-        borderWidth: 1,
+        padding: 20,
+        borderWidth: 1.5,
         borderColor: '#f1f5f9',
         justifyContent: 'space-between',
-        minHeight: 110
+        minHeight: 120,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.02,
+        shadowRadius: 10,
+        elevation: 2
     },
-    statHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-    statIconContainer: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-    statLabel: { fontSize: 12, fontWeight: '800', color: '#94a3b8' },
+    statHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+    statIconContainer: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    statLabel: { fontSize: 12, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 },
     statBody: { gap: 4 },
-    statValue: { fontSize: 20, fontWeight: '900', color: '#000' },
+    statValue: { fontSize: 24, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+    statSubRow: { flexDirection: 'row', alignItems: 'center' },
     statSubText: { fontSize: 11, fontWeight: '700', color: '#94a3b8' },
 
     timelineSection: { marginTop: 35 },
-    whiteCard: { marginHorizontal: 24, backgroundColor: '#fff', borderRadius: 24, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
-    trackingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 12 },
-    trackingLeft: { flexDirection: 'row', flex: 1, gap: 12 },
-    trackingDotContainer: { alignItems: 'center', width: 12 },
-    trackingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#000', marginTop: 5 },
-    trackingLine: { width: 2, flex: 1, backgroundColor: '#f1f5f9', marginVertical: 4 },
+    whiteCard: { marginHorizontal: 20, backgroundColor: '#fff', borderRadius: 28, padding: 20, borderWidth: 1.5, borderColor: '#f1f5f9' },
+    trackingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 16 },
+    trackingLeft: { flexDirection: 'row', flex: 1, gap: 16 },
+    trackingDotContainer: { alignItems: 'center', width: 16 },
+    trackingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#000', marginTop: 4, borderWidth: 2, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 2, elevation: 1 },
+    trackingLine: { width: 2, flex: 1, backgroundColor: '#f1f5f9', marginVertical: 8 },
     trackingContent: { flex: 1 },
-    trackingTitle: { fontSize: 15, fontWeight: '800', color: '#000' },
-    trackingDesc: { fontSize: 12, fontWeight: '600', color: '#94a3b8', marginTop: 2, lineHeight: 18 },
-    trackingRight: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
-    trackingDate: { fontSize: 11, fontWeight: '800', color: '#64748b' },
+    trackingTitle: { fontSize: 16, fontWeight: '900', color: '#000' },
+    trackingDesc: { fontSize: 12, fontWeight: '600', color: '#64748b', marginTop: 4, lineHeight: 18 },
+    trackingRight: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f8fafc', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' },
+    trackingDate: { fontSize: 11, fontWeight: '900', color: '#000' },
 
-    advisoryBox: { marginHorizontal: 24, marginTop: 35, backgroundColor: '#f8fafc', borderRadius: 18, padding: 16, flexDirection: 'row', gap: 12, alignItems: 'center' },
-    advisoryText: { flex: 1, fontSize: 11, fontWeight: '600', color: '#94a3b8', lineHeight: 16 },
+    advisoryBox: { marginHorizontal: 20, marginTop: 40, backgroundColor: '#f8fafc', borderRadius: 20, padding: 20, flexDirection: 'row', gap: 16, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+    advisoryText: { flex: 1, fontSize: 11, fontWeight: '700', color: '#94a3b8', lineHeight: 18 },
 
     // Modal Styles
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-    filterModal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, maxHeight: '80%' },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-    modalTitle: { fontSize: 18, fontWeight: '900', color: '#000' },
-    modalCloseBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+    filterModal: { backgroundColor: '#fff', borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 28, paddingBottom: 50, maxHeight: '80%' },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 },
+    modalTitle: { fontSize: 20, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+    modalCloseBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
     modalScroll: { marginBottom: 10 },
-    filterItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderColor: '#f8fafc' },
-    activeFilterItem: { backgroundColor: '#f8fafc', paddingHorizontal: 12, borderRadius: 16, borderColor: 'transparent' },
+    filterItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 18, borderBottomWidth: 1.5, borderColor: '#f8fafc' },
+    activeFilterItem: { backgroundColor: '#f8fafc', paddingHorizontal: 16, borderRadius: 20, borderColor: 'transparent', marginHorizontal: -16 },
     filterItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-    filterItemLabel: { fontSize: 15, fontWeight: '700', color: '#475569' },
+    filterItemLabel: { fontSize: 16, fontWeight: '800', color: '#64748b' },
     activeFilterItemLabel: { color: '#000', fontWeight: '900' },
 
     // Premium Calendar Styles
-    premiumCal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
-    calTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
-    calNav: { flexDirection: 'row', alignItems: 'center', gap: 20 },
-    calNavBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', borderRadius: 8 },
-    calMonthLabel: { fontSize: 17, fontWeight: '900', color: '#000' },
-    calClose: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
+    premiumCal: { backgroundColor: '#fff', borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 28, paddingBottom: 50 },
+    calTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 },
+    calNav: { flexDirection: 'row', alignItems: 'center', gap: 24 },
+    calNavBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' },
+    calMonthLabel: { fontSize: 18, fontWeight: '900', color: '#000' },
+    calClose: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
 
-    calWeekRow: { flexDirection: 'row', marginBottom: 15 },
-    calWeekText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '900', color: '#cbd5e1' },
+    calWeekRow: { flexDirection: 'row', marginBottom: 20 },
+    calWeekText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
 
     calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-    calDayCell: { width: width / 7 - 10, height: 45, margin: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
+    calDayCell: { width: width / 7 - 12, height: 48, margin: 2, alignItems: 'center', justifyContent: 'center', borderRadius: 14 },
     calDayActive: { backgroundColor: '#000' },
-    calDayText: { fontSize: 14, fontWeight: '700', color: '#475569' },
+    calDayText: { fontSize: 15, fontWeight: '800', color: '#475569' },
     calDayTextActive: { color: '#fff', fontWeight: '900' },
 
-    calTodayBtn: { marginTop: 25, height: 50, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWeight: 1, borderColor: '#f1f5f9' },
-    calTodayText: { fontSize: 14, fontWeight: '800', color: '#000' }
+    calTodayBtn: { marginTop: 30, height: 56, borderRadius: 20, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+    calTodayText: { fontSize: 15, fontWeight: '900', color: '#fff' }
 });

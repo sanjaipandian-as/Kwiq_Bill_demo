@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, 
 import { Card } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-import { Calculator, Printer, Scan, Calendar, Save, Plus, Award } from 'lucide-react-native';
+import { Calculator, Printer, Scan, Calendar, Save, Plus, Award, HelpCircle } from 'lucide-react-native';
 import CalculatorModal from './CalculatorModal';
 
 // Import for PDF Export
@@ -11,6 +11,8 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { generateReceiptHTML } from '../../../utils/printUtils';
+import ThermalInvoiceTemplate from '../../Settings/ThermalInvoiceTemplate';
+import ProfessionalThermalTemplate from '../../Settings/ProfessionalThermalTemplate';
 const BillingSidebar = ({
     customer,
     items,
@@ -24,7 +26,7 @@ const BillingSidebar = ({
     onPrintCustomerBill,
     onSaveInvoice,
     onCustomerSearch,
-
+    onHelpConnect,
     settings,
     billId,
     taxType = 'intra',
@@ -44,7 +46,7 @@ const BillingSidebar = ({
     };
 
     return (
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             {/* Header Tools */}
             <View style={styles.topTools}>
                 <View style={styles.dateBox}>
@@ -283,6 +285,16 @@ const BillingSidebar = ({
                     </Text>
                 </TouchableOpacity>
 
+                {!isPrinterConnected && (
+                    <TouchableOpacity
+                        style={styles.helpConnectBtn}
+                        onPress={onHelpConnect}
+                    >
+                        <HelpCircle size={16} color="#000" />
+                        <Text style={styles.helpConnectBtnText}>Help to connect printer</Text>
+                    </TouchableOpacity>
+                )}
+
                 <TouchableOpacity style={styles.mainCompleteBtn} onPress={() => generateAndExportBill('80mm')}>
                     <Save size={20} color="#000" />
                     <Text style={styles.mainCompleteBtnText}>Complete & Print Bill</Text>
@@ -298,6 +310,7 @@ const BillingSidebar = ({
 
 const styles = StyleSheet.create({
     container: { flex: 1, paddingHorizontal: 4 },
+    scrollContent: { paddingBottom: 120 },
 
     topTools: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
     dateBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' },
@@ -358,7 +371,26 @@ const styles = StyleSheet.create({
     mainCompleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#22c55e', height: 64, borderRadius: 20 },
     mainCompleteBtnText: { fontSize: 16, fontWeight: '900', color: '#000' },
     secondarySaveBtn: { marginTop: 15, alignItems: 'center' },
-    secondarySaveBtnText: { fontSize: 13, fontWeight: '800', color: '#94a3b8', textDecorationLine: 'underline' },
+    secondarySaveBtnText: { color: '#000', fontSize: 13, fontWeight: '700' },
+    helpConnectBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 10,
+        backgroundColor: '#fff',
+        borderWidth: 1.5,
+        borderColor: '#000',
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    helpConnectBtnText: {
+        color: '#000',
+        fontSize: 13,
+        fontWeight: '900',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5
+    },
 
     printerStatusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 12 },
     statusDot: { width: 8, height: 8, borderRadius: 4 },
@@ -484,224 +516,23 @@ const styles = StyleSheet.create({
 });
 
 const BillLivePreview = ({ items, totals, settings, template, taxType, customer, billId, paymentMode, amountReceived, remarks }) => {
-    const store = settings?.store || {};
-    const showHsn = settings?.invoice?.showHsn !== false;
-    const showTaxBreakup = settings?.invoice?.showTaxBreakup === true;
-    const isInter = taxType === 'inter';
+    const invoiceData = {
+        invoiceNo: billId,
+        date: new Date().toLocaleDateString('en-IN'),
+        time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        customer: customer,
+        paymentMode: paymentMode,
+        items: items,
+        totals: totals,
+        remarks: remarks,
+        amountReceived: amountReceived
+    };
 
-    // Styles for "Thermal" look
-    const textStyle = { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontSize: 9, color: '#000' };
-    const boldStyle = { ...textStyle, fontWeight: 'bold' };
-    const dividerStyle = { borderBottomWidth: 1, borderBottomColor: '#ccc', borderStyle: 'dashed', marginVertical: 6 };
+    if (template === 'Professional') {
+        return <ProfessionalThermalTemplate settings={settings} data={invoiceData} taxType={taxType} />;
+    }
 
-    const isInclusive = settings?.tax?.defaultType === 'Inclusive' || settings?.tax?.priceMode === 'Inclusive';
-
-    // Calculate Tax Summary for Layout
-    const taxSummary = {};
-    items.forEach(item => {
-        const rate = parseFloat(item.taxRate || 0);
-        const price = parseFloat(item.price || item.sellingPrice || 0);
-        const qty = parseFloat(item.quantity || 0);
-
-        let taxable = price * qty;
-        let taxVal = 0;
-
-        if (isInclusive) {
-            // Inclusive: Back-calculate taxable
-            const totalInc = price * qty;
-            taxable = totalInc / (1 + (rate / 100));
-            taxVal = totalInc - taxable;
-        } else {
-            // Exclusive: Taxable is price * qty
-            taxVal = taxable * rate / 100;
-        }
-
-        if (!taxSummary[rate]) {
-            taxSummary[rate] = { taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 };
-        }
-        taxSummary[rate].taxable += taxable;
-        if (isInter) {
-            taxSummary[rate].igst += taxVal;
-        } else {
-            taxSummary[rate].cgst += taxVal / 2;
-            taxSummary[rate].sgst += taxVal / 2;
-        }
-        taxSummary[rate].total += taxVal;
-    });
-
-    return (
-        <View style={{
-            padding: 8,
-            backgroundColor: '#fff',
-            width: 280,
-            alignSelf: 'center',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 4,
-            elevation: 3,
-            marginBottom: 10
-        }}>
-            {/* Header */}
-            <View style={{ alignItems: 'center', marginBottom: 12 }}>
-                {settings?.invoice?.showLogoInBill !== false && store.logo ? (
-                    <Image
-                        source={{ uri: store.logo }}
-                        style={{ width: 60, height: 60, marginBottom: 8, borderRadius: 8 }}
-                        resizeMode="contain"
-                    />
-                ) : null}
-                <Text style={{ ...boldStyle, fontSize: 14, textTransform: 'uppercase' }}>{store.name || 'Store Name'}</Text>
-                <Text style={{ ...textStyle, textAlign: 'center', marginTop: 4 }}>
-                    {typeof store.address === 'object'
-                        ? `${store.address.street || ''}, ${store.address.city || ''}`
-                        : store.address}
-                </Text>
-                <Text style={textStyle}>Phone: {store.contact || store.phone}</Text>
-                {store.gstin && <Text style={textStyle}>GSTIN: {store.gstin}</Text>}
-            </View>
-
-            <View style={dividerStyle} />
-            <Text style={{ ...boldStyle, textAlign: 'center', fontSize: 12 }}>BILL PREVIEW</Text>
-            <View style={dividerStyle} />
-
-            {/* Meta */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={textStyle}>Bill No: {billId}</Text>
-                <Text style={textStyle}>Date: {new Date().toLocaleDateString()}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={textStyle}>Cust: {customer ? customer.name.split(' ')[0] : 'Guest'}</Text>
-                <Text style={textStyle}>Mode: {paymentMode}</Text>
-            </View>
-
-            <View style={dividerStyle} />
-
-            {/* Items Table Header */}
-            <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-                <Text style={{ ...textStyle, width: 20 }}>Sn</Text>
-                <Text style={{ ...textStyle, flex: 1 }}>Item</Text>
-                <Text style={{ ...textStyle, width: 60, textAlign: 'right' }}>Rate</Text>
-                <Text style={{ ...textStyle, width: 70, textAlign: 'right' }}>Amt</Text>
-            </View>
-
-            {/* Items List */}
-            <View>
-                {items.map((item, idx) => {
-                    const tr = parseFloat(item.taxRate || 0);
-                    const taxLabel = isInter ? `IGST @ ${tr}%` : `CGST @ ${tr / 2}% SGST @ ${tr / 2}%`;
-                    return (
-                        <View key={idx} style={{ marginBottom: 6 }}>
-                            <Text style={{ ...textStyle, fontSize: 9, fontStyle: 'italic' }}>{idx + 1}) {taxLabel}</Text>
-                            <Text style={{ ...textStyle, paddingLeft: 10 }}>
-                                {item.name} {item.variantName ? `(${item.variantName})` : ''}
-                            </Text>
-                            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                                <Text style={{ ...textStyle, width: 60, textAlign: 'right' }}>{parseFloat(item.price || item.sellingPrice).toFixed(2)}</Text>
-                                <Text style={{ ...textStyle, width: 70, textAlign: 'right' }}>{item.total.toFixed(2)}</Text>
-                            </View>
-                        </View>
-                    );
-                })}
-            </View>
-
-            <View style={dividerStyle} />
-
-            {/* Totals */}
-            <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
-                    <Text style={textStyle}>Taxable Amount:</Text>
-                    <Text style={textStyle}>₹{totals.subtotal.toFixed(2)}</Text>
-                </View>
-                <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
-                    <Text style={textStyle}>Total Tax:</Text>
-                    <Text style={textStyle}>₹{totals.tax.toFixed(2)}</Text>
-                </View>
-                {totals.additionalCharges > 0 && (
-                    <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
-                        <Text style={textStyle}>Extra Charges:</Text>
-                        <Text style={textStyle}>₹{totals.additionalCharges.toFixed(2)}</Text>
-                    </View>
-                )}
-                {totals.discount > 0 && (
-                    <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
-                        <Text style={{ ...textStyle, color: '#000' }}>Bill Discount:</Text>
-                        <Text style={textStyle}>-₹{totals.discount.toFixed(2)}</Text>
-                    </View>
-                )}
-                {totals.loyaltyPointsDiscount > 0 && (
-                    <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between' }}>
-                        <Text style={{ ...textStyle, color: '#10b981' }}>Loyalty Disc:</Text>
-                        <Text style={{ ...textStyle, color: '#10b981' }}>-₹{totals.loyaltyPointsDiscount.toFixed(2)}</Text>
-                    </View>
-                )}
-
-                <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#000', borderStyle: 'dashed', marginTop: 4, paddingTop: 4 }}>
-                    <Text style={boldStyle}>GRAND TOTAL:</Text>
-                    <Text style={boldStyle}>₹{totals.total.toFixed(2)}</Text>
-                </View>
-
-                {totals.roundOff !== 0 && (
-                    <Text style={{ ...textStyle, fontSize: 9 }}>Round Off: {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}</Text>
-                )}
-
-                <View style={{ marginTop: 8, width: '100%', borderTopWidth: 1, borderTopColor: '#000', borderStyle: 'dotted', paddingTop: 8 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={textStyle}>Paid Amount:</Text>
-                        <Text style={boldStyle}>₹{parseFloat(amountReceived || 0).toFixed(2)}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={textStyle}>Balance:</Text>
-                        <Text style={boldStyle}>₹{Math.max(0, totals.total - parseFloat(amountReceived || 0)).toFixed(2)}</Text>
-                    </View>
-                </View>
-            </View>
-
-            {remarks && remarks.trim() !== '' && (
-                <View style={{ marginTop: 8, padding: 8, backgroundColor: '#f9fafb', borderStyle: 'dashed', borderWidth: 1, borderColor: '#d1d5db' }}>
-                    <Text style={{ ...textStyle, fontSize: 9 }}>REMARKS: {remarks}</Text>
-                </View>
-            )}
-
-            <View style={dividerStyle} />
-
-            {/* GST Summary */}
-            <Text style={{ ...boldStyle, marginBottom: 4 }}>GST SUMMARY</Text>
-            <View style={{ borderWidth: 1, borderColor: '#000', borderStyle: 'dashed' }}>
-                <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#000', borderStyle: 'dashed' }}>
-                    <Text style={{ ...boldStyle, fontSize: 9, flex: 1, padding: 2, borderRightWidth: 1, borderRightColor: '#000', borderStyle: 'dashed', textAlign: 'center' }}>%</Text>
-                    <Text style={{ ...boldStyle, fontSize: 9, flex: 2, padding: 2, borderRightWidth: 1, borderRightColor: '#000', borderStyle: 'dashed', textAlign: 'center' }}>Taxable</Text>
-                    {isInter ? (
-                        <Text style={{ ...boldStyle, fontSize: 9, flex: 2, padding: 2, textAlign: 'center' }}>IGST</Text>
-                    ) : (
-                        <>
-                            <Text style={{ ...boldStyle, fontSize: 9, flex: 2, padding: 2, borderRightWidth: 1, borderRightColor: '#000', borderStyle: 'dashed', textAlign: 'center' }}>CGST</Text>
-                            <Text style={{ ...boldStyle, fontSize: 9, flex: 2, padding: 2, textAlign: 'center' }}>SGST</Text>
-                        </>
-                    )}
-                </View>
-                {Object.keys(taxSummary).length > 0 ? Object.keys(taxSummary).map((rate, idx) => (
-                    <View key={rate} style={{ flexDirection: 'row', borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: '#000', borderStyle: 'dashed' }}>
-                        <Text style={{ ...textStyle, fontSize: 9, flex: 1, padding: 2, borderRightWidth: 1, borderRightColor: '#000', borderStyle: 'dashed', textAlign: 'center' }}>{rate}%</Text>
-                        <Text style={{ ...textStyle, fontSize: 9, flex: 2, padding: 2, borderRightWidth: 1, borderRightColor: '#000', borderStyle: 'dashed', textAlign: 'right' }}>{taxSummary[rate].taxable.toFixed(2)}</Text>
-                        {isInter ? (
-                            <Text style={{ ...textStyle, fontSize: 9, flex: 2, padding: 2, textAlign: 'right' }}>{taxSummary[rate].igst.toFixed(2)}</Text>
-                        ) : (
-                            <>
-                                <Text style={{ ...textStyle, fontSize: 9, flex: 2, padding: 2, borderRightWidth: 1, borderRightColor: '#000', borderStyle: 'dashed', textAlign: 'right' }}>{taxSummary[rate].cgst.toFixed(2)}</Text>
-                                <Text style={{ ...textStyle, fontSize: 9, flex: 2, padding: 2, textAlign: 'right' }}>{taxSummary[rate].sgst.toFixed(2)}</Text>
-                            </>
-                        )}
-                    </View>
-                )) : (
-                    <Text style={{ ...textStyle, textAlign: 'center', padding: 4 }}>No Tax Details</Text>
-                )}
-            </View>
-
-            <View style={dividerStyle} />
-            <Text style={{ ...textStyle, textAlign: 'center' }}>Thank You! Visit Again.</Text>
-        </View>
-    );
+    return <ThermalInvoiceTemplate settings={settings} data={invoiceData} taxType={taxType} />;
 };
 
 export default BillingSidebar;

@@ -1,0 +1,168 @@
+﻿diff --git a/Zilling-mobile/src/pages/Billing/components/BillingGrid.jsx b/Zilling-mobile/src/pages/Billing/components/BillingGrid.jsx
+index c71062f..53756ea 100644
+--- a/Zilling-mobile/src/pages/Billing/components/BillingGrid.jsx
++++ b/Zilling-mobile/src/pages/Billing/components/BillingGrid.jsx
+@@ -1,4 +1,4 @@
+-import React, { useState, useEffect } from 'react';
++import React, { useState, useEffect, useMemo } from 'react';
+ import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView, LayoutAnimation, UIManager } from 'react-native';
+ import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X } from 'lucide-react-native';
+ import { useProducts } from '../../../context/ProductContext';
+@@ -79,7 +79,7 @@ const BillingGrid = ({
+     onRemoveAdjustment,
+     onRemoveItemDiscount
+ }) => {
+-    const suggestedItems = products || [];
++    const suggestedItems = useMemo(() => products || [], [products]);
+     const [searchQuery, setSearchQuery] = useState('');
+     const [sortBy, setSortBy] = useState('name');
+     const [sortOrder, setSortOrder] = useState('asc');
+@@ -115,18 +115,20 @@ const BillingGrid = ({
+         if (searchInputRef.current) searchInputRef.current.blur();
+     };
+ 
+-    const filteredSuggestions = suggestedItems
+-        .filter(item => {
+-            const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+-                (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
+-            return matchesSearch;
+-        })
+-        .sort((a, b) => {
+-            let comparison = 0;
+-            if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
+-            else if (sortBy === 'price') comparison = a.price - b.price;
+-            return sortOrder === 'asc' ? comparison : -comparison;
+-        });
++    const filteredSuggestions = useMemo(() => {
++        return suggestedItems
++            .filter(item => {
++                const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
++                    (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
++                return matchesSearch;
++            })
++            .sort((a, b) => {
++                let comparison = 0;
++                if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
++                else if (sortBy === 'price') comparison = a.price - b.price;
++                return sortOrder === 'asc' ? comparison : -comparison;
++            });
++    }, [suggestedItems, searchQuery, sortBy, sortOrder]);
+ 
+     const getCartQty = (productId) => {
+         return cart
+@@ -332,11 +334,17 @@ const BillingGrid = ({
+ 
+                 <FlatList
+                     data={filteredSuggestions}
+-                    keyExtractor={(item, index) => item.id ? `${item.id}-${index}` : `suggestion-${index}`}
++                    keyExtractor={(item) => item._dbId || item.id || Math.random().toString()}
+                     numColumns={2}
+-                    columnWrapperStyle={{ gap: 12 }}
+-                    contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 20 : 100 }}
+-                    initialNumToRender={8}
++                    columnWrapperStyle={{ gap: 10 }}
++                    contentContainerStyle={[
++                        { paddingBottom: isKeyboardVisible ? 60 : 220, paddingTop: 20 }
++                    ]}
++                    initialNumToRender={30}
++                    windowSize={21}
++                    maxToRenderPerBatch={20}
++                    updateCellsBatchingPeriod={50}
++                    removeClippedSubviews={false}
+                     keyboardShouldPersistTaps="handled"
+                     showsVerticalScrollIndicator={false}
+                     renderItem={({ item }) => {
+@@ -390,7 +398,7 @@ const BillingGrid = ({
+ };
+ 
+ const styles = StyleSheet.create({
+-    container: { flex: 1, backgroundColor: 'transparent' },
++    container: { flex: 1, backgroundColor: '#fff' },
+ 
+     // Cart Section
+     cartSection: { flexShrink: 1, maxHeight: '45%', marginBottom: 15 },
+@@ -431,9 +439,9 @@ const styles = StyleSheet.create({
+         flexDirection: 'row',
+         alignItems: 'center',
+         backgroundColor: '#fff',
+-        borderRadius: 10,
++        borderRadius: 14,
+         borderWidth: 1.5,
+-        borderColor: '#e2e8f0',
++        borderColor: '#e5e7eb',
+         paddingHorizontal: 10,
+         overflow: 'hidden'
+     },
+@@ -474,35 +482,53 @@ const styles = StyleSheet.create({
+     emptyText: { fontSize: 14, fontWeight: '800', color: '#94a3b8' },
+     emptySubText: { fontSize: 10, color: '#cbd5e1', marginTop: 2 },
+ 
+-    // Suggestions Section
++    // Suggestions Section (The white sheet)
+     suggestionSection: {
+         flex: 1,
+         backgroundColor: '#fff',
+         marginHorizontal: -20,
+-        paddingHorizontal: 20,
+-        borderTopLeftRadius: 35,
+-        borderTopRightRadius: 35,
+-        paddingTop: 15,
++        paddingHorizontal: 20, // Keep this for outer alignment
++        borderTopLeftRadius: 40,
++        borderTopRightRadius: 40,
++        paddingTop: 20,
++        // Ultra-soft premium shadow
+         shadowColor: '#000',
+-        shadowOffset: { width: 0, height: -6 },
+-        shadowOpacity: 0.1,
+-        shadowRadius: 15,
+-        elevation: 15
++        shadowOffset: { width: 0, height: -3 },
++        shadowOpacity: 0.04,
++        shadowRadius: 12,
++        elevation: 4,
++        marginTop: 5,
+     },
+     searchBarContainer: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+-    searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 12, height: 44, borderWidth: 1, borderColor: '#f1f5f9' },
+-    searchInput: { flex: 1, fontSize: 13, color: '#000', fontWeight: '600', marginLeft: 8 },
++    searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 16, height: 48, borderWidth: 1.5, borderColor: '#e2e8f0' },
++    searchInput: { flex: 1, fontSize: 14, color: '#000', fontWeight: '800', marginLeft: 8 },
+     closeSearchBtn: { padding: 4 },
+-    filterTrigger: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 4 },
+-    filterText: { color: '#fff', fontWeight: '900', fontSize: 11 },
+-    scanIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
++    filterTrigger: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 4 },
++    filterText: { color: '#fff', fontWeight: '900', fontSize: 13 },
++    scanIconBox: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+ 
+-    suggestionItem: { flex: 1, backgroundColor: '#fff', borderRadius: 18, padding: 12, borderWidth: 1.5, borderColor: '#e2e8f0', marginBottom: 8, minHeight: 90, justifyContent: 'space-between' },
++    suggestionItem: {
++        flex: 1,
++        backgroundColor: '#fff',
++        borderRadius: 24,
++        padding: 16,
++        borderWidth: 1.5,
++        borderColor: '#e2e8f0',
++        marginBottom: 10,
++        minHeight: 110,
++        justifyContent: 'space-between',
++        // Subtle internal shadow for cards
++        shadowColor: '#000',
++        shadowOffset: { width: 0, height: 1 },
++        shadowOpacity: 0.02,
++        shadowRadius: 3,
++        elevation: 1,
++    },
+     suggestionItemInCart: { borderColor: '#000', backgroundColor: '#f8fafc', borderWidth: 2 },
+-    suggestedName: { fontSize: 13, fontWeight: '900', color: '#000', marginBottom: 2 },
+-    suggestedFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+-    suggestedPrice: { fontSize: 15, fontWeight: '900', color: '#000' },
+-    addBtnSmall: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },
++    suggestedName: { fontSize: 14, fontWeight: '900', color: '#000', marginBottom: 4, lineHeight: 18 },
++    suggestedFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
++    suggestedPrice: { fontSize: 16, fontWeight: '900', color: '#000' },
++    addBtnSmall: { width: 34, height: 34, borderRadius: 12, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+     discountBadgeText: { fontSize: 9, fontWeight: '900', color: '#ef4444' },
+     discountBadge: { position: 'absolute', top: -10, right: 10, backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' },
+     inCartBadge: { backgroundColor: '#000', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, marginTop: 2 },
