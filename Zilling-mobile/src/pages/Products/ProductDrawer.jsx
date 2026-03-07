@@ -12,7 +12,7 @@ import {
   Platform,
   FlatList
 } from 'react-native';
-import { X, Save, Search, Plus, ChevronDown, Trash2, Package, Tag, Layers, Barcode, TrendingUp, AlertCircle, Printer } from 'lucide-react-native';
+import { X, Save, Search, Plus, ChevronDown, Trash2, Package, Tag, Layers, Barcode, TrendingUp, AlertCircle, Printer, Box } from 'lucide-react-native';
 import { db } from '../../services/database';
 import { useSettings } from '../../context/SettingsContext';
 import { printBarcode } from '../../utils/printUtils';
@@ -581,7 +581,7 @@ const styles = StyleSheet.create({
   variantName: { fontSize: 13, fontWeight: '900', color: '#000', letterSpacing: 0.5 },
   variantMeta: { fontSize: 12, fontWeight: '600', color: '#64748b', marginTop: 2 },
   variantFieldLabel: { fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 6, letterSpacing: 0.5 },
-  variantFieldInput: { height: 44, backgroundColor: '#f5f5f5', borderRadius: 12, paddingHorizontal: 12, fontSize: 13, fontWeight: '700', color: '#000', borderWidth: 1.5, borderColor: '#eee' },
+  variantFieldInput: { height: 44, backgroundColor: '#ffffff', borderRadius: 12, paddingHorizontal: 12, fontSize: 13, fontWeight: '700', color: '#000', borderWidth: 1.5, borderColor: '#000' },
   variantMarginBadge: { backgroundColor: '#000', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   variantMarginBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
   deleteVarBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center' },

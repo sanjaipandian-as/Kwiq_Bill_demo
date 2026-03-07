@@ -25,17 +25,8 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
         }
     };
 
-    // Check if the user wants the logo displayed on bills
-    const showLogo = settings?.invoice?.showLogoInBill !== false; // defaults to true if not explicitly false
-
     return (
         <View style={styles.thermalPaper}>
-            {showLogo && store.logo ? (
-                <Image
-                    source={{ uri: store.logo }}
-                    style={{ width: 40, height: 40, alignSelf: 'center', marginBottom: 4, resizeMode: 'contain' }}
-                />
-            ) : null}
             <Text style={styles.tpStoreName}>{store.name}</Text>
             <Text style={[styles.tpText, styles.tpTextCenter]}>{store.address?.street}, {store.address?.city}</Text>
             <Text style={[styles.tpText, styles.tpTextCenter]}>Phone: {store.contact}</Text>
@@ -88,39 +79,43 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
                 <Text style={styles.tpTotal}>₹{parseFloat(invoice.totals.total).toFixed(2)}</Text>
             </View>
 
-            <Text style={[styles.tpTextBold, { marginTop: 8, marginBottom: 2 }]}>GST SUMMARY</Text>
-            <View style={styles.tpGxBox}>
-                <View style={styles.tpGxHeader}>
-                    <Text style={[styles.tpText, { flex: 0.8, textAlign: 'center', fontSize: 9 }]}>%</Text>
-                    <Text style={[styles.tpText, { flex: 1.2, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>Taxable</Text>
-                    {taxType === 'inter' ? (
-                        <Text style={[styles.tpText, { flex: 2, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>IGST</Text>
-                    ) : (
-                        <>
-                            <Text style={[styles.tpText, { flex: 1, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>CGST</Text>
-                            <Text style={[styles.tpText, { flex: 1, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>SGST</Text>
-                        </>
-                    )}
-                </View>
-                {invoice.totals.tax > 0 ? (
-                    <View style={styles.tpGxRow}>
-                        <Text style={[styles.tpText, { flex: 0.8, textAlign: 'center', fontSize: 9 }]}>-</Text>
-                        <Text style={[styles.tpText, { flex: 1.2, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>{invoice.totals.subtotal.toFixed(2)}</Text>
-                        {taxType === 'inter' ? (
-                            <Text style={[styles.tpText, { flex: 2, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>{invoice.totals.tax.toFixed(2)}</Text>
+            {settings?.invoice?.showTaxBreakup !== false && (
+                <>
+                    <Text style={[styles.tpTextBold, { marginTop: 8, marginBottom: 2 }]}>GST SUMMARY</Text>
+                    <View style={styles.tpGxBox}>
+                        <View style={styles.tpGxHeader}>
+                            <Text style={[styles.tpText, { flex: 0.8, textAlign: 'center', fontSize: 9 }]}>%</Text>
+                            <Text style={[styles.tpText, { flex: 1.2, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>Taxable</Text>
+                            {taxType === 'inter' ? (
+                                <Text style={[styles.tpText, { flex: 2, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>IGST</Text>
+                            ) : (
+                                <>
+                                    <Text style={[styles.tpText, { flex: 1, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>CGST</Text>
+                                    <Text style={[styles.tpText, { flex: 1, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>SGST</Text>
+                                </>
+                            )}
+                        </View>
+                        {invoice.totals.tax > 0 ? (
+                            <View style={styles.tpGxRow}>
+                                <Text style={[styles.tpText, { flex: 0.8, textAlign: 'center', fontSize: 9 }]}>-</Text>
+                                <Text style={[styles.tpText, { flex: 1.2, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>{invoice.totals.subtotal.toFixed(2)}</Text>
+                                {taxType === 'inter' ? (
+                                    <Text style={[styles.tpText, { flex: 2, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>{invoice.totals.tax.toFixed(2)}</Text>
+                                ) : (
+                                    <>
+                                        <Text style={[styles.tpText, { flex: 1, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>{(invoice.totals.tax / 2).toFixed(2)}</Text>
+                                        <Text style={[styles.tpText, { flex: 1, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>{(invoice.totals.tax / 2).toFixed(2)}</Text>
+                                    </>
+                                )}
+                            </View>
                         ) : (
-                            <>
-                                <Text style={[styles.tpText, { flex: 1, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>{(invoice.totals.tax / 2).toFixed(2)}</Text>
-                                <Text style={[styles.tpText, { flex: 1, textAlign: 'center', fontSize: 9, borderLeftWidth: 1, borderLeftColor: '#94a3b8', borderStyle: 'dashed' }]}>{(invoice.totals.tax / 2).toFixed(2)}</Text>
-                            </>
+                            <View style={styles.tpGxRow}>
+                                <Text style={[styles.tpText, { flex: 1, textAlign: 'center', paddingVertical: 4, fontSize: 9 }]}>No Tax Details</Text>
+                            </View>
                         )}
                     </View>
-                ) : (
-                    <View style={styles.tpGxRow}>
-                        <Text style={[styles.tpText, { flex: 1, textAlign: 'center', paddingVertical: 4, fontSize: 9 }]}>No Tax Details</Text>
-                    </View>
-                )}
-            </View>
+                </>
+            )}
             <View style={styles.tpDashedLine} />
             <Text style={[styles.tpText, styles.tpTextCenter]}>Thank You! Visit Again.</Text>
         </View>

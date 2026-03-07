@@ -147,23 +147,24 @@ const ToastItem = ({ toast, onRemove }) => {
 
     const getIcon = () => {
         switch (type) {
-            case 'error': return <AlertCircle size={20} color="#ef4444" strokeWidth={2.5} />;
-            case 'warning': return <AlertTriangle size={20} color="#f59e0b" strokeWidth={2.5} />;
-            case 'info': return <Info size={20} color="#3b82f6" strokeWidth={2.5} />;
-            case 'success': return <CheckCircle2 size={20} color="#10b981" strokeWidth={2.5} />;
+            case 'error': return <AlertCircle size={20} color="#000" strokeWidth={2.5} />;
+            case 'warning': return <AlertTriangle size={20} color="#000" strokeWidth={2.5} />;
+            case 'info': return <Info size={20} color="#000" strokeWidth={2.5} />;
+            case 'success': return <CheckCircle2 size={20} color="#000" strokeWidth={2.5} />;
+            case 'black': return <BellRing size={20} color="#000" strokeWidth={2.5} />;
             case 'stock': return <AlertTriangle size={20} color="#000" strokeWidth={2.5} />;
-            default: return <BellRing size={20} color="#3b82f6" strokeWidth={2.5} />;
+            default: return <BellRing size={20} color="#000" strokeWidth={2.5} />;
         }
     };
 
     const getStatusColor = () => {
-        // Subtle status pill color
         switch (type) {
-            case 'error': return '#ef4444';
+            case 'error': return '#ff0000';
             case 'warning': return '#f59e0b';
-            case 'success': return '#10b981';
+            case 'success': return '#000000';
+            case 'black': return '#000000';
             case 'stock': return '#000000';
-            default: return '#3b82f6';
+            default: return '#000000';
         }
     };
 
@@ -228,32 +229,34 @@ const styles = StyleSheet.create({
         marginBottom: 10,
     },
     blurContainer: {
-        borderRadius: 24,
+        borderRadius: 20,
         overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.8)',
+        borderWidth: 2,
+        borderColor: '#000',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.1,
-        shadowRadius: 12,
-        elevation: 10,
-        backgroundColor: 'rgba(255, 255, 255, 0.95)', // Solid white fallback with slight transparency
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.2,
+        shadowRadius: 15,
+        elevation: 12,
+        backgroundColor: '#fff',
     },
     content: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 14,
+        paddingVertical: 12,
         paddingHorizontal: 16,
-        minHeight: 64,
+        minHeight: 60,
     },
     iconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 14,
-        backgroundColor: '#f1f5f9', // Soft light gray background for icon
+        width: 36,
+        height: 36,
+        borderRadius: 12,
+        backgroundColor: '#f5f5f5',
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 14,
+        borderWidth: 1,
+        borderColor: '#eee',
     },
     statusDot: {
         position: 'absolute',
@@ -263,40 +266,40 @@ const styles = StyleSheet.create({
         height: 10,
         borderRadius: 5,
         borderWidth: 2,
-        borderColor: '#fff', // White border on white background
+        borderColor: '#fff',
     },
     textContainer: {
         flex: 1,
         marginRight: 10,
     },
     messageText: {
-        color: '#0f172a', // Dark text
-        fontSize: 15,
-        fontWeight: '700',
-        letterSpacing: -0.2,
-        lineHeight: 20,
+        color: '#000',
+        fontSize: 14,
+        fontWeight: '900',
+        letterSpacing: -0.3,
+        lineHeight: 18,
     },
     closeBtn: {
         width: 28,
         height: 28,
         borderRadius: 14,
-        backgroundColor: '#f1f5f9',
+        backgroundColor: '#f5f5f5',
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#eee',
     },
     progressBackground: {
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
-        height: 3,
-        backgroundColor: 'rgba(0, 0, 0, 0.05)',
+        height: 4,
+        backgroundColor: '#f0f0f0',
     },
     progressBar: {
         height: '100%',
-        backgroundColor: 'rgba(0, 0, 0, 0.15)',
-        borderTopRightRadius: 2,
-        borderBottomRightRadius: 2,
+        backgroundColor: '#000',
     }
 });
 

@@ -821,7 +821,7 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
 
-  container: { padding: 20, paddingBottom: 60, paddingTop: 25 },
+  container: { padding: 20, paddingBottom: 120, paddingTop: 25 },
 
   // Key Performance Indicators
   kpiGrid: {

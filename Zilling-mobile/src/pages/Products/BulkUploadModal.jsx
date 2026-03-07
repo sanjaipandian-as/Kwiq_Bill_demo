@@ -10,7 +10,9 @@ import {
     ActivityIndicator,
     Animated,
     Platform,
-    Share
+    Share,
+    SafeAreaView,
+    StatusBar
 } from 'react-native';
 import {
     X, Upload, Download, FileSpreadsheet, CheckCircle2,
@@ -21,6 +23,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
+import { useToast } from '../../context/ToastContext';
 
 // ── Product-level template columns (variants are dynamic & unlimited) ──
 const TEMPLATE_COLUMNS = [
@@ -40,6 +43,7 @@ const TEMPLATE_COLUMNS = [
 const TEMPLATE_VARIANT_EXAMPLES = 3;
 
 const BulkUploadModal = ({ visible, onClose, onImport }) => {
+    const { showToast } = useToast();
     const [step, setStep] = useState('template'); // 'template' | 'uploading' | 'preview' | 'importing' | 'success'
     const [parsedData, setParsedData] = useState([]);
     const [errors, setErrors] = useState([]);
@@ -136,7 +140,24 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
             XLSX.utils.book_append_sheet(wb, ws, 'Products');
 
             const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-            const fileUri = FileSystem.cacheDirectory + 'Kwiq_Product_Template.xlsx';
+            const fileName = 'Kwiq_Product_Template.xlsx';
+
+            if (Platform.OS === 'android') {
+                const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+                if (permissions.granted) {
+                    const uri = await FileSystem.StorageAccessFramework.createFileAsync(
+                        permissions.directoryUri,
+                        fileName,
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    );
+                    await FileSystem.writeAsStringAsync(uri, wbout, { encoding: FileSystem.EncodingType.Base64 });
+                    showToast('Template saved successfully ✓', 'success');
+                    return;
+                }
+            }
+
+            // Fallback for iOS or if permission denied on Android
+            const fileUri = FileSystem.cacheDirectory + fileName;
             await FileSystem.writeAsStringAsync(fileUri, wbout, { encoding: FileSystem.EncodingType.Base64 });
 
             const canShare = await Sharing.isAvailableAsync();
@@ -146,12 +167,13 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                     dialogTitle: 'Save Product Template',
                     UTI: 'com.microsoft.excel.xlsx'
                 });
+                showToast('Template ready to save', 'success');
             } else {
-                Alert.alert('Saved', 'Template generated. Check your downloads.');
+                showToast('Could not save template', 'error');
             }
         } catch (err) {
             console.error('Template Error:', err);
-            Alert.alert('Error', 'Failed to generate template file.');
+            showToast('Failed to save template', 'error');
         }
     };
 
@@ -459,11 +481,10 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
 
     // ── RENDER ──
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-            <View style={s.overlay}>
-                <View style={s.sheet}>
-                    <View style={s.handle} />
-
+        <Modal visible={visible} transparent={false} animationType="slide" onRequestClose={handleClose}>
+            <View style={s.fullScreenContainer}>
+                <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+                <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
                     {/* Header */}
                     <View style={s.header}>
                         <View>
@@ -487,319 +508,331 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                         </TouchableOpacity>
                     </View>
 
-                    <ScrollView
-                        style={{ flex: 1, minHeight: 0 }}
-                        contentContainerStyle={s.content}
-                        showsVerticalScrollIndicator={true}
-                        scrollEnabled={true}
-                        nestedScrollEnabled={true}
-                        bounces={true}
-                        keyboardShouldPersistTaps="handled"
-                    >
+                    <View style={{ flex: 1 }}>
+                        <ScrollView
+                            style={s.scrollView}
+                            contentContainerStyle={s.content}
+                            showsVerticalScrollIndicator={true}
+                            bounces={true}
+                            keyboardShouldPersistTaps="handled"
+                        >
 
-                        {/* ── STEP 1: Template & Upload ── */}
-                        {step === 'template' && (
-                            <View>
-                                {/* Download Template Section */}
-                                <View style={s.templateSection}>
-                                    <View style={s.templateIconRow}>
-                                        <View style={s.templateIconBox}>
-                                            <FileSpreadsheet size={24} color="#000" />
+                            {/* ── STEP 1: Template & Upload ── */}
+                            {step === 'template' && (
+                                <View>
+                                    {/* Upload Section - Moved to TOP for visibility */}
+                                    <View style={[s.uploadSection, { marginBottom: 24 }]}>
+                                        <View style={s.tableSectionTitleRow}>
+                                            <Upload size={14} color="#000" />
+                                            <Text style={s.tableSectionTitle}>SELECT FILE TO IMPORT</Text>
                                         </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={s.templateTitle}>Download Template</Text>
-                                            <Text style={s.templateDesc}>Excel template with correct format</Text>
-                                        </View>
-                                    </View>
-                                    <TouchableOpacity style={s.downloadBtn} onPress={handleDownloadTemplate}>
-                                        <Download size={18} color="#fff" strokeWidth={2.5} />
-                                        <Text style={s.downloadBtnText}>DOWNLOAD TEMPLATE</Text>
-                                    </TouchableOpacity>
-                                </View>
-
-                                {/* Format Guide — Compact cards */}
-                                <View style={s.formatGuide}>
-                                    <View style={s.formatGuideHeader}>
-                                        <Info size={14} color="#000" />
-                                        <Text style={s.tableSectionTitle}>COLUMN FORMAT</Text>
-                                    </View>
-
-                                    {/* Product Fields Card */}
-                                    <View style={s.formatCard}>
-                                        <View style={s.formatCardHeader}>
-                                            <Package size={14} color="#000" />
-                                            <Text style={s.formatCardTitle}>Product Fields</Text>
-                                        </View>
-                                        <View style={s.formatChips}>
-                                            {TEMPLATE_COLUMNS.map((col, i) => (
-                                                <View key={i} style={[s.formatChip, col.required && s.formatChipRequired]}>
-                                                    <Text style={[s.formatChipText, col.required && s.formatChipTextRequired]}>
-                                                        {col.label}{col.required ? ' *' : ''}
-                                                    </Text>
-                                                </View>
-                                            ))}
-                                        </View>
-                                    </View>
-
-                                    {/* Variant Fields Card */}
-                                    <View style={[s.formatCard, { borderColor: '#000' }]}>
-                                        <View style={s.formatCardHeader}>
-                                            <Layers size={14} color="#000" />
-                                            <Text style={[s.formatCardTitle, { color: '#000' }]}>Variant Columns</Text>
-                                            <View style={s.unlimitedBadge}>
-                                                <Text style={s.unlimitedBadgeText}>UNLIMITED</Text>
-                                            </View>
-                                        </View>
-                                        <Text style={s.formatCardDesc}>
-                                            For each variant, add 4 columns:
-                                        </Text>
-                                        <View style={s.variantFormatRow}>
-                                            <View style={s.variantFormatItem}>
-                                                <Text style={s.variantFormatNum}>1</Text>
-                                                <Text style={s.variantFormatLabel}>Variant N Detail</Text>
-                                            </View>
-                                            <View style={s.variantFormatItem}>
-                                                <Text style={s.variantFormatNum}>2</Text>
-                                                <Text style={s.variantFormatLabel}>Variant N Cost Price (₹)</Text>
-                                            </View>
-                                            <View style={s.variantFormatItem}>
-                                                <Text style={s.variantFormatNum}>3</Text>
-                                                <Text style={s.variantFormatLabel}>Variant N Price (₹)</Text>
-                                            </View>
-                                            <View style={s.variantFormatItem}>
-                                                <Text style={s.variantFormatNum}>4</Text>
-                                                <Text style={s.variantFormatLabel}>Variant N Stock</Text>
-                                            </View>
-                                        </View>
-                                        <Text style={s.variantExample}>
-                                            Example: Variant 1 Detail = "Red", Variant 1 Cost Price = "140", Variant 1 Price = "160" ...
-                                        </Text>
-                                    </View>
-                                </View>
-
-                                {/* Quick Info */}
-                                <View style={s.infoCard}>
-                                    <AlertCircle size={16} color="#000" />
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={s.infoText}>
-                                            <Text style={s.infoBold}>Required:</Text> Product Name, SKU, Selling Price
-                                        </Text>
-                                        <Text style={[s.infoText, { marginTop: 3 }]}>
-                                            <Text style={s.infoBold}>Formats:</Text> .xlsx, .csv, .json
-                                        </Text>
-                                    </View>
-                                </View>
-
-                                {/* Upload hint text instead of button - button is in footer */}
-                                <View style={s.uploadHint}>
-                                    <ArrowUpCircle size={16} color="#000" />
-                                    <Text style={s.uploadHintText}>Your file will be validated before import</Text>
-                                </View>
-                            </View>
-                        )}
-
-                        {/* ── STEP 2: Uploading/Processing ── */}
-                        {step === 'uploading' && (
-                            <View style={s.uploadingContainer}>
-                                <Animated.View style={[s.uploadingIconBox, { transform: [{ scale: pulseAnim }] }]}>
-                                    <Upload size={40} color="#000" />
-                                </Animated.View>
-                                <Text style={s.uploadingTitle}>Processing Your File</Text>
-                                <Text style={s.uploadingDesc}>
-                                    Reading and validating <Text style={{ fontWeight: '900' }}>{fileName}</Text>
-                                </Text>
-                                <ProgressBar
-                                    progress={uploadProgress}
-                                    label="Reading File"
-                                    eta={uploadProgress < 100 ? 'Parsing data...' : 'Almost done!'}
-                                />
-                                <View style={s.statusPills}>
-                                    <View style={[s.statusPill, uploadProgress > 20 && s.statusPillActive]}>
-                                        <Text style={[s.statusPillText, uploadProgress > 20 && s.statusPillTextActive]}>Reading</Text>
-                                    </View>
-                                    <View style={[s.statusPill, uploadProgress > 50 && s.statusPillActive]}>
-                                        <Text style={[s.statusPillText, uploadProgress > 50 && s.statusPillTextActive]}>Validating</Text>
-                                    </View>
-                                    <View style={[s.statusPill, uploadProgress > 80 && s.statusPillActive]}>
-                                        <Text style={[s.statusPillText, uploadProgress > 80 && s.statusPillTextActive]}>Mapping</Text>
-                                    </View>
-                                </View>
-                            </View>
-                        )}
-
-                        {/* ── STEP 3: Preview ── */}
-                        {step === 'preview' && (
-                            <View>
-                                {/* Summary Banner */}
-                                <View style={s.summaryBanner}>
-                                    <View style={s.summaryItem}>
-                                        <Text style={s.summaryNumber}>{parsedData.length}</Text>
-                                        <Text style={s.summaryLabel}>VALID</Text>
-                                    </View>
-                                    <View style={s.summaryDivider} />
-                                    <View style={s.summaryItem}>
-                                        <Text style={[s.summaryNumber, errors.length > 0 && { color: '#000' }]}>{errors.length}</Text>
-                                        <Text style={s.summaryLabel}>ERRORS</Text>
-                                    </View>
-                                    <View style={s.summaryDivider} />
-                                    <View style={s.summaryItem}>
-                                        <Text style={s.summaryNumber}>{parsedData.length + errors.length}</Text>
-                                        <Text style={s.summaryLabel}>TOTAL</Text>
-                                    </View>
-                                </View>
-
-                                {/* Errors */}
-                                {errors.length > 0 && (
-                                    <View style={s.errorsCard}>
-                                        <View style={s.errorsHeader}>
-                                            <AlertCircle size={16} color="#000" />
-                                            <Text style={s.errorsTitle}>{errors.length} rows skipped</Text>
-                                        </View>
-                                        {errors.slice(0, 5).map((err, i) => (
-                                            <Text key={i} style={s.errorItem}>• {err}</Text>
-                                        ))}
-                                        {errors.length > 5 && (
-                                            <Text style={s.errorMore}>...and {errors.length - 5} more errors</Text>
-                                        )}
-                                    </View>
-                                )}
-
-                                {/* ETA Estimate */}
-                                <View style={s.etaEstimateCard}>
-                                    <Zap size={16} color="#000" />
-                                    <Text style={s.etaEstimateText}>
-                                        Estimated import time: <Text style={{ fontWeight: '900' }}>
-                                            {parsedData.length < 50 ? '~5 seconds' :
-                                                parsedData.length < 200 ? '~15 seconds' :
-                                                    parsedData.length < 500 ? '~30 seconds' :
-                                                        `~${Math.ceil(parsedData.length / 20)} seconds`}
-                                        </Text>
-                                    </Text>
-                                </View>
-
-                                {/* Preview Cards */}
-                                <Text style={s.previewSectionTitle}>PREVIEW ({Math.min(parsedData.length, 5)} of {parsedData.length})</Text>
-                                {parsedData.slice(0, 5).map((item, index) => (
-                                    <View key={index} style={s.previewCard}>
-                                        <View style={s.previewRow}>
-                                            <View style={s.previewIconBox}>
-                                                <Package size={16} color="#000" />
+                                        <TouchableOpacity style={s.uploadMainBtn} onPress={handleFilePick} activeOpacity={0.8}>
+                                            <View style={s.uploadIconBox}>
+                                                <ArrowUpCircle size={32} color="#fff" />
                                             </View>
                                             <View style={{ flex: 1 }}>
-                                                <Text style={s.previewName} numberOfLines={1}>{item.name}</Text>
-                                                <View style={s.previewTags}>
-                                                    <Text style={s.previewTag}>SKU: {item.sku}</Text>
-                                                    {item.category ? <Text style={s.previewTag}>{item.category}</Text> : null}
-                                                    {item.brand ? <Text style={s.previewTag}>{item.brand}</Text> : null}
-                                                </View>
+                                                <Text style={s.uploadBtnTitle}>CHOOSE FILE</Text>
+                                                <Text style={s.uploadBtnSub}>Excel · CSV · JSON</Text>
                                             </View>
-                                            <View style={{ alignItems: 'flex-end' }}>
-                                                <Text style={s.previewPrice}>₹{parseFloat(item.price || 0).toLocaleString()}</Text>
-                                                <Text style={s.previewStock}>{item.stock || 0} {item.unit || 'pcs'}</Text>
+                                            <ChevronRight size={20} color="#000" strokeWidth={3} />
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {/* Download Template Section */}
+                                    <View style={s.templateSection}>
+                                        <View style={s.templateIconRow}>
+                                            <View style={s.templateIconBox}>
+                                                <FileSpreadsheet size={24} color="#000" />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={s.templateTitle}>Download Template</Text>
+                                                <Text style={s.templateDesc}>Excel template with correct format</Text>
                                             </View>
                                         </View>
-                                        {/* Variant pills */}
-                                        {item.variants && item.variants.length > 0 && (
-                                            <View style={s.previewVariantsRow}>
-                                                <View style={s.previewVariantLabel}>
-                                                    <Layers size={10} color="#000" />
-                                                    <Text style={s.previewVariantLabelText}>{item.variants.length} VARIANTS</Text>
-                                                </View>
-                                                <View style={s.previewVariantPills}>
-                                                    {item.variants.map((v, vi) => (
-                                                        <View key={vi} style={s.previewVariantPill}>
-                                                            <Text style={s.previewVariantPillText}>{v.name}</Text>
-                                                            {v.price !== null && v.price !== undefined && (
-                                                                <Text style={s.previewVariantPriceText}>₹{v.price}</Text>
-                                                            )}
-                                                            <Text style={s.previewVariantStockText}>×{v.stock || 0}</Text>
-                                                        </View>
-                                                    ))}
+                                        <TouchableOpacity style={s.downloadBtn} onPress={handleDownloadTemplate}>
+                                            <Download size={18} color="#fff" strokeWidth={2.5} />
+                                            <Text style={s.downloadBtnText}>DOWNLOAD TEMPLATE</Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {/* Format Guide — Compact cards */}
+                                    <View style={s.formatGuide}>
+                                        <View style={s.formatGuideHeader}>
+                                            <Info size={14} color="#000" />
+                                            <Text style={s.tableSectionTitle}>COLUMN FORMAT</Text>
+                                        </View>
+
+                                        {/* Product Fields Card */}
+                                        <View style={s.formatCard}>
+                                            <View style={s.formatCardHeader}>
+                                                <Package size={14} color="#000" />
+                                                <Text style={s.formatCardTitle}>Product Fields</Text>
+                                            </View>
+                                            <View style={s.formatChips}>
+                                                {TEMPLATE_COLUMNS.map((col, i) => (
+                                                    <View key={i} style={[s.formatChip, col.required && s.formatChipRequired]}>
+                                                        <Text style={[s.formatChipText, col.required && s.formatChipTextRequired]}>
+                                                            {col.label}{col.required ? ' *' : ''}
+                                                        </Text>
+                                                    </View>
+                                                ))}
+                                            </View>
+                                        </View>
+
+                                        {/* Variant Fields Card */}
+                                        <View style={[s.formatCard, { borderColor: '#000' }]}>
+                                            <View style={s.formatCardHeader}>
+                                                <Layers size={14} color="#000" />
+                                                <Text style={[s.formatCardTitle, { color: '#000' }]}>Variant Columns</Text>
+                                                <View style={s.unlimitedBadge}>
+                                                    <Text style={s.unlimitedBadgeText}>UNLIMITED</Text>
                                                 </View>
                                             </View>
-                                        )}
+                                            <Text style={s.formatCardDesc}>
+                                                For each variant, add 4 columns:
+                                            </Text>
+                                            <View style={s.variantFormatRow}>
+                                                <View style={s.variantFormatItem}>
+                                                    <Text style={s.variantFormatNum}>1</Text>
+                                                    <Text style={s.variantFormatLabel}>Variant N Detail</Text>
+                                                </View>
+                                                <View style={s.variantFormatItem}>
+                                                    <Text style={s.variantFormatNum}>2</Text>
+                                                    <Text style={s.variantFormatLabel}>Variant N Cost Price (₹)</Text>
+                                                </View>
+                                                <View style={s.variantFormatItem}>
+                                                    <Text style={s.variantFormatNum}>3</Text>
+                                                    <Text style={s.variantFormatLabel}>Variant N Price (₹)</Text>
+                                                </View>
+                                                <View style={s.variantFormatItem}>
+                                                    <Text style={s.variantFormatNum}>4</Text>
+                                                    <Text style={s.variantFormatLabel}>Variant N Stock</Text>
+                                                </View>
+                                            </View>
+                                            <Text style={s.variantExample}>
+                                                Example: Variant 1 Detail = "Red", Variant 1 Cost Price = "140", Variant 1 Price = "160" ...
+                                            </Text>
+                                        </View>
                                     </View>
-                                ))}
-                                {parsedData.length > 5 && (
-                                    <Text style={s.moreItems}>...and {parsedData.length - 5} more products</Text>
-                                )}
-                            </View>
-                        )}
 
-                        {/* ── STEP 4: Importing ── */}
-                        {step === 'importing' && (
-                            <View style={s.importingContainer}>
-                                <Animated.View style={[s.uploadingIconBox, { transform: [{ scale: pulseAnim }] }]}>
-                                    <Package size={40} color="#000" />
-                                </Animated.View>
-                                <Text style={s.uploadingTitle}>Adding Products to Inventory</Text>
-                                <Text style={s.uploadingDesc}>
-                                    {processedItems} of {totalItems} products imported
-                                </Text>
-
-                                <ProgressBar
-                                    progress={importProgress}
-                                    label="Importing Products"
-                                    eta={estimatedTime}
-                                />
-
-                                <View style={s.importStatsRow}>
-                                    <View style={s.importStat}>
-                                        <Text style={s.importStatNumber}>{processedItems}</Text>
-                                        <Text style={s.importStatLabel}>DONE</Text>
-                                    </View>
-                                    <View style={s.importStat}>
-                                        <Text style={s.importStatNumber}>{totalItems - processedItems}</Text>
-                                        <Text style={s.importStatLabel}>REMAINING</Text>
+                                    {/* Quick Info */}
+                                    <View style={s.infoCard}>
+                                        <AlertCircle size={16} color="#000" />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={s.infoText}>
+                                                <Text style={s.infoBold}>Required:</Text> Product Name, SKU, Selling Price
+                                            </Text>
+                                            <Text style={[s.infoText, { marginTop: 3 }]}>
+                                                <Text style={s.infoBold}>Formats:</Text> .xlsx, .csv, .json
+                                            </Text>
+                                        </View>
                                     </View>
                                 </View>
+                            )}
 
-                                <Text style={s.importNote}>
-                                    Please don't close the app while importing
-                                </Text>
-                            </View>
-                        )}
-
-                        {/* ── STEP 5: Success ── */}
-                        {step === 'success' && (
-                            <View style={s.successContainer}>
-                                <View style={s.successIconBox}>
-                                    <CheckCircle2 size={56} color="#000" />
-                                </View>
-                                <Text style={s.successTitle}>Import Successful!</Text>
-                                <Text style={s.successDesc}>
-                                    <Text style={{ fontWeight: '900', color: '#000' }}>{totalItems}</Text> products have been added to your inventory.
-                                </Text>
-                                <View style={s.successStats}>
-                                    <View style={s.successStatItem}>
-                                        <Text style={s.successStatNum}>{totalItems}</Text>
-                                        <Text style={s.successStatLabel}>Products Added</Text>
+                            {/* ── STEP 2: Uploading/Processing ── */}
+                            {step === 'uploading' && (
+                                <View style={s.uploadingContainer}>
+                                    <Animated.View style={[s.uploadingIconBox, { transform: [{ scale: pulseAnim }] }]}>
+                                        <Upload size={40} color="#000" />
+                                    </Animated.View>
+                                    <Text style={s.uploadingTitle}>Processing Your File</Text>
+                                    <Text style={s.uploadingDesc}>
+                                        Reading and validating <Text style={{ fontWeight: '900' }}>{fileName}</Text>
+                                    </Text>
+                                    <ProgressBar
+                                        progress={uploadProgress}
+                                        label="Reading File"
+                                        eta={uploadProgress < 100 ? 'Parsing data...' : 'Almost done!'}
+                                    />
+                                    <View style={s.statusPills}>
+                                        <View style={[s.statusPill, uploadProgress > 20 && s.statusPillActive]}>
+                                            <Text style={[s.statusPillText, uploadProgress > 20 && s.statusPillTextActive]}>Reading</Text>
+                                        </View>
+                                        <View style={[s.statusPill, uploadProgress > 50 && s.statusPillActive]}>
+                                            <Text style={[s.statusPillText, uploadProgress > 50 && s.statusPillTextActive]}>Validating</Text>
+                                        </View>
+                                        <View style={[s.statusPill, uploadProgress > 80 && s.statusPillActive]}>
+                                            <Text style={[s.statusPillText, uploadProgress > 80 && s.statusPillTextActive]}>Mapping</Text>
+                                        </View>
                                     </View>
-                                    <View style={s.successDivider} />
-                                    <View style={s.successStatItem}>
-                                        <Text style={s.successStatNum}>
-                                            {startTime ? `${Math.ceil((Date.now() - startTime) / 1000)}s` : '—'}
+                                </View>
+                            )}
+
+                            {/* ── STEP 3: Preview ── */}
+                            {step === 'preview' && (
+                                <View>
+                                    {/* Summary Banner */}
+                                    <View style={s.summaryBanner}>
+                                        <View style={s.summaryItem}>
+                                            <Text style={s.summaryNumber}>{parsedData.length}</Text>
+                                            <Text style={s.summaryLabel}>VALID</Text>
+                                        </View>
+                                        <View style={s.summaryDivider} />
+                                        <View style={s.summaryItem}>
+                                            <Text style={[s.summaryNumber, errors.length > 0 && { color: '#000' }]}>{errors.length}</Text>
+                                            <Text style={s.summaryLabel}>ERRORS</Text>
+                                        </View>
+                                        <View style={s.summaryDivider} />
+                                        <View style={s.summaryItem}>
+                                            <Text style={s.summaryNumber}>{parsedData.length + errors.length}</Text>
+                                            <Text style={s.summaryLabel}>TOTAL</Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Errors */}
+                                    {errors.length > 0 && (
+                                        <View style={s.errorsCard}>
+                                            <View style={s.errorsHeader}>
+                                                <AlertCircle size={16} color="#000" />
+                                                <Text style={s.errorsTitle}>{errors.length} rows skipped</Text>
+                                            </View>
+                                            {errors.slice(0, 5).map((err, i) => (
+                                                <Text key={i} style={s.errorItem}>• {err}</Text>
+                                            ))}
+                                            {errors.length > 5 && (
+                                                <Text style={s.errorMore}>...and {errors.length - 5} more errors</Text>
+                                            )}
+                                        </View>
+                                    )}
+
+                                    {/* ETA Estimate */}
+                                    <View style={s.etaEstimateCard}>
+                                        <Zap size={16} color="#000" />
+                                        <Text style={s.etaEstimateText}>
+                                            Estimated import time: <Text style={{ fontWeight: '900' }}>
+                                                {parsedData.length < 50 ? '~5 seconds' :
+                                                    parsedData.length < 200 ? '~15 seconds' :
+                                                        parsedData.length < 500 ? '~30 seconds' :
+                                                            `~${Math.ceil(parsedData.length / 20)} seconds`}
+                                            </Text>
                                         </Text>
-                                        <Text style={s.successStatLabel}>Time Taken</Text>
+                                    </View>
+
+                                    {/* Preview Cards */}
+                                    <Text style={s.previewSectionTitle}>PREVIEW ({Math.min(parsedData.length, 5)} of {parsedData.length})</Text>
+                                    {parsedData.slice(0, 5).map((item, index) => (
+                                        <View key={index} style={s.previewCard}>
+                                            <View style={s.previewRow}>
+                                                <View style={s.previewIconBox}>
+                                                    <Package size={16} color="#000" />
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={s.previewName} numberOfLines={1}>{item.name}</Text>
+                                                    <View style={s.previewTags}>
+                                                        <Text style={s.previewTag}>SKU: {item.sku}</Text>
+                                                        {item.category ? <Text style={s.previewTag}>{item.category}</Text> : null}
+                                                        {item.brand ? <Text style={s.previewTag}>{item.brand}</Text> : null}
+                                                    </View>
+                                                </View>
+                                                <View style={{ alignItems: 'flex-end' }}>
+                                                    <Text style={s.previewPrice}>₹{parseFloat(item.price || 0).toLocaleString()}</Text>
+                                                    <Text style={s.previewStock}>{item.stock || 0} {item.unit || 'pcs'}</Text>
+                                                </View>
+                                            </View>
+                                            {/* Variant pills */}
+                                            {item.variants && item.variants.length > 0 && (
+                                                <View style={s.previewVariantsRow}>
+                                                    <View style={s.previewVariantLabel}>
+                                                        <Layers size={10} color="#000" />
+                                                        <Text style={s.previewVariantLabelText}>{item.variants.length} VARIANTS</Text>
+                                                    </View>
+                                                    <View style={s.previewVariantPills}>
+                                                        {item.variants.map((v, vi) => (
+                                                            <View key={vi} style={s.previewVariantPill}>
+                                                                <Text style={s.previewVariantPillText}>{v.name}</Text>
+                                                                {v.price !== null && v.price !== undefined && (
+                                                                    <Text style={s.previewVariantPriceText}>₹{v.price}</Text>
+                                                                )}
+                                                                <Text style={s.previewVariantStockText}>×{v.stock || 0}</Text>
+                                                            </View>
+                                                        ))}
+                                                    </View>
+                                                </View>
+                                            )}
+                                        </View>
+                                    ))}
+                                    {parsedData.length > 5 && (
+                                        <Text style={s.moreItems}>...and {parsedData.length - 5} more products</Text>
+                                    )}
+                                </View>
+                            )}
+
+                            {/* ── STEP 4: Importing ── */}
+                            {step === 'importing' && (
+                                <View style={s.importingContainer}>
+                                    <Animated.View style={[s.uploadingIconBox, { transform: [{ scale: pulseAnim }] }]}>
+                                        <Package size={40} color="#000" />
+                                    </Animated.View>
+                                    <Text style={s.uploadingTitle}>Adding Products to Inventory</Text>
+                                    <Text style={s.uploadingDesc}>
+                                        {processedItems} of {totalItems} products imported
+                                    </Text>
+
+                                    <ProgressBar
+                                        progress={importProgress}
+                                        label="Importing Products"
+                                        eta={estimatedTime}
+                                    />
+
+                                    <View style={s.importStatsRow}>
+                                        <View style={s.importStat}>
+                                            <Text style={s.importStatNumber}>{processedItems}</Text>
+                                            <Text style={s.importStatLabel}>DONE</Text>
+                                        </View>
+                                        <View style={s.importStat}>
+                                            <Text style={s.importStatNumber}>{totalItems - processedItems}</Text>
+                                            <Text style={s.importStatLabel}>REMAINING</Text>
+                                        </View>
+                                    </View>
+
+                                    <Text style={s.importNote}>
+                                        Please don't close the app while importing
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* ── STEP 5: Success ── */}
+                            {step === 'success' && (
+                                <View style={s.successContainer}>
+                                    <View style={s.successIconBox}>
+                                        <CheckCircle2 size={56} color="#000" />
+                                    </View>
+                                    <Text style={s.successTitle}>Import Successful!</Text>
+                                    <Text style={s.successDesc}>
+                                        <Text style={{ fontWeight: '900', color: '#000' }}>{totalItems}</Text> products have been added to your inventory.
+                                    </Text>
+                                    <View style={s.successStats}>
+                                        <View style={s.successStatItem}>
+                                            <Text style={s.successStatNum}>{totalItems}</Text>
+                                            <Text style={s.successStatLabel}>Products Added</Text>
+                                        </View>
+                                        <View style={s.successDivider} />
+                                        <View style={s.successStatItem}>
+                                            <Text style={s.successStatNum}>
+                                                {startTime ? `${Math.ceil((Date.now() - startTime) / 1000)}s` : '—'}
+                                            </Text>
+                                            <Text style={s.successStatLabel}>Time Taken</Text>
+                                        </View>
                                     </View>
                                 </View>
-                            </View>
-                        )}
+                            )}
 
-                    </ScrollView>
+                        </ScrollView>
+                    </View>
 
                     {/* ── Footer ── */}
                     <View style={s.footer}>
                         {step === 'template' && (
                             <>
                                 <TouchableOpacity style={s.ghostBtn} onPress={handleClose}>
-                                    <Text style={s.ghostBtnText}>CANCEL</Text>
+                                    <Text style={s.ghostBtnText}>CLOSE</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity style={s.uploadBtn} onPress={handleFilePick} activeOpacity={0.8}>
                                     <ArrowUpCircle size={20} color="#fff" />
                                     <View style={{ flex: 1 }}>
-                                        <Text style={s.uploadBtnTitle}>CHOOSE FILE</Text>
-                                        <Text style={s.uploadBtnSub}>.xlsx · .csv · .json</Text>
+                                        <Text style={s.uploadBtnTitleFooter}>CHOOSE FILE</Text>
+                                        <Text style={s.uploadBtnSubFooter}>.xlsx · .csv · .json</Text>
                                     </View>
                                     <ChevronRight size={18} color="rgba(255,255,255,0.5)" />
                                 </TouchableOpacity>
@@ -834,26 +867,38 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                             </View>
                         )}
                     </View>
-                </View>
-            </View>
-        </Modal>
+                </SafeAreaView>
+            </View >
+        </Modal >
     );
 };
 
 const s = StyleSheet.create({
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
+    fullScreenContainer: {
+        flex: 1,
+        backgroundColor: '#fff'
+    },
     sheet: {
+        flex: 1,
         backgroundColor: '#fff',
-        borderTopLeftRadius: 36,
-        borderTopRightRadius: 36,
-        height: '95%',
-        width: '100%',
         flexDirection: 'column',
         display: 'flex',
     },
     handle: { width: 40, height: 5, backgroundColor: '#000', borderRadius: 5, alignSelf: 'center', marginTop: 12 },
 
-    header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 28, paddingTop: 20, paddingBottom: 16, alignItems: 'flex-start' },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingHorizontal: 28,
+        paddingTop: 20,
+        paddingBottom: 16,
+        alignItems: 'flex-start',
+        backgroundColor: '#fff',
+        zIndex: 10,
+    },
+    scrollView: {
+        flex: 1,
+    },
     title: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
     subtitle: { fontSize: 13, color: '#646464', fontWeight: '600', marginTop: 2 },
     closeBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#e5e5e5' },
@@ -964,30 +1009,35 @@ const s = StyleSheet.create({
     infoText: { fontSize: 12, color: '#000', lineHeight: 18 },
     infoBold: { fontWeight: '900' },
 
-    // Upload hint (replaces the in-scroll button)
-    uploadHint: {
-        flexDirection: 'row', alignItems: 'center', gap: 8,
-        backgroundColor: '#f5f5f5', borderRadius: 14,
-        paddingHorizontal: 16, paddingVertical: 12,
-        borderWidth: 1, borderColor: '#e0e0e0',
-    },
-    uploadHintText: { fontSize: 13, fontWeight: '700', color: '#444', flex: 1 },
-
-    // Upload Button (now in footer)
-    uploadBtn: {
-        flex: 2,
-        backgroundColor: '#000',
+    // Upload Section
+    uploadSection: { marginTop: 10 },
+    tableSectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+    uploadMainBtn: {
+        backgroundColor: '#fff',
+        borderRadius: 24,
+        padding: 16,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 16,
-        elevation: 4,
+        gap: 16,
+        borderWidth: 2,
+        borderColor: '#000',
+        marginBottom: 12,
     },
-    uploadIconCircle: { width: 44, height: 44, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
-    uploadBtnTitle: { color: '#fff', fontWeight: '900', fontSize: 14, letterSpacing: 0.3 },
-    uploadBtnSub: { color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '600', marginTop: 2 },
+    uploadIconBox: {
+        width: 56,
+        height: 56,
+        borderRadius: 16,
+        backgroundColor: '#000',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    uploadBtnTitle: { fontSize: 16, fontWeight: '900', color: '#000', letterSpacing: -0.2 },
+    uploadBtnSub: { fontSize: 12, color: '#64748b', fontWeight: '700', marginTop: 2 },
+    uploadHintText: { fontSize: 12, color: '#94a3b8', fontWeight: '600', lineHeight: 18, textAlign: 'center', paddingHorizontal: 10 },
+    // Upload Button (Footer version)
+    uploadBtn: { flex: 2, backgroundColor: '#000', flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 16, elevation: 4 },
+    uploadBtnTitleFooter: { color: '#fff', fontWeight: '900', fontSize: 13, letterSpacing: 0.3 },
+    uploadBtnSubFooter: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '700', marginTop: 1 },
 
     // Uploading Container
     uploadingContainer: { alignItems: 'center', paddingVertical: 30 },
@@ -1136,7 +1186,7 @@ const s = StyleSheet.create({
         flexDirection: 'row',
         paddingHorizontal: 24,
         paddingTop: 16,
-        paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+        paddingBottom: 24,
         borderTopWidth: 1.5,
         borderColor: '#e5e5e5',
         gap: 12,

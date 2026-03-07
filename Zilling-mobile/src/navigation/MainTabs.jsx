@@ -1,12 +1,12 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Dimensions, Animated } from 'react-native';
 const { createBottomTabNavigator } = require('@react-navigation/bottom-tabs');
 import {
-  Home,
-  ShoppingCart,
-  Package,
-  Users,
-  Menu as MenuIcon
+  LayoutDashboard,
+  ReceiptText,
+  Boxes,
+  UserRound,
+  Settings2
 } from 'lucide-react-native';
 
 import Dashboard from '../pages/Dashboard';
@@ -20,8 +20,8 @@ const Tab = createBottomTabNavigator();
 
 const CustomTabBar = ({ state, descriptors, navigation }) => {
   return (
-    <View style={styles.tabBarContainer}>
-      <View style={styles.bottomBar}>
+    <View style={styles.navWrapper}>
+      <View style={styles.dockInner}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
           const label = options.tabBarLabel !== undefined ? options.tabBarLabel : options.title !== undefined ? options.title : route.name;
@@ -39,14 +39,18 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
             }
           };
 
-          const renderIcon = (color, size) => {
-            const iconProps = { color, size: size || 22, strokeWidth: isFocused ? 2.5 : 2 };
+          const renderIcon = (isFocused) => {
+            const iconProps = {
+              color: isFocused ? '#ffffff' : '#94a3b8',
+              size: isFocused ? 24 : 22,
+              strokeWidth: isFocused ? 2.5 : 2
+            };
             switch (route.name) {
-              case 'Dashboard': return <Home {...iconProps} />;
-              case 'Billing': return <ShoppingCart {...iconProps} />;
-              case 'Products': return <Package {...iconProps} />;
-              case 'Customers': return <Users {...iconProps} />;
-              case 'Settings': return <MenuIcon {...iconProps} />;
+              case 'Dashboard': return <LayoutDashboard {...iconProps} />;
+              case 'Billing': return <ReceiptText {...iconProps} />;
+              case 'Products': return <Boxes {...iconProps} />;
+              case 'Customers': return <UserRound {...iconProps} />;
+              case 'Settings': return <Settings2 {...iconProps} />;
               default: return null;
             }
           };
@@ -54,19 +58,18 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
           return (
             <TouchableOpacity
               key={route.key}
-              accessibilityRole="button"
-              accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel}
               onPress={onPress}
-              style={styles.tabItem}
-              activeOpacity={0.7}
+              style={[styles.tabBtn, isFocused && styles.tabBtnActive]}
+              activeOpacity={0.8}
             >
-              <View style={styles.iconContainer}>
-                {renderIcon(isFocused ? '#000000' : '#94a3b8', isFocused ? 24 : 22)}
+              <View style={[styles.iconBox, isFocused && styles.iconBoxActive]}>
+                {renderIcon(isFocused)}
               </View>
-              <Text style={[styles.tabLabel, { color: isFocused ? '#000000' : '#94a3b8', fontWeight: isFocused ? '800' : '600' }]}>
-                {label}
-              </Text>
+              {isFocused && (
+                <Text style={styles.activeLabel}>
+                  {label === 'Billing' ? 'Bill' : label === 'Products' ? 'Stock' : label === 'Customers' ? 'Parties' : label}
+                </Text>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -91,37 +94,64 @@ export default function MainTabs() {
 }
 
 const styles = StyleSheet.create({
-  tabBarContainer: {
+  navWrapper: {
+    position: 'absolute',
+    bottom: 0,
     width: width,
     backgroundColor: '#ffffff',
-    borderTopWidth: 1,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 10,
+    borderTopWidth: 1.5,
     borderTopColor: '#f1f5f9',
-    paddingBottom: Platform.OS === 'ios' ? 30 : 12,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    height: Platform.OS === 'ios' ? 98 : 78,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.04,
+    shadowRadius: 15,
+    elevation: 8,
+    overflow: 'hidden', // Ensures the curve clips the inner content
   },
-  bottomBar: {
+  dockInner: {
+    flex: 1,
     flexDirection: 'row',
-    width: '100%',
-    height: 64,
-    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'space-around',
+    paddingHorizontal: 8,
   },
-  tabItem: {
-    flex: 1,
+  tabBtn: {
     alignItems: 'center',
     justifyContent: 'center',
     height: '100%',
+    width: width / 5.2,
   },
-  iconContainer: {
+  tabBtnActive: {
+    // maybe minor vertical shift logic
+  },
+  iconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 12, // More squared with soft corners
     alignItems: 'center',
     justifyContent: 'center',
-    height: 32,
     marginBottom: 4,
+    backgroundColor: 'transparent',
   },
-  tabLabel: {
+  iconBoxActive: {
+    backgroundColor: '#000000',
+    borderRadius: 14,
+    // Intense bloom shadow for the square pill
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  activeLabel: {
     fontSize: 10,
+    fontWeight: '900',
+    color: '#000000',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-  },
+  }
 });
-

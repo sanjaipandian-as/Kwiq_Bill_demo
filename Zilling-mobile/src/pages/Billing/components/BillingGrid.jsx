@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView, LayoutAnimation, UIManager } from 'react-native';
 import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X } from 'lucide-react-native';
 import { useProducts } from '../../../context/ProductContext';
@@ -79,7 +79,7 @@ const BillingGrid = ({
     onRemoveAdjustment,
     onRemoveItemDiscount
 }) => {
-    const suggestedItems = products || [];
+    const suggestedItems = useMemo(() => products || [], [products]);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState('name');
     const [sortOrder, setSortOrder] = useState('asc');
@@ -115,18 +115,20 @@ const BillingGrid = ({
         if (searchInputRef.current) searchInputRef.current.blur();
     };
 
-    const filteredSuggestions = suggestedItems
-        .filter(item => {
-            const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
-            return matchesSearch;
-        })
-        .sort((a, b) => {
-            let comparison = 0;
-            if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
-            else if (sortBy === 'price') comparison = a.price - b.price;
-            return sortOrder === 'asc' ? comparison : -comparison;
-        });
+    const filteredSuggestions = useMemo(() => {
+        return suggestedItems
+            .filter(item => {
+                const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
+                return matchesSearch;
+            })
+            .sort((a, b) => {
+                let comparison = 0;
+                if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
+                else if (sortBy === 'price') comparison = a.price - b.price;
+                return sortOrder === 'asc' ? comparison : -comparison;
+            });
+    }, [suggestedItems, searchQuery, sortBy, sortOrder]);
 
     const getCartQty = (productId) => {
         return cart
@@ -332,11 +334,17 @@ const BillingGrid = ({
 
                 <FlatList
                     data={filteredSuggestions}
-                    keyExtractor={(item, index) => item.id ? `${item.id}-${index}` : `suggestion-${index}`}
+                    keyExtractor={(item) => item._dbId || item.id || Math.random().toString()}
                     numColumns={2}
-                    columnWrapperStyle={{ gap: 12 }}
-                    contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 20 : 100 }}
-                    initialNumToRender={8}
+                    columnWrapperStyle={{ gap: 10 }}
+                    contentContainerStyle={[
+                        { paddingBottom: isKeyboardVisible ? 60 : 220, paddingTop: 20 }
+                    ]}
+                    initialNumToRender={30}
+                    windowSize={21}
+                    maxToRenderPerBatch={20}
+                    updateCellsBatchingPeriod={50}
+                    removeClippedSubviews={false}
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                     renderItem={({ item }) => {
@@ -393,15 +401,15 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
 
     // Cart Section
-    cartSection: { flexShrink: 1, maxHeight: '45%', marginBottom: 15 },
-    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    cartSection: { flexShrink: 1, maxHeight: '38%', marginBottom: 12 },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
     sectionTitle: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5 },
 
     // Cart Card
     cartCard: {
         backgroundColor: '#fff',
-        borderRadius: 20,
-        padding: 12,
+        borderRadius: 18,
+        padding: 8,
         marginBottom: 8,
         borderWidth: 1.5,
         borderColor: '#f1f5f9',
@@ -414,18 +422,18 @@ const styles = StyleSheet.create({
     selectedCartCard: { borderColor: '#000', backgroundColor: '#f8fafc' },
     cardMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     cardInfo: { flex: 1 },
-    itemSku: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 2 },
-    itemName: { fontSize: 17, fontWeight: '800', color: '#000' },
-    priceRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-    itemUnitPrice: { fontSize: 13, color: '#475569', fontWeight: '700' },
-    taxBadge: { fontSize: 10, fontWeight: '900', color: '#000', backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' },
+    itemSku: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 0 },
+    itemName: { fontSize: 15, fontWeight: '800', color: '#000' },
+    priceRow: { flexDirection: 'row', alignItems: 'center', marginTop: 1 },
+    itemUnitPrice: { fontSize: 12, color: '#475569', fontWeight: '700' },
+    taxBadge: { fontSize: 9, fontWeight: '900', color: '#000', backgroundColor: '#f1f5f9', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5, borderWidth: 1, borderColor: '#e2e8f0' },
 
-    cardRight: { minWidth: 100, alignItems: 'flex-end', justifyContent: 'space-between', paddingVertical: 2 },
-    qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f8fafc', padding: 4, borderRadius: 14, borderWidth: 1, borderColor: '#f1f5f9' },
-    qtyAction: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2, borderWidth: 1, borderColor: '#f1f5f9' },
-    totalWrapper: { alignItems: 'flex-end', marginTop: 4 },
-    totalLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: -2 },
-    itemTotal: { fontSize: 24, fontWeight: '900', color: '#000', letterSpacing: -1 },
+    cardRight: { minWidth: 90, alignItems: 'flex-end', justifyContent: 'space-between', paddingVertical: 1 },
+    qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#f8fafc', padding: 2, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' },
+    qtyAction: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1, borderWidth: 1, borderColor: '#f1f5f9' },
+    totalWrapper: { alignItems: 'flex-end', marginTop: 2 },
+    totalLabel: { fontSize: 8, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: -3 },
+    itemTotal: { fontSize: 20, fontWeight: '900', color: '#000', letterSpacing: -1 },
 
     inputWrapper: {
         flexDirection: 'row',
@@ -465,9 +473,9 @@ const styles = StyleSheet.create({
     priceDivider: { fontSize: 13, color: '#cbd5e1', fontWeight: '500', marginHorizontal: 4 },
     taxBadgeContainer: { justifyContent: 'center' },
 
-    cardActions: { flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
-    actionPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-    actionPillText: { fontSize: 11, fontWeight: '800', color: '#000' },
+    cardActions: { flexDirection: 'row', gap: 6, marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+    actionPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+    actionPillText: { fontSize: 10, fontWeight: '800', color: '#000' },
 
     emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 20 },
     emptyIconBox: { width: 50, height: 50, borderRadius: 15, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
@@ -505,7 +513,7 @@ const styles = StyleSheet.create({
     addBtnSmall: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },
     discountBadgeText: { fontSize: 9, fontWeight: '900', color: '#ef4444' },
     discountBadge: { position: 'absolute', top: -10, right: 10, backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' },
-    inCartBadge: { backgroundColor: '#000', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, marginTop: 2 },
+    inCartBadge: { backgroundColor: '#000', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, margin: 2 },
     inCartBadgeText: { fontSize: 8, color: '#fff', fontWeight: '900', textTransform: 'uppercase' },
 
     adjPill: {

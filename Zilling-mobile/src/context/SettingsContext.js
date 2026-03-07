@@ -55,7 +55,6 @@ export const SettingsProvider = ({ children, user }) => {
             invoicePaperSize: 'A4',
             billPaperSize: '80mm',
             showLogo: true,
-            showLogoInBill: true,
             showWatermark: false,
             showStoreAddress: true,
             showTaxBreakup: true,

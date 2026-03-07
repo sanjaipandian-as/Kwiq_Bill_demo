@@ -54,10 +54,42 @@ const AuthenticatedApp = () => {
   );
 };
 
+import { PermissionsAndroid } from 'react-native';
+import * as Device from 'expo-device';
 export default function App() {
   // useEffect is no longer needed for configuration
   useEffect(() => {
     // initializeDB() is now called automatically in src/services/database.js
+    const requestBluetoothPermissions = async () => {
+      if (Platform.OS === 'android') {
+        try {
+          if (Device.osVersion && parseInt(Device.osVersion) >= 12) {
+            await PermissionsAndroid.requestMultiple([
+              PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+              PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+              PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+            ]);
+          } else {
+            await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+            );
+          }
+        } catch (err) {
+          console.warn(err);
+        }
+      }
+    };
+    const initializePrinter = async () => {
+      try {
+        const { BLEPrinter } = require('react-native-thermal-receipt-printer-image-qr');
+        await BLEPrinter.init();
+        console.log('[Printer] BLE Printer initialized');
+      } catch (e) {
+        console.warn('[Printer] Failed to initialize BLE:', e.message);
+      }
+    };
+    requestBluetoothPermissions();
+    initializePrinter();
   }, []);
 
   return (

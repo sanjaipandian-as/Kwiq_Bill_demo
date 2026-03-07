@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSettings } from '../../context/SettingsContext';
-import { Store, MapPin, User, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react-native';
+import { Store, MapPin, User, CheckCircle2, ChevronRight, ChevronLeft, Building2, ShieldCheck, Mail, Phone, Globe, Layout } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 
@@ -148,80 +148,97 @@ const ShopDetails = () => {
     };
 
     const steps = [
-        { number: 1, title: 'Store', icon: Store },
-        { number: 2, title: 'Address', icon: MapPin },
-        { number: 3, title: 'Owner', icon: User },
+        { number: 1, title: 'Identity', icon: Store },
+        { number: 2, title: 'Location', icon: MapPin },
+        { number: 3, title: 'Profile', icon: User },
     ];
 
     const renderStep1 = () => (
         <View style={styles.formContainer}>
-            <Text style={styles.inputLabel}>Store Display Name *</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.storeName}
-                onChangeText={(v) => handleChange('storeName', v)}
-                placeholder="e.g. My Awesome Shop"
-                placeholderTextColor="#94a3b8"
-            />
+            <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Store Display Name *</Text>
+                <View style={styles.inputFieldContainer}>
+                    <Store size={20} color="#000" style={styles.inputIcon} />
+                    <TextInput
+                        style={styles.input}
+                        value={formData.storeName}
+                        onChangeText={(v) => handleChange('storeName', v)}
+                        placeholder="e.g. Kwiq Billing Store"
+                        placeholderTextColor="#94a3b8"
+                    />
+                </View>
+            </View>
 
-            <Text style={styles.inputLabel}>Legal Business Name</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.legalName}
-                onChangeText={(v) => handleChange('legalName', v)}
-                placeholder="As per GST Certificate"
-                placeholderTextColor="#94a3b8"
-            />
+            <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Legal Business Name</Text>
+                <View style={styles.inputFieldContainer}>
+                    <Building2 size={20} color="#000" style={styles.inputIcon} />
+                    <TextInput
+                        style={styles.input}
+                        value={formData.legalName}
+                        onChangeText={(v) => handleChange('legalName', v)}
+                        placeholder="As per GST Certificate"
+                        placeholderTextColor="#94a3b8"
+                    />
+                </View>
+            </View>
 
-            <Text style={styles.inputLabel}>Contact Number *</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.contact}
-                onChangeText={(v) => handleChange('contact', v)}
-                placeholder="+91 98765 43210"
-                keyboardType="phone-pad"
-                placeholderTextColor="#94a3b8"
-            />
+            <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Contact Number *</Text>
+                <View style={styles.inputFieldContainer}>
+                    <Phone size={20} color="#000" style={styles.inputIcon} />
+                    <TextInput
+                        style={styles.input}
+                        value={formData.contact}
+                        onChangeText={(v) => handleChange('contact', v)}
+                        placeholder="+91 98765 43210"
+                        keyboardType="phone-pad"
+                        placeholderTextColor="#94a3b8"
+                    />
+                </View>
+            </View>
 
-            <Text style={styles.inputLabel}>Email Address</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.email}
-                onChangeText={(v) => handleChange('email', v)}
-                placeholder="store@example.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>Website</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.website}
-                onChangeText={(v) => handleChange('website', v)}
-                placeholder="www.example.com"
-                autoCapitalize="none"
-                placeholderTextColor="#94a3b8"
-            />
+            <View style={styles.row}>
+                <View style={[styles.col, styles.inputWrapper]}>
+                    <Text style={styles.inputLabel}>Email Address</Text>
+                    <View style={styles.inputFieldContainer}>
+                        <Mail size={18} color="#000" style={styles.inputIcon} />
+                        <TextInput
+                            style={styles.input}
+                            value={formData.email}
+                            onChangeText={(v) => handleChange('email', v)}
+                            placeholder="store@mail.com"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            placeholderTextColor="#94a3b8"
+                        />
+                    </View>
+                </View>
+            </View>
         </View>
     );
 
     const renderStep2 = () => (
         <View style={styles.formContainer}>
-            <Text style={styles.inputLabel}>Street Address</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.street}
-                onChangeText={(v) => handleChange('street', v)}
-                placeholder="Building name, street"
-                placeholderTextColor="#94a3b8"
-            />
+            <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Street Address</Text>
+                <View style={styles.inputFieldContainer}>
+                    <MapPin size={20} color="#000" style={styles.inputIcon} />
+                    <TextInput
+                        style={styles.input}
+                        value={formData.street}
+                        onChangeText={(v) => handleChange('street', v)}
+                        placeholder="Building name, street"
+                        placeholderTextColor="#94a3b8"
+                    />
+                </View>
+            </View>
 
             <View style={styles.row}>
                 <View style={styles.col}>
                     <Text style={styles.inputLabel}>City *</Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, styles.standaloneInput]}
                         value={formData.city}
                         onChangeText={(v) => handleChange('city', v)}
                         placeholder="City"
@@ -231,7 +248,7 @@ const ShopDetails = () => {
                 <View style={styles.col}>
                     <Text style={styles.inputLabel}>State *</Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, styles.standaloneInput]}
                         value={formData.state}
                         onChangeText={(v) => handleChange('state', v)}
                         placeholder="State"
@@ -240,101 +257,104 @@ const ShopDetails = () => {
                 </View>
             </View>
 
-            <Text style={styles.inputLabel}>Pincode</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.pincode}
-                onChangeText={(v) => handleChange('pincode', v)}
-                placeholder="123456"
-                keyboardType="numeric"
-                placeholderTextColor="#94a3b8"
-            />
-
-            <View style={styles.gstHeader}>
-                <View>
-                    <Text style={styles.gstTitle}>GST Enabled</Text>
-                    <Text style={styles.gstSub}>Enable tax calculations</Text>
-                </View>
-                <TouchableOpacity
-                    style={[styles.toggle, formData.gstEnabled ? styles.toggleOn : styles.toggleOff]}
-                    onPress={() => handleChange('gstEnabled', !formData.gstEnabled)}
-                >
-                    <View style={[styles.toggleDot, formData.gstEnabled ? styles.dotOn : styles.dotOff]} />
-                </TouchableOpacity>
+            <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Pincode</Text>
+                <TextInput
+                    style={[styles.input, styles.standaloneInput]}
+                    value={formData.pincode}
+                    onChangeText={(v) => handleChange('pincode', v)}
+                    placeholder="123456"
+                    keyboardType="numeric"
+                    placeholderTextColor="#94a3b8"
+                />
             </View>
 
-            {formData.gstEnabled && (
-                <View>
-                    <Text style={styles.inputLabel}>GSTIN</Text>
-                    <TextInput
-                        style={[styles.input, styles.monoInput]}
-                        value={formData.gstin}
-                        onChangeText={(v) => handleChange('gstin', v.toUpperCase())}
-                        placeholder="22AAAAA0000A1Z5"
-                        autoCapitalize="characters"
-                        placeholderTextColor="#94a3b8"
-                    />
+            <View style={styles.gstSection}>
+                <View style={styles.gstHeader}>
+                    <View>
+                        <Text style={styles.gstTitle}>GST Compliance</Text>
+                        <Text style={styles.gstSub}>Enable tax modules</Text>
+                    </View>
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        style={[styles.toggle, formData.gstEnabled ? styles.toggleOn : styles.toggleOff]}
+                        onPress={() => handleChange('gstEnabled', !formData.gstEnabled)}
+                    >
+                        <View style={[styles.toggleDot, formData.gstEnabled ? styles.dotOn : styles.dotOff]} />
+                    </TouchableOpacity>
                 </View>
-            )}
+
+                {formData.gstEnabled && (
+                    <View style={styles.gstInputContainer}>
+                        <Text style={styles.inputLabel}>GSTIN Number</Text>
+                        <TextInput
+                            style={[styles.input, styles.standaloneInput, styles.monoInput]}
+                            value={formData.gstin}
+                            onChangeText={(v) => handleChange('gstin', v.toUpperCase())}
+                            placeholder="22AAAAA0000A1Z5"
+                            autoCapitalize="characters"
+                            placeholderTextColor="#94a3b8"
+                        />
+                    </View>
+                )}
+            </View>
         </View>
     );
 
     const renderStep3 = () => (
         <View style={styles.formContainer}>
             <View style={styles.infoBox}>
+                <ShieldCheck size={20} color="#000" />
                 <Text style={styles.infoText}>
-                    👤 This info is about <Text style={{ fontWeight: 'bold' }}>you</Text> (the owner), not the store address.
+                    Personal details are used only for synchronization and security verification.
                 </Text>
             </View>
 
-            <Text style={styles.inputLabel}>Full Name *</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.fullName}
-                onChangeText={(v) => handleChange('fullName', v)}
-                placeholder="John Doe"
-                placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>Mobile Number *</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.mobile}
-                onChangeText={(v) => handleChange('mobile', v)}
-                placeholder="+91 98765 43210"
-                keyboardType="phone-pad"
-                placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>Personal Email</Text>
-            <TextInput
-                style={styles.input}
-                value={formData.userEmail}
-                onChangeText={(v) => handleChange('userEmail', v)}
-                placeholder="your.email@example.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                placeholderTextColor="#94a3b8"
-            />
-
-            <View style={styles.consentRow}>
-                <TouchableOpacity
-                    style={[styles.checkbox, formData.consentAnalytics && styles.checkboxActive]}
-                    onPress={() => handleChange('consentAnalytics', !formData.consentAnalytics)}
-                >
-                    {formData.consentAnalytics && <CheckCircle2 size={14} color="#10b981" />}
-                </TouchableOpacity>
-                <Text style={styles.consentLabel}>Share anonymous usage data for app improvements</Text>
+            <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Account Owner Name *</Text>
+                <TextInput
+                    style={[styles.input, styles.standaloneInput]}
+                    value={formData.fullName}
+                    onChangeText={(v) => handleChange('fullName', v)}
+                    placeholder="e.g. John Doe"
+                    placeholderTextColor="#94a3b8"
+                />
             </View>
 
-            <View style={styles.consentRow}>
+            <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Owner Mobile Number *</Text>
+                <TextInput
+                    style={[styles.input, styles.standaloneInput]}
+                    value={formData.mobile}
+                    onChangeText={(v) => handleChange('mobile', v)}
+                    placeholder="+91 98765 43210"
+                    keyboardType="phone-pad"
+                    placeholderTextColor="#94a3b8"
+                />
+            </View>
+
+            <View style={styles.consentContainer}>
                 <TouchableOpacity
-                    style={[styles.checkbox, formData.consentContact && styles.checkboxActive]}
+                    activeOpacity={0.7}
+                    style={styles.consentRow}
+                    onPress={() => handleChange('consentAnalytics', !formData.consentAnalytics)}
+                >
+                    <View style={[styles.checkbox, formData.consentAnalytics && styles.checkboxActive]}>
+                        {formData.consentAnalytics && <CheckCircle2 size={14} color="#fff" />}
+                    </View>
+                    <Text style={styles.consentLabel}>Anonymous analytics to improve app</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    activeOpacity={0.7}
+                    style={styles.consentRow}
                     onPress={() => handleChange('consentContact', !formData.consentContact)}
                 >
-                    {formData.consentContact && <CheckCircle2 size={14} color="#10b981" />}
+                    <View style={[styles.checkbox, formData.consentContact && styles.checkboxActive]}>
+                        {formData.consentContact && <CheckCircle2 size={14} color="#fff" />}
+                    </View>
+                    <Text style={styles.consentLabel}>Receive critical security & feature updates</Text>
                 </TouchableOpacity>
-                <Text style={styles.consentLabel}>Get important updates & notifications</Text>
             </View>
         </View>
     );
@@ -345,104 +365,104 @@ const ShopDetails = () => {
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={{ flex: 1 }}
             >
-                <LinearGradient
-                    colors={['#ffffff', '#ffffff']}
-                    style={styles.gradient}
-                >
-                    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                        {/* Header */}
-                        <View style={styles.header}>
-                            <View style={styles.iconCircle}>
-                                <Store color="#fff" size={32} />
-                            </View>
-                            <Text style={styles.title}>Complete Profile</Text>
-                            <Text style={styles.subtitle}>Set up your store details to begin</Text>
+                <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                    {/* Header */}
+                    <View style={styles.header}>
+                        <View style={styles.iconCircle}>
+                            <Building2 color="#fff" size={32} />
                         </View>
+                        <Text style={styles.title}>Business Profile</Text>
+                        <Text style={styles.subtitle}>Set up your digital store presence</Text>
+                    </View>
 
-                        {/* Progress */}
-                        <View style={styles.stepsContainer}>
-                            {steps.map((step, idx) => (
-                                <View key={step.number} style={styles.stepWrapper}>
-                                    <View style={styles.stepGroup}>
-                                        <View style={[
-                                            styles.stepCircle,
-                                            currentStep === step.number ? styles.activeStep : (currentStep > step.number ? styles.completedStep : styles.inactiveStep)
-                                        ]}>
-                                            {currentStep > step.number ? (
-                                                <CheckCircle2 color="#fff" size={20} />
-                                            ) : (
-                                                <Text style={[styles.stepNum, currentStep === step.number && styles.activeStepNum]}>{step.number}</Text>
-                                            )}
-                                        </View>
-                                        <Text style={styles.stepTitle}>{step.title}</Text>
-                                    </View>
-                                    {idx < steps.length - 1 && (
-                                        <View style={[styles.stepLine, currentStep > step.number && styles.completedLine]} />
-                                    )}
-                                </View>
-                            ))}
-                        </View>
-
-                        {/* Card */}
-                        <View style={styles.card}>
-                            <View style={styles.cardHeader}>
-                                <View style={styles.cardHeaderLeft}>
-                                    {React.createElement(steps[currentStep - 1].icon, { size: 20, color: '#000' })}
-                                    <Text style={styles.cardTitle}>{steps[currentStep - 1].title}</Text>
-                                </View>
-                                <Text style={styles.stepCount}>Step {currentStep}/3</Text>
-                            </View>
-
-                            {currentStep === 1 && renderStep1()}
-                            {currentStep === 2 && renderStep2()}
-                            {currentStep === 3 && renderStep3()}
-
-                            {/* Navigation */}
-                            <View style={styles.footer}>
-                                <TouchableOpacity
-                                    style={[styles.backBtn, currentStep === 1 && { opacity: 0 }]}
-                                    onPress={handleBack}
-                                    disabled={currentStep === 1}
-                                >
-                                    <ChevronLeft size={20} color="#64748b" />
-                                    <Text style={styles.backText}>Back</Text>
-                                </TouchableOpacity>
-
-                                {currentStep < 3 ? (
-                                    <TouchableOpacity
-                                        style={[styles.nextBtn, !canProceed() && styles.disabledBtn]}
-                                        onPress={handleNext}
-                                        disabled={!canProceed()}
-                                    >
-                                        <Text style={styles.nextText}>Next</Text>
-                                        <ChevronRight size={20} color="#fff" />
-                                    </TouchableOpacity>
-                                ) : (
-                                    <TouchableOpacity
-                                        style={[styles.completeBtn, (!canProceed() || saving) && styles.disabledBtn]}
-                                        onPress={handleComplete}
-                                        disabled={!canProceed() || saving}
-                                    >
-                                        {saving ? (
-                                            <>
-                                                <ActivityIndicator size="small" color="#fff" />
-                                                <Text style={styles.nextText}>Uploading to Database...</Text>
-                                            </>
+                    {/* Progress Bar */}
+                    <View style={styles.progressContainer}>
+                        {steps.map((step, idx) => (
+                            <View key={step.number} style={styles.stepItem}>
+                                <View style={styles.stepIconWrapper}>
+                                    <View style={[
+                                        styles.stepCircle,
+                                        currentStep === step.number ? styles.activeStep : (currentStep > step.number ? styles.completedStep : styles.inactiveStep)
+                                    ]}>
+                                        {currentStep > step.number ? (
+                                            <CheckCircle2 color="#fff" size={18} />
                                         ) : (
-                                            <>
-                                                <CheckCircle2 size={20} color="#10b981" />
-                                                <Text style={styles.nextText}>Finish</Text>
-                                            </>
+                                            <Text style={[styles.stepNum, currentStep === step.number && styles.activeStepNum]}>{step.number}</Text>
                                         )}
-                                    </TouchableOpacity>
+                                    </View>
+                                    <Text style={[styles.stepLabel, currentStep === step.number && styles.activeStepLabel]}>{step.title}</Text>
+                                </View>
+                                {idx < steps.length - 1 && (
+                                    <View style={[styles.progressLine, currentStep > step.number && styles.completedLine]} />
                                 )}
                             </View>
+                        ))}
+                    </View>
+
+                    {/* Form Card */}
+                    <View style={styles.card}>
+                        <View style={styles.cardHeader}>
+                            <View style={styles.cardHeaderLeft}>
+                                <Layout size={18} color="#000" />
+                                <Text style={styles.cardTitle}>{steps[currentStep - 1].title} Details</Text>
+                            </View>
+                            <View style={styles.badge}>
+                                <Text style={styles.badgeText}>{currentStep} OF 3</Text>
+                            </View>
                         </View>
 
-                        <Text style={styles.secureText}>Your data is stored locally and securely on this device</Text>
+                        {currentStep === 1 && renderStep1()}
+                        {currentStep === 2 && renderStep2()}
+                        {currentStep === 3 && renderStep3()}
 
-                    </ScrollView>
-                </LinearGradient>
+                        {/* Navigation Footer */}
+                        <View style={styles.footer}>
+                            <TouchableOpacity
+                                style={[styles.backBtn, currentStep === 1 && { opacity: 0 }]}
+                                onPress={handleBack}
+                                disabled={currentStep === 1}
+                            >
+                                <ChevronLeft size={20} color="#64748b" />
+                                <Text style={styles.backText}>Back</Text>
+                            </TouchableOpacity>
+
+                            <View style={{ flex: 1 }} />
+
+                            {currentStep < 3 ? (
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={[styles.nextBtn, !canProceed() && styles.disabledBtn]}
+                                    onPress={handleNext}
+                                    disabled={!canProceed()}
+                                >
+                                    <Text style={styles.nextText}>Continue</Text>
+                                    <ChevronRight size={20} color="#fff" />
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity
+                                    activeOpacity={0.8}
+                                    style={[styles.completeBtn, (!canProceed() || saving) && styles.disabledBtn]}
+                                    onPress={handleComplete}
+                                    disabled={!canProceed() || saving}
+                                >
+                                    {saving ? (
+                                        <ActivityIndicator size="small" color="#fff" />
+                                    ) : (
+                                        <>
+                                            <Text style={styles.nextText}>Finalize Profile</Text>
+                                            <CheckCircle2 size={20} color="#fff" />
+                                        </>
+                                    )}
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+
+                    <Text style={styles.securityNote}>
+                        🔒 AES-256 Encrypted Local Storage
+                    </Text>
+
+                </ScrollView>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
@@ -450,67 +470,74 @@ const ShopDetails = () => {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#ffffff' },
-    gradient: { flex: 1 },
     scrollContent: { padding: 24, paddingBottom: 60 },
-    header: { alignItems: 'center', marginBottom: 40 },
-    iconCircle: { width: 72, height: 72, borderRadius: 20, backgroundColor: '#10b981', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-    title: { fontSize: 30, fontWeight: '900', color: '#000', marginBottom: 8, letterSpacing: -0.5 },
-    subtitle: { fontSize: 15, color: '#64748b', fontWeight: '600' },
+    header: { alignItems: 'center', marginBottom: 32, marginTop: 10 },
+    iconCircle: { width: 64, height: 64, borderRadius: 22, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+    title: { fontSize: 32, fontWeight: '900', color: '#000', letterSpacing: -1 },
+    subtitle: { fontSize: 14, color: '#64748b', fontWeight: '500', marginTop: 4 },
 
-    stepsContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 40 },
-    stepWrapper: { flexDirection: 'row', alignItems: 'center' },
-    stepGroup: { alignItems: 'center', width: 70 },
-    stepCircle: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-    activeStep: { backgroundColor: '#10b981' },
+    progressContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 36, paddingHorizontal: 10 },
+    stepItem: { flexDirection: 'row', alignItems: 'center' },
+    stepIconWrapper: { alignItems: 'center', width: 60 },
+    stepCircle: { width: 36, height: 36, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+    activeStep: { backgroundColor: '#000', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
     completedStep: { backgroundColor: '#000' },
-    inactiveStep: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
-    stepNum: { fontSize: 16, fontWeight: '800', color: '#64748b' },
+    inactiveStep: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#e2e8f0' },
+    stepNum: { fontSize: 14, fontWeight: '900', color: '#94a3b8' },
     activeStepNum: { color: '#fff' },
-    stepTitle: { fontSize: 11, fontWeight: '700', color: '#000', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.5 },
-    stepLine: { width: 30, height: 3, borderRadius: 2, backgroundColor: '#f1f5f9', marginHorizontal: 0, marginTop: -20 },
+    stepLabel: { fontSize: 10, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 },
+    activeStepLabel: { color: '#000' },
+    progressLine: { width: 40, height: 2, backgroundColor: '#e2e8f0', marginHorizontal: 4, marginTop: -18 },
     completedLine: { backgroundColor: '#000' },
 
-    card: { backgroundColor: '#fff', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#000' },
-    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, borderBottomWidth: 1.5, borderBottomColor: '#f1f5f9', paddingBottom: 20 },
+    card: { backgroundColor: '#fff', borderRadius: 32, padding: 24, borderWidth: 2, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 5 },
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 },
     cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    cardTitle: { fontSize: 20, fontWeight: '900', color: '#000' },
-    stepCount: { fontSize: 12, color: '#64748b', fontWeight: '800' },
+    cardTitle: { fontSize: 18, fontWeight: '900', color: '#000' },
+    badge: { backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+    badgeText: { fontSize: 10, fontWeight: '900', color: '#64748b' },
 
     formContainer: { gap: 20 },
-    inputLabel: { fontSize: 13, fontWeight: '800', color: '#000', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-    input: { backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 14, padding: 14, fontSize: 16, color: '#000' },
+    inputWrapper: { width: '100%' },
+    inputLabel: { fontSize: 12, fontWeight: '900', color: '#000', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 },
+    inputFieldContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 16, paddingHorizontal: 16, height: 56 },
+    inputIcon: { marginRight: 12 },
+    input: { flex: 1, fontSize: 16, color: '#000', fontWeight: '700' },
+    standaloneInput: { borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 16, paddingHorizontal: 16, height: 56, backgroundColor: '#fff' },
     row: { flexDirection: 'row', gap: 12 },
     col: { flex: 1 },
     monoInput: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', letterSpacing: 1 },
 
-    gstHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, marginBottom: 8, padding: 18, backgroundColor: '#f8fafc', borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' },
-    gstTitle: { fontSize: 15, fontWeight: '800', color: '#000' },
-    gstSub: { fontSize: 12, color: '#64748b', fontWeight: '600' },
-    toggle: { width: 50, height: 28, borderRadius: 14, padding: 2 },
+    gstSection: { marginTop: 10, backgroundColor: '#f8fafc', padding: 20, borderRadius: 20, borderWidth: 1.5, borderColor: '#e2e8f0' },
+    gstHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    gstTitle: { fontSize: 15, fontWeight: '900', color: '#000' },
+    gstSub: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+    toggle: { width: 52, height: 28, borderRadius: 14, padding: 2 },
     toggleOn: { backgroundColor: '#000' },
-    toggleOff: { backgroundColor: '#f1f5f9' },
+    toggleOff: { backgroundColor: '#e2e8f0' },
     toggleDot: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' },
     dotOn: { alignSelf: 'flex-end' },
     dotOff: { alignSelf: 'flex-start' },
+    gstInputContainer: { marginTop: 20 },
 
-    infoBox: { backgroundColor: '#fafafa', padding: 14, borderRadius: 14, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' },
-    infoText: { fontSize: 13, color: '#000', lineHeight: 20, fontWeight: '600' },
+    infoBox: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fafafa', padding: 16, borderRadius: 16, marginBottom: 8, borderWidth: 1.5, borderColor: '#e2e8f0' },
+    infoText: { flex: 1, fontSize: 12, color: '#475569', fontWeight: '600', lineHeight: 18 },
 
-    consentRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
-    checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center' },
+    consentContainer: { gap: 12, marginTop: 10 },
+    consentRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
+    checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center' },
     checkboxActive: { backgroundColor: '#000', borderColor: '#000' },
-    consentLabel: { flex: 1, fontSize: 13, color: '#475569', lineHeight: 18, fontWeight: '500' },
+    consentLabel: { fontSize: 13, color: '#475569', fontWeight: '600' },
 
-    footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 32, borderTopWidth: 1.5, borderTopColor: '#f1f5f9', paddingTop: 24 },
-    backBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 10 },
+    footer: { flexDirection: 'row', alignItems: 'center', marginTop: 36, paddingTop: 24, borderTopWidth: 1.5, borderTopColor: '#f1f5f9' },
+    backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10 },
     backText: { color: '#64748b', fontWeight: '800', fontSize: 15 },
-    nextBtn: { backgroundColor: '#10b981', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
-    completeBtn: { backgroundColor: '#000', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
-    nextText: { color: '#fff', fontWeight: '800', fontSize: 16 },
-    disabledBtn: { backgroundColor: '#e2e8f0' },
+    nextBtn: { backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+    completeBtn: { backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 10 },
+    nextText: { color: '#fff', fontWeight: '900', fontSize: 15, textTransform: 'uppercase', letterSpacing: 0.5 },
+    disabledBtn: { backgroundColor: '#e2e8f0', shadowOpacity: 0, elevation: 0 },
 
-    secureText: { textAlign: 'center', fontSize: 12, color: '#94a3b8', marginTop: 24, fontWeight: '600' }
+    securityNote: { textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 32, fontWeight: '800', letterSpacing: 0.5 }
 });
-
 
 export default ShopDetails;

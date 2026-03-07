@@ -145,6 +145,13 @@ export default function BillingPage({ navigation, route }) {
   const [customerSearchValue, setCustomerSearchValue] = useState('');
   const [showBillSelector, setShowBillSelector] = useState(false);
 
+  // Helper: Is any modal currently visible? (To pause the scanner)
+  const isAnyModalVisible = useMemo(() => {
+    return showVariantModal ||
+      Object.values(modals).some(v => v === true) ||
+      showBillSelector;
+  }, [modals, showVariantModal, showBillSelector]);
+
   // Helper: Get Current Bill
   const currentBill = useMemo(() => activeBills.find(b => b.id === activeBillId) || activeBills[0], [activeBills, activeBillId]);
 
@@ -898,36 +905,17 @@ export default function BillingPage({ navigation, route }) {
                 <ScanBarcodeModal
                   visible={true}
                   isInline={true}
+                  paused={isAnyModalVisible}
                   onClose={() => {
                     setIsScannerOpen(false);
                     updateSettings('app', { isScannerActive: false });
                   }}
                   onScanned={(product) => {
                     handleAddProduct(product);
-                    showToast(`Scanned: ${product.name}`, 'success');
-                    // Only close if we need to show variants, else keep scanning
-                    let hasVariants = false;
-                    const siblings = products.filter(p => p.name.trim().toLowerCase() === product.name.trim().toLowerCase());
-                    if (siblings.length > 1) {
-                      hasVariants = true;
-                    } else {
-                      try {
-                        let variants = [];
-                        if (typeof product.variants === 'string') {
-                          variants = JSON.parse(product.variants);
-                        } else if (Array.isArray(product.variants)) {
-                          variants = product.variants;
-                        }
-                        if (variants && variants.length > 0) {
-                          hasVariants = true;
-                        }
-                      } catch (e) { }
-                    }
+                    // showToast(`Scanned: ${product.name}`, 'success'); // Removed redundant toast
 
-                    if (hasVariants) {
-                      setIsScannerOpen(false);
-                      updateSettings('app', { isScannerActive: false });
-                    }
+                    // Note: We no longer auto-close the scanner when hasVariants is true.
+                    // The 'paused' prop handles disabling the scanner if a modal appears.
                   }}
                 />
               </View>
@@ -1092,6 +1080,7 @@ export default function BillingPage({ navigation, route }) {
               billId={currentBill.id}
               customer={currentBill.customer}
               onCustomerSearch={(val) => val === 'search' ? setModals(m => ({ ...m, customerSearch: true })) : updateCurrentBill({ customer: null })}
+              onHelpConnect={() => navigation.navigate('Settings', { tab: 'print' })}
               totals={currentBill.totals}
               paymentMode={currentBill.paymentMode}
               paymentStatus={currentBill.status}
@@ -1183,8 +1172,11 @@ export default function BillingPage({ navigation, route }) {
                   <Text style={styles.modalTitle}>
                     {selectedVariantProduct._isSiblingMode ? 'Select Variation' : 'Select Variant'}
                   </Text>
-                  <TouchableOpacity onPress={() => setShowVariantModal(false)}>
-                    <X size={24} color="#64748b" />
+                  <TouchableOpacity
+                    onPress={() => setShowVariantModal(false)}
+                    style={styles.modalCloseBtn}
+                  >
+                    <X size={20} color="#000" />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.productName}>{selectedVariantProduct.name}</Text>
@@ -1446,6 +1438,21 @@ const styles = StyleSheet.create({
   variantGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   variantBtn: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#f1f5f9', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
   variantBtnText: { fontSize: 14, fontWeight: '600', color: '#334155' },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
 
   // Stock Limit Modal - Black & White Design
   stockLimitOverlay: {

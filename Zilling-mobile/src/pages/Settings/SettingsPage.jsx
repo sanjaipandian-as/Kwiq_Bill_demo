@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Pressable, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView, StatusBar, Linking, Dimensions, Image, Modal, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Pressable, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView, StatusBar, Linking, Dimensions, Image, Modal, Animated, PermissionsAndroid } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import DetailedInvoiceTemplate from './DetailedInvoiceTemplate';
 import MinimalInvoiceTemplate from './MinimalInvoiceTemplate';
 import ClassicInvoiceTemplate from './ClassicInvoiceTemplate';
-import CompactInvoiceTemplate from './CompactInvoiceTemplate';
 import ThermalInvoiceTemplate from './ThermalInvoiceTemplate';
+import ProfessionalThermalTemplate from './ProfessionalThermalTemplate';
+import { BLEPrinter } from 'react-native-thermal-receipt-printer-image-qr';
+import * as Device from 'expo-device';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -44,7 +46,8 @@ import {
   Image as ImageIcon,
   Database,
   RefreshCw,
-  LifeBuoy
+  LifeBuoy,
+  Bluetooth
 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
@@ -75,6 +78,15 @@ const SettingsPage = ({ navigation, route }) => {
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
   const logoutFadeAnim = React.useRef(new Animated.Value(0)).current;
 
+  // Bluetooth Printer States
+  const [pairedDevices, setPairedDevices] = useState([]);
+  const [foundDs, setFoundDs] = useState([]);
+  const [bleOpend, setBleOpend] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [isConnectingMac, setIsConnectingMac] = useState(null);
+  const [guideLang, setGuideLang] = useState('en');
+  const [isPreviewIGST, setIsPreviewIGST] = useState(false);
+
   useEffect(() => {
     if (settings && !isEditing) {
       setLocalSettings(JSON.parse(JSON.stringify(settings)));
@@ -99,6 +111,116 @@ const SettingsPage = ({ navigation, route }) => {
       }
     }, [])
   );
+
+  useEffect(() => {
+    if (activeTab === 'print') {
+      initBluetooth();
+    }
+  }, [activeTab]);
+
+  const requestBluetoothPermissions = async (manual = false) => {
+    if (Platform.OS === 'android') {
+      try {
+        const sdkVersion = Device.osVersion ? parseInt(Device.osVersion) : 0;
+        if (sdkVersion >= 12) {
+          const granted = await PermissionsAndroid.requestMultiple([
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          ]);
+
+          const allGranted =
+            granted['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.GRANTED &&
+            granted['android.permission.BLUETOOTH_SCAN'] === PermissionsAndroid.RESULTS.GRANTED &&
+            granted['android.permission.ACCESS_FINE_LOCATION'] === PermissionsAndroid.RESULTS.GRANTED;
+
+          if (allGranted) {
+            if (manual) showToast('Permissions granted!', 'success');
+            return true;
+          } else {
+            if (manual) showToast('Some permissions were denied. Please enable in Settings.', 'error');
+            else showToast('Bluetooth permissions required to discover printers.', 'error');
+            return false;
+          }
+        } else {
+          const granted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+          );
+          return granted === PermissionsAndroid.RESULTS.GRANTED;
+        }
+      } catch (err) {
+        console.warn(err);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const initBluetooth = useCallback(async () => {
+    try {
+      const hasPermission = await requestBluetoothPermissions();
+      if (!hasPermission) return;
+      BLEPrinter.init().then(() => {
+        setBleOpend(true);
+        scanBluetoothDevices();
+      }).catch((e) => {
+        showToast('Unable to initialize Bluetooth', 'error');
+      });
+    } catch (e) {
+      console.log('Error initializing Bluetooth:', e);
+    }
+  }, []);
+
+  const scanBluetoothDevices = useCallback(async () => {
+    setIsScanning(true);
+    try {
+      BLEPrinter.getDeviceList().then((devices) => {
+        const mappedDevices = devices.map(d => ({
+          name: d.device_name,
+          address: d.inner_mac_address
+        }));
+        setFoundDs([]);
+        setPairedDevices(mappedDevices);
+      }, (er) => {
+        setIsScanning(false);
+        showToast('Scanning failed: ' + (er?.message || er), 'error');
+      });
+    } catch (e) {
+      console.log('Catch Scan error', e);
+    } finally {
+      setTimeout(() => { setIsScanning(false); }, 1500);
+    }
+  }, []);
+
+  const connectToPrinter = useCallback((printer) => {
+    setIsConnectingMac(printer.address);
+    BLEPrinter.connectPrinter(printer.address).then((s) => {
+      setIsConnectingMac(null);
+      showToast(`Connected to ${printer.name || printer.address}`, 'success');
+      // Save to local settings
+      handleChange('invoice', 'selectedPrinter', {
+        name: printer.name,
+        address: printer.address
+      });
+      // Also update global settings immediately for live printer status
+      updateSettings('invoice', {
+        selectedPrinter: {
+          name: printer.name,
+          address: printer.address
+        }
+      });
+      if (!isEditing) setIsEditing(true);
+    }, (e) => {
+      setIsConnectingMac(null);
+      showToast(`Failed to connect: ${e?.message || e}`, 'error');
+    });
+  }, [isEditing]);
+
+  const unpairPrinter = () => {
+    handleChange('invoice', 'selectedPrinter', null);
+    updateSettings('invoice', { selectedPrinter: null });
+    if (!isEditing) setIsEditing(true);
+  };
 
   const handleLogout = () => {
     if (queueLength > 0) {
@@ -325,111 +447,142 @@ const SettingsPage = ({ navigation, route }) => {
       case 'store':
         return (
           <View style={styles.tabContent}>
+            {/* Store Tab Header */}
+            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                <Store size={24} color="#fff" />
+              </View>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Store Profile</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+                Manage your business identity and branding.
+              </Text>
+            </View>
+
             {/* Basic Details Card - Black & White */}
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <Building size={20} color="#fff" />
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <Building size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Basic Details</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Identity</Text>
               </View>
               <View style={styles.cardPadding}>
                 {isEditing ? (
                   <>
                     <View style={styles.inputGroup}>
-                      <Text style={styles.label}>Store Display Name</Text>
+                      <Text style={styles.label}>Display Name</Text>
                       <Input
                         value={localSettings.store.name}
                         onChangeText={(v) => handleChange('store', 'name', v)}
                         placeholder="e.g. Kwiq Billing Store"
-                        style={{ fontWeight: '600' }}
+                        style={{ height: 54, borderRadius: 16, borderWidth: 2, borderColor: '#000' }}
                       />
                     </View>
                     <View style={styles.inputGroup}>
-                      <Text style={styles.label}>Legal Business Name</Text>
+                      <Text style={styles.label}>Legal Name</Text>
                       <Input
                         value={localSettings.store.legalName}
                         onChangeText={(v) => handleChange('store', 'legalName', v)}
                         placeholder="As per GST Certificate"
+                        style={{ height: 54, borderRadius: 16 }}
                       />
                     </View>
                     <View style={styles.inputRow}>
-                      <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                        <Text style={styles.label}>Contact Number</Text>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
+                        <Text style={styles.label}>Contact</Text>
                         <Input
                           value={localSettings.store.contact}
                           onChangeText={(v) => handleChange('store', 'contact', v)}
                           keyboardType="phone-pad"
+                          style={{ height: 54, borderRadius: 16 }}
                         />
                       </View>
-                      <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                        <Text style={styles.label}>Email Address</Text>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
+                        <Text style={styles.label}>Email (Optional)</Text>
                         <Input
                           value={localSettings.store.email}
                           onChangeText={(v) => handleChange('store', 'email', v)}
                           keyboardType="email-address"
+                          autoCapitalize="none"
+                          style={{ height: 54, borderRadius: 16 }}
                         />
                       </View>
                     </View>
                   </>
                 ) : (
-                  <TouchableOpacity onPress={() => setIsEditing(true)}>
-                    <DetailRow label="Store Display Name" value={settings.store.name} icon={Store} />
-                    <DetailRow label="Legal Business Name" value={settings.store.legalName} icon={Building} />
-                    <DetailRow label="Contact Number" value={settings.store.contact} icon={Phone} />
-                    <DetailRow label="Email Address" value={settings.store.email} icon={Mail} />
+                  <TouchableOpacity onPress={() => setIsEditing(true)} activeOpacity={0.7}>
+                    <View style={{ gap: 16 }}>
+                      <DetailRow label="Store Display Name" value={settings.store.name} icon={Store} />
+                      <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 4 }} />
+                      <DetailRow label="Legal Business Name" value={settings.store.legalName} icon={Building} />
+                      <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 4 }} />
+                      <View style={{ flexDirection: 'row', gap: 24 }}>
+                        <View style={{ flex: 1 }}>
+                          <DetailRow label="Contact" value={settings.store.contact} icon={Phone} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <DetailRow label="Email" value={settings.store.email} icon={Mail} />
+                        </View>
+                      </View>
+                    </View>
                   </TouchableOpacity>
                 )}
               </View>
             </Card>
 
             {/* Location Card - Black & White */}
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <MapPin size={20} color="#fff" />
+            <Card style={[styles.card, { borderRadius: 24, paddingVertical: 10, marginTop: 12 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <MapPin size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Location & Address</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Location</Text>
               </View>
               <View style={styles.cardPadding}>
                 {isEditing ? (
                   <>
                     <View style={styles.inputGroup}>
-                      <Text style={styles.label}>Street Address</Text>
+                      <Text style={styles.label}>Street / Building</Text>
                       <Input
                         value={localSettings.store.address?.street}
                         onChangeText={(v) => handleChange('store', 'address', v, 'street')}
                         placeholder="Shop No, Building, Area"
-                        style={{ height: 48 }}
+                        style={{ height: 54, borderRadius: 16 }}
                       />
                     </View>
                     <View style={styles.inputRow}>
-                      <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                        <Text style={styles.label}>City</Text>
+                      <View style={[styles.inputGroup, { flex: 1.5 }]}>
+                        <Text style={styles.label}>City/State</Text>
                         <Input
                           value={localSettings.store.address?.city}
                           onChangeText={(v) => handleChange('store', 'address', v, 'city')}
+                          placeholder="City, State"
+                          style={{ height: 54, borderRadius: 16 }}
                         />
                       </View>
-                      <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
                         <Text style={styles.label}>Pincode</Text>
                         <Input
                           value={localSettings.store.address?.pincode}
                           onChangeText={(v) => handleChange('store', 'address', v, 'pincode')}
                           keyboardType="numeric"
+                          style={{ height: 54, borderRadius: 16 }}
                         />
                       </View>
                     </View>
                   </>
                 ) : (
-                  <TouchableOpacity onPress={() => setIsEditing(true)}>
-                    <DetailRow label="Street Address" value={settings.store.address?.street} icon={MapPin} />
-                    <View style={{ flexDirection: 'row', gap: 16 }}>
-                      <View style={{ flex: 1 }}>
-                        <DetailRow label="City" value={settings.store.address?.city} icon={Building} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <DetailRow label="Pincode" value={settings.store.address?.pincode} icon={MapPin} />
+                  <TouchableOpacity onPress={() => setIsEditing(true)} activeOpacity={0.7}>
+                    <View style={{ gap: 16 }}>
+                      <DetailRow label="Address" value={settings.store.address?.street} icon={MapPin} />
+                      <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 4 }} />
+                      <View style={{ flexDirection: 'row', gap: 24 }}>
+                        <View style={{ flex: 1.5 }}>
+                          <DetailRow label="City & State" value={settings.store.address?.city} icon={Building} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <DetailRow label="Pincode" value={settings.store.address?.pincode} icon={MapPin} />
+                        </View>
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -437,30 +590,41 @@ const SettingsPage = ({ navigation, route }) => {
               </View>
             </Card>
 
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <ImageIcon size={20} color="#fff" />
+            {/* Branding Card */}
+            <Card style={[styles.card, { borderRadius: 24, paddingVertical: 10, marginTop: 12 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <ImageIcon size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Store Branding</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Visual Assets</Text>
+                <View style={{ flex: 1 }} />
+                <View style={[styles.readOnlyBadge, { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#000', borderColor: '#000' }]}>
+                  <Text style={{ fontSize: 10, fontWeight: '900', color: '#fff' }}>AUTO SYNCED</Text>
+                </View>
               </View>
 
               <View style={styles.cardPadding}>
-                <View style={{ flexDirection: 'row', gap: 20 }}>
+                <View style={{ flexDirection: 'row', gap: 24, alignItems: 'center' }}>
                   {/* Logo Preview Area */}
                   <TouchableOpacity
+                    activeOpacity={0.8}
                     onPress={isEditing ? pickImage : () => setIsEditing(true)}
                     style={{
-                      width: 100,
-                      height: 100,
-                      borderRadius: 16,
-                      backgroundColor: '#f8fafc',
-                      borderWidth: 1,
-                      borderColor: '#e2e8f0',
+                      width: 120,
+                      height: 120,
+                      borderRadius: 24,
+                      backgroundColor: '#fff',
+                      borderWidth: 2,
+                      borderColor: '#000',
                       justifyContent: 'center',
                       alignItems: 'center',
                       overflow: 'hidden',
-                      borderStyle: localSettings.store.logo ? 'solid' : 'dashed'
+                      borderStyle: localSettings.store.logo ? 'solid' : 'dashed',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.05,
+                      shadowRadius: 10,
+                      elevation: 2
                     }}
                   >
                     {localSettings.store.logo ? (
@@ -480,78 +644,102 @@ const SettingsPage = ({ navigation, route }) => {
                       </View>
                     ) : (
                       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
-                        {isLogoUploading ? <ActivityIndicator size="small" color="#000" /> : <Upload size={24} color="#94a3b8" />}
+                        {isLogoUploading ? (
+                          <ActivityIndicator size="small" color="#000" />
+                        ) : (
+                          <>
+                            <Upload size={32} color="#000" strokeWidth={1.5} />
+                            <Text style={{ fontSize: 10, fontWeight: '900', color: '#000', marginTop: 8, textTransform: 'uppercase' }}>Add Logo</Text>
+                          </>
+                        )}
                       </View>
                     )}
                   </TouchableOpacity>
 
                   {/* Controls */}
-                  <View style={{ flex: 1, justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#0f172a', marginBottom: 4 }}>
-                      Store Logo
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 18, fontWeight: '900', color: '#000', marginBottom: 6 }}>
+                      Brand Identity
                     </Text>
-                    <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 16 }}>
-                      Visible on your receipts & PDF invoices. Recommended 500x500px (1:1).
+                    <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 20, lineHeight: 18, fontWeight: '500' }}>
+                      Recommended: High resolution PNG (1:1). Visible on Receipts & PDF Invoices.
                     </Text>
 
-                    {isEditing ? (
-                      <View style={{ flexDirection: 'row', gap: 8 }}>
-                        <TouchableOpacity
-                          onPress={pickImage}
-                          style={{
-                            backgroundColor: '#000',
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderRadius: 8,
-                            alignItems: 'center',
-                            flexDirection: 'row',
-                            gap: 6
-                          }}
-                        >
-                          <Upload size={14} color="#fff" />
-                          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>
-                            {localSettings.store.logo ? 'Change' : 'Upload'}
-                          </Text>
-                        </TouchableOpacity>
-
-                        {localSettings.store.logo && (
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      {isEditing ? (
+                        <>
                           <TouchableOpacity
-                            onPress={removeLogo}
+                            onPress={pickImage}
                             style={{
-                              backgroundColor: '#fff',
-                              borderWidth: 1,
-                              borderColor: '#e2e8f0',
-                              paddingVertical: 8,
-                              paddingHorizontal: 12,
-                              borderRadius: 8,
-                              alignItems: 'center'
+                              backgroundColor: '#000',
+                              paddingVertical: 12,
+                              paddingHorizontal: 16,
+                              borderRadius: 14,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 8
                             }}
                           >
-                            <Trash2 size={14} color="#000" />
+                            <Upload size={16} color="#fff" />
+                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>
+                              {localSettings.store.logo ? 'Change' : 'Upload'}
+                            </Text>
                           </TouchableOpacity>
-                        )}
-                      </View>
-                    ) : (
-                      <TouchableOpacity onPress={() => setIsEditing(true)}>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#000', textDecorationLine: 'underline' }}>
-                          Edit Branding
-                        </Text>
-                      </TouchableOpacity>
-                    )}
+
+                          {localSettings.store.logo && (
+                            <TouchableOpacity
+                              onPress={removeLogo}
+                              activeOpacity={0.7}
+                              style={{
+                                width: 44,
+                                height: 44,
+                                backgroundColor: '#fff',
+                                borderWidth: 2,
+                                borderColor: '#000',
+                                borderRadius: 14,
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                              }}
+                            >
+                              <Trash2 size={18} color="#000" />
+                            </TouchableOpacity>
+                          )}
+                        </>
+                      ) : (
+                        <TouchableOpacity
+                          onPress={() => setIsEditing(true)}
+                          style={{
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            backgroundColor: '#000',
+                            borderRadius: 12
+                          }}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>Edit Branding</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 </View>
 
-                {/* Footer Note & Sync Status */}
-                <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
-                  {isLogoUploading ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
-                      <ActivityIndicator size="small" color="#000" />
-                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#000' }}>Syncing Logo to Cloud...</Text>
-                    </View>
-                  ) : null}
-                  <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
-                    Logo is automatically synced to cloud storage for backup.
-                  </Text>
+                {/* Live Preview Tip */}
+                <View style={{
+                  marginTop: 24,
+                  backgroundColor: '#f8fafc',
+                  padding: 16,
+                  borderRadius: 16,
+                  borderWidth: 1.5,
+                  borderColor: '#e2e8f0',
+                  borderStyle: 'dashed',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12
+                }}>
+                  <Layout size={20} color="#000" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#000' }}>Live Receipt Preview</Text>
+                    <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '500' }}>Check the 'Invoice' tab to see how your branding looks on a digital layout.</Text>
+                  </View>
                 </View>
               </View>
             </Card>
@@ -561,12 +749,23 @@ const SettingsPage = ({ navigation, route }) => {
       case 'bank':
         return (
           <View style={styles.tabContent}>
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <Building size={20} color="#fff" />
+            {/* Bank Tab Header */}
+            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                <CreditCard size={24} color="#fff" />
+              </View>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Bank Account</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+                Bank details for invoices and receiving payments.
+              </Text>
+            </View>
+
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <Building size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Bank Account Details</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Account Details</Text>
               </View>
               <View style={styles.cardPadding}>
                 {isEditing ? (
@@ -640,29 +839,40 @@ const SettingsPage = ({ navigation, route }) => {
       case 'tax':
         return (
           <View style={styles.tabContent}>
+            {/* Tax Tab Header */}
+            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                <Calculator size={24} color="#fff" />
+              </View>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Taxation</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+                Configure GST compliance and tax slabs.
+              </Text>
+            </View>
+
             {/* GST Global Toggle Section */}
-            <Card style={styles.card}>
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
               <View style={styles.cardPadding}>
                 <View style={styles.toggleRow}>
                   <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <View style={{ padding: 6, backgroundColor: '#f1f5f9', borderRadius: 8 }}>
-                        <Calculator size={18} color="#000" />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                      <View style={{ padding: 8, backgroundColor: '#f1f5f9', borderRadius: 10 }}>
+                        <Calculator size={16} color="#000" />
                       </View>
-                      <Text style={styles.cardTitle}>GST Compliance</Text>
+                      <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', letterSpacing: 0.5 }]}>GST Compliance</Text>
                     </View>
-                    <Text style={[styles.helperText, { marginTop: 0 }]}>Enable tax calculations & GSTIN for receipts</Text>
+                    <Text style={[styles.helperText, { marginTop: 0, marginLeft: 44, color: '#64748b', fontWeight: '500' }]}>Enable tax calculations & GSTIN</Text>
                   </View>
                   <Switch
                     value={localSettings.tax.gstEnabled}
                     onValueChange={(v) => handleChange('tax', 'gstEnabled', v)}
-                    trackColor={{ false: '#f1f5f9', true: '#000000' }}
+                    trackColor={{ false: '#e2e8f0', true: '#000000' }}
                     thumbColor="#fff"
                   />
                 </View>
 
                 {localSettings.tax.gstEnabled && (
-                  <View style={{ marginTop: 20 }}>
+                  <View style={{ marginTop: 24 }}>
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>GSTIN Number</Text>
                       {isEditing ? (
@@ -703,16 +913,16 @@ const SettingsPage = ({ navigation, route }) => {
                           }}
                         >
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                            <View style={{ padding: 8, backgroundColor: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#333' : '#f1f5f9', borderRadius: 8 }}>
-                              <Plus size={20} color={(localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#fff' : '#000'} />
+                            <View style={{ padding: 8, backgroundColor: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#262626' : '#f1f5f9', borderRadius: 10 }}>
+                              <Plus size={18} color={(localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#fff' : '#000'} />
                             </View>
                             {(localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' && (
-                              <CheckCircle2 size={20} color="#fff" />
+                              <CheckCircle2 size={22} color="#fff" />
                             )}
                           </View>
-                          <Text style={{ fontSize: 14, fontWeight: '800', color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#fff' : '#000' }}>Exclusive</Text>
-                          <Text style={{ fontSize: 11, color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#d4d4d4' : '#64748b', fontWeight: '600', marginTop: 4 }}>Price + Tax</Text>
-                          <Text style={{ fontSize: 10, color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#a3a3a3' : '#94a3b8', marginTop: 8, lineHeight: 14 }}>
+                          <Text style={{ fontSize: 15, fontWeight: '900', color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#fff' : '#000' }}>Exclusive</Text>
+                          <Text style={{ fontSize: 11, color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#a3a3a3' : '#64748b', fontWeight: '700', marginTop: 4 }}>Price + Tax</Text>
+                          <Text style={{ fontSize: 10, color: (localSettings.tax.priceMode || 'Exclusive') === 'Exclusive' ? '#737373' : '#94a3b8', marginTop: 8, lineHeight: 14 }}>
                             Tax is added on top of the product price.
                           </Text>
                         </TouchableOpacity>
@@ -732,16 +942,16 @@ const SettingsPage = ({ navigation, route }) => {
                           }}
                         >
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                            <View style={{ padding: 8, backgroundColor: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#333' : '#f1f5f9', borderRadius: 8 }}>
-                              <CheckCircle2 size={20} color={(localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#fff' : '#000'} />
+                            <View style={{ padding: 8, backgroundColor: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#262626' : '#f1f5f9', borderRadius: 10 }}>
+                              <CheckCircle2 size={18} color={(localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#fff' : '#000'} />
                             </View>
                             {(localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' && (
-                              <CheckCircle2 size={20} color="#fff" />
+                              <CheckCircle2 size={22} color="#fff" />
                             )}
                           </View>
-                          <Text style={{ fontSize: 14, fontWeight: '800', color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#fff' : '#000' }}>Inclusive</Text>
-                          <Text style={{ fontSize: 11, color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#d4d4d4' : '#64748b', fontWeight: '600', marginTop: 4 }}>Tax in Price</Text>
-                          <Text style={{ fontSize: 10, color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#a3a3a3' : '#94a3b8', marginTop: 8, lineHeight: 14 }}>
+                          <Text style={{ fontSize: 15, fontWeight: '900', color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#fff' : '#000' }}>Inclusive</Text>
+                          <Text style={{ fontSize: 11, color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#a3a3a3' : '#64748b', fontWeight: '700', marginTop: 4 }}>Tax in Price</Text>
+                          <Text style={{ fontSize: 10, color: (localSettings.tax.priceMode || 'Exclusive') === 'Inclusive' ? '#737373' : '#94a3b8', marginTop: 8, lineHeight: 14 }}>
                             Product price already includes the tax component.
                           </Text>
                         </TouchableOpacity>
@@ -867,12 +1077,23 @@ const SettingsPage = ({ navigation, route }) => {
       case 'invoice':
         return (
           <View style={styles.tabContent}>
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <Layout size={20} color="#fff" />
+            {/* Invoice Tab Header */}
+            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                <Layout size={24} color="#fff" />
+              </View>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Invoice Settings</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+                Design your digital invoices and physical receipts.
+              </Text>
+            </View>
+
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <Layout size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Template Design</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Template Design</Text>
               </View>
               <View style={styles.cardPadding}>
                 {/* Template Selector */}
@@ -1018,66 +1239,142 @@ const SettingsPage = ({ navigation, route }) => {
               </View>
             </Card>
 
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <FileText size={20} color="#fff" />
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10, marginTop: 12 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <FileText size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Bill Template</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Bill Template</Text>
               </View>
               <View style={styles.cardPadding}>
-                <Text style={styles.sectionSubtitle}>Standard Receipt Preview</Text>
-
-                <View style={{ marginTop: 16, marginHorizontal: -20 }}>
-                  <View style={{ width: '100%' }}>
-                    {/* PREVIEW 1: INTRA-STATE (CGST + SGST) */}
-                    <View style={{ marginBottom: 20 }}>
-                      <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Intra-State Receipt (CGST + SGST)</Text>
-                      <ThermalInvoiceTemplate settings={localSettings} taxType="intra" />
-                    </View>
-
-                    {/* PREVIEW 2: INTER-STATE (IGST) */}
-                    <View style={{ marginBottom: 20 }}>
-                      <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Inter-State Receipt (IGST)</Text>
-                      <ThermalInvoiceTemplate
-                        settings={localSettings}
-                        taxType="inter"
-                        data={{
-                          invoiceNo: '2',
-                          date: '14/2/2026',
-                          customer: { name: 'Online' },
-                          paymentMode: 'UPI',
-                          items: [
-                            { name: 'Elec. Kit', quantity: 1, price: 1000, total: 1000 }
-                          ],
-                          totals: {
-                            subtotal: 1000,
-                            tax: 180,
-                            total: 1180
-                          }
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={styles.sectionSubtitle}>Select Template Type</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                    {['Standard', 'Professional'].map(tmpl => (
+                      <TouchableOpacity
+                        key={tmpl}
+                        onPress={() => handleChange('invoice', 'billTemplate', tmpl)}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 12,
+                          alignItems: 'center',
+                          borderRadius: 12,
+                          backgroundColor: (localSettings.invoice.billTemplate || 'Standard') === tmpl ? '#000' : '#f1f5f9',
+                          borderWidth: 1.5,
+                          borderColor: (localSettings.invoice.billTemplate || 'Standard') === tmpl ? '#000' : '#e2e8f0'
                         }}
-                      />
-                    </View>
+                      >
+                        <Text style={{
+                          fontSize: 14,
+                          fontWeight: '800',
+                          color: (localSettings.invoice.billTemplate || 'Standard') === tmpl ? '#fff' : '#475569'
+                        }}>
+                          {tmpl}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
-                  <Text style={[styles.helperTextSmall, { paddingHorizontal: 20 }]}>Standard thermal layout used for all bill prints.</Text>
+                </View>
+
+                <Text style={styles.sectionSubtitle}>Bill Receipt Preview</Text>
+
+                <View style={{ marginTop: 16, marginHorizontal: -20, alignItems: 'center' }}>
+                  <View style={{ width: '100%', alignItems: 'center' }}>
+                    {(localSettings.invoice.billTemplate || 'Standard') === 'Standard' ? (
+                      <>
+                        <View style={{ marginBottom: 20, width: '100%' }}>
+                          <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Intra-State Receipt (CGST + SGST)</Text>
+                          <View style={{ alignSelf: 'center', padding: 10, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                            <ThermalInvoiceTemplate settings={localSettings} taxType="intra" />
+                          </View>
+                        </View>
+                        <View style={{ marginBottom: 20, width: '100%' }}>
+                          <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Inter-State Receipt (IGST)</Text>
+                          <View style={{ alignSelf: 'center', padding: 10, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                            <ThermalInvoiceTemplate
+                              settings={localSettings}
+                              taxType="inter"
+                              data={{
+                                invoiceNo: '2',
+                                date: '14/2/2026',
+                                customer: { name: 'Online' },
+                                paymentMode: 'UPI',
+                                items: [
+                                  { name: 'Elec. Kit', quantity: 1, price: 1000, total: 1000 }
+                                ],
+                                totals: {
+                                  subtotal: 1000,
+                                  tax: 180,
+                                  total: 1180
+                                }
+                              }}
+                            />
+                          </View>
+                        </View>
+                      </>
+                    ) : (
+                      <View style={{ marginBottom: 20, width: '100%', alignItems: 'center' }}>
+                        <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Professional Receipt Preview</Text>
+
+                        {/* Language Selection Grid */}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 20, marginBottom: 16, justifyContent: 'center' }}>
+                          {[
+                            { id: 'en', label: 'EN' },
+                            { id: 'ta', label: 'தமிழ்' },
+                            { id: 'ml', label: 'മലയാളம்' },
+                            { id: 'te', label: 'తెలుగు' },
+                            { id: 'kn', label: 'ಕನ್ನಡ' },
+                            { id: 'hi', label: 'हिन्दी' }
+                          ].map(l => (
+                            <TouchableOpacity
+                              key={l.id}
+                              onPress={() => handleChange('invoice', 'billLanguage', l.id)}
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                borderRadius: 8,
+                                backgroundColor: localSettings.invoice.billLanguage === l.id ? '#000' : '#f1f5f9',
+                                borderWidth: 1,
+                                borderColor: localSettings.invoice.billLanguage === l.id ? '#000' : '#e2e8f0',
+                              }}
+                            >
+                              <Text style={{ fontSize: 10, fontWeight: '800', color: localSettings.invoice.billLanguage === l.id ? '#fff' : '#64748b' }}>{l.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+
+                        <View style={{ alignSelf: 'center', padding: 10, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                          <ProfessionalThermalTemplate settings={localSettings} forceInter={isPreviewIGST} />
+                        </View>
+
+                        {/* IGST Preview Toggle */}
+                        <TouchableOpacity
+                          onPress={() => setIsPreviewIGST(!isPreviewIGST)}
+                          style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: isPreviewIGST ? '#000' : '#fff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#000' }}
+                        >
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: isPreviewIGST ? '#fff' : '#000' }}>
+                            {isPreviewIGST ? 'SHOWING IGST BILL' : 'PREVIEW IGST BILL'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, textAlign: 'center' }]}>Template helps format receipts for thermal printers.</Text>
                 </View>
               </View>
             </Card>
 
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <Calculator size={20} color="#fff" />
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10, marginTop: 12 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <Calculator size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Visual Toggles</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Visual Toggles</Text>
               </View>
               <View style={styles.cardPadding}>
                 {[
                   { key: 'showLogo', label: 'Show store logo in invoice' },
-                  { key: 'showLogoInBill', label: 'Show store logo in bill' },
                   { key: 'showTaxBreakup', label: 'Tax Breakup Table' },
-                  { key: 'showQrcode', label: 'UPI QR Code' },
-                  { key: 'showTerms', label: 'Terms & Conditions' },
                 ].map(opt => (
                   <View key={opt.key} style={styles.toggleItem}>
                     <Text style={styles.toggleLabel}>{opt.label}</Text>
@@ -1094,14 +1391,168 @@ const SettingsPage = ({ navigation, route }) => {
         );
 
       case 'print':
+        const printerGuide = {
+          en: {
+            title: 'How to Connect',
+            steps: [
+              'Turn on your Thermal Printer and enable Bluetooth on your phone.',
+              'Go to Phone Bluetooth Settings and Pair your printer device.',
+              'Return to this page and tap "Scan" below.',
+              'Find your printer name in the "Paired Devices" list.',
+              'Tap "Connect" to link the printer with Kwiq Bill.'
+            ]
+          },
+          ta: {
+            title: 'இணைப்பது எப்படி?',
+            steps: [
+              'தெர்மல் பிரிண்டரை ஆன் செய்து உங்கள் போனில் Bluetooth-ஐ இயக்கவும்.',
+              'போன் Bluetooth Settings-க்கு சென்று உங்கள் பிரிண்டரை இணைக்கவும் (Pair).',
+              'மீண்டும் இந்த பக்கத்திற்கு வந்து கீழே உள்ள "Scan" பட்டனை அழுத்தவும்.',
+              'பட்டியலில் உங்கள் பிரிண்டர் பெயரை கண்டறியவும்.',
+              'இணைப்பு தர "Connect" பட்டனை அழுத்தவும்.'
+            ]
+          },
+          hi: {
+            title: 'कैसे कनेक्ट करें?',
+            steps: [
+              'थर्मल प्रिंटर चालू करें और फोन का ब्लूटूथ ऑन करें।',
+              'फोन ब्लूटूथ सेटिंग्स में जाएं और अपने प्रिंटर को पेयर (Pair) करें।',
+              'इस पेज पर वापस आएं और नीचे "Scan" पर टैप करें।',
+              'सूची में अपने प्रिंटर का नाम ढूंढें।',
+              'कनेક્ટ करने के लिए "Connect" पर टैप करें।'
+            ]
+          },
+          te: {
+            title: 'కనెక్ట్ చేయడం ఎలా?',
+            steps: [
+              'థర్మల్ ప్రింటర్ ఆన్ చేయండి మరియు ఫోన్ బ్లూటూత్ ఆన్ చేయండి.',
+              'ఫోన్ బ్లూటూత్ సెట్టింగ్స్ కి వెళ్లి ప్రింటర్ ని పేర్ (Pair) చేయండి.',
+              'తిరిగి ఈ పేజీకి వచ్చి కింద ఉన్న "Scan" బటన్ నొక్కండి.',
+              'లిస్ట్ లో మీ ప్రింటర్ పేరును గుర్తించండి.',
+              'కనెక్ట్ చేయడానికి "Connect" బటన్ నొక్కండి.'
+            ]
+          },
+          kn: {
+            title: 'ಸಂಪರ್ಕಿಸುವುದು ಹೇಗೆ?',
+            steps: [
+              'ಥರ್ಮಲ್ ಪ್ರಿಂಟರ್ ಆನ್ ಮಾಡಿ ಮತ್ತು ಫೋನ್ ಬ್ಲೂಟೂತ್ ಆನ್ ಮಾಡಿ.',
+              'ಫೋನ್ ಬ್ಲೂಟೂತ್ ಸೆಟ್ಟಿಂಗ್‌ಗೆ ಹೋಗಿ ಪ್ರಿಂಟರ್ ಅನ್ನು ಪೇರ್ (Pair) ಮಾಡಿ.',
+              'ಮರಳಿ ಈ ಪುಟಕ್ಕೆ ಬಂದು ಕೆಳಗಿರುವ "Scan" ಬటನ್ ಒತ್ತಿರಿ.',
+              'ಪಟ್ಟಿಯಲ್ಲಿ ನಿಮ್ಮ ಪ್ರಿಂಟರ್ ಹೆಸರನ್ನು ಗುರುತಿಸಿ.',
+              'ಸಂಪರ್ಕಿಸಲು "Connect" ಬటನ್ ಒತ್ತಿರಿ.'
+            ]
+          },
+          ml: {
+            title: 'എങ്ങനെ കണക്ട് ചെയ്യാം?',
+            steps: [
+              'തെർമൽ പ്രിന്റർ ഓൺ ചെയ്യുക, ഫോണിലെ ബ്ലൂടൂത്ത് ഓണാക്കുക.',
+              'ഫോൺ ബ്ലൂടൂത്ത് സെറ്റിംഗ്‌സിൽ പോയി പ്രിന്റർ പേര് (Pair) ചെയ്യുക.',
+              'തിരികെ ഈ പേജിൽ വന്ന് താഴെയുള്ള "Scan" ബട്ടൺ അമർത്തുക.',
+              'ലിസ്റ്റിൽ നിങ്ങളുടെ പ്രിന്ററുടെ പേര് കണ്ടെത്തുക.',
+              'കണക്ട് ചെയ്യുന്നതിന് "Connect" ബട്ടൺ അമർത്തുക.'
+            ]
+          }
+        };
+
+        const currentGuide = printerGuide[guideLang] || printerGuide.en;
+
         return (
           <View style={styles.tabContent}>
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <Printer size={20} color="#fff" />
+            {/* Print Tab Header */}
+            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                <Printer size={24} color="#fff" />
+              </View>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Print & Hardware</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+                Connect thermal printers and configure paper size.
+              </Text>
+            </View>
+
+            {/* Guide Card - WHITE THEME */}
+            <View style={{
+              backgroundColor: '#ffffff',
+              marginBottom: 24,
+              borderRadius: 24,
+              borderWidth: 2,
+              borderColor: '#000000',
+              padding: 24,
+              overflow: 'hidden'
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                <HelpCircle size={22} color="#000000" />
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#000000', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  {currentGuide.title}
+                </Text>
+              </View>
+
+              {/* Language Switcher - Grid layout (No scrolling) */}
+              <View style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 8,
+                marginBottom: 24
+              }}>
+                {[
+                  { id: 'en', label: 'EN' },
+                  { id: 'ta', label: 'தமிழ்' },
+                  { id: 'ml', label: 'മലയാളം' },
+                  { id: 'te', label: 'తెలుగు' },
+                  { id: 'kn', label: 'ಕನ್ನಡ' },
+                  { id: 'hi', label: 'हिन्दी' }
+                ].map(l => (
+                  <TouchableOpacity
+                    key={l.id}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setGuideLang(l.id);
+                      handleChange('invoice', 'billLanguage', l.id);
+                    }}
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 10,
+                      borderRadius: 14,
+                      backgroundColor: guideLang === l.id ? '#000000' : '#f8fafc',
+                      borderWidth: 1.5,
+                      borderColor: guideLang === l.id ? '#000000' : '#e2e8f0',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: '30%', // Grid-like feel
+                      flexGrow: 1
+                    }}
+                  >
+                    <Text style={{
+                      fontSize: 13,
+                      fontWeight: '900',
+                      color: guideLang === l.id ? '#ffffff' : '#475569'
+                    }}>
+                      {l.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Steps Section */}
+              <View style={{ gap: 16 }}>
+                {currentGuide.steps.map((step, idx) => (
+                  <View key={idx} style={{ flexDirection: 'row', gap: 16, alignItems: 'flex-start' }}>
+                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 13, fontWeight: '900', color: '#ffffff' }}>{idx + 1}</Text>
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 15, color: '#000000', lineHeight: 22, fontWeight: '700' }}>
+                      {step}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <Printer size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Printing Setup</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Printing Setup</Text>
               </View>
               <View style={styles.cardPadding}>
                 <View style={styles.inputGroup}>
@@ -1159,24 +1610,157 @@ const SettingsPage = ({ navigation, route }) => {
                 </View>
               </View>
             </Card>
+
+            <Card style={[styles.card, { marginTop: 16 }]}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
+                  <Bluetooth size={20} color="#fff" />
+                </View>
+                <Text style={styles.cardTitle}>Bluetooth Thermal POS</Text>
+              </View>
+              <View style={styles.cardPadding}>
+                <Text style={[styles.sectionSubtitle, { marginBottom: 12 }]}>
+                  Connect to a 58mm or 80mm ESC/POS thermal printer natively.
+                </Text>
+
+                {localSettings?.invoice?.selectedPrinter && (
+                  <View style={{ marginBottom: 16, padding: 12, backgroundColor: '#f0fdf4', borderRadius: 12, borderWidth: 1, borderColor: '#16a34a' }}>
+                    <Text style={{ fontSize: 12, color: '#166534', fontWeight: '800', marginBottom: 4 }}>
+                      CURRENTLY CONNECTED
+                    </Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View>
+                        <Text style={{ fontSize: 16, fontWeight: '700', color: '#14532d' }}>
+                          {localSettings.invoice.selectedPrinter.name}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#166534' }}>
+                          {localSettings.invoice.selectedPrinter.address}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={unpairPrinter}
+                        style={{ padding: 8, backgroundColor: '#dcfce7', borderRadius: 8 }}
+                      >
+                        <Text style={{ color: '#166534', fontWeight: 'bold', fontSize: 12 }}>Unpair</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#334155' }}>Paired Devices</Text>
+                  <TouchableOpacity
+                    onPress={initBluetooth}
+                    disabled={isScanning}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#f1f5f9', borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                  >
+                    {isScanning ? <ActivityIndicator size="small" color="#000" /> : <RefreshCw size={14} color="#000" />}
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#000' }}>{isScanning ? 'Scanning...' : 'Scan'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ marginBottom: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => requestBluetoothPermissions(true)}
+                    style={{
+                      padding: 12,
+                      backgroundColor: '#fff',
+                      borderRadius: 12,
+                      borderWidth: 1.5,
+                      borderColor: '#000',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      borderStyle: 'dashed'
+                    }}
+                  >
+                    <Shield size={16} color="#000" />
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#000' }}>Allow Bluetooth Permissions</Text>
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 10, color: '#64748b', textAlign: 'center', marginTop: 6 }}>
+                    Required for Android 12+ to find nearby printers.
+                  </Text>
+                </View>
+
+                {!bleOpend ? (
+                  <Text style={{ color: '#ef4444', fontSize: 12, marginBottom: 8, fontWeight: '600' }}>
+                    Bluetooth is turned off. Please enable Bluetooth on your device.
+                  </Text>
+                ) : pairedDevices.length === 0 ? (
+                  <Text style={{ color: '#64748b', fontSize: 12, marginBottom: 8, fontStyle: 'italic' }}>
+                    No paired devices found. Pair the printer in Settings first.
+                  </Text>
+                ) : (
+                  <View style={{ gap: 8 }}>
+                    {pairedDevices.map((device, i) => (
+                      <TouchableOpacity
+                        key={i}
+                        onPress={() => connectToPrinter(device)}
+                        style={{
+                          padding: 12,
+                          backgroundColor: '#f8fafc',
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: '#e2e8f0',
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <View>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: '#0f172a' }}>
+                            {device.name || 'Unknown Device'}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                            {device.address}
+                          </Text>
+                        </View>
+
+                        {isConnectingMac === device.address ? (
+                          <ActivityIndicator size="small" color="#000" />
+                        ) : (
+                          localSettings?.invoice?.selectedPrinter?.address !== device.address && (
+                            <View style={{ backgroundColor: '#000', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}>
+                              <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Connect</Text>
+                            </View>
+                          )
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </Card>
           </View>
         );
       case 'backup':
         return (
           <View style={styles.tabContent}>
+            {/* Backup Tab Header */}
+            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                <Cloud size={24} color="#fff" />
+              </View>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Cloud & Backup</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+                Manage data sync, backup, and device protection.
+              </Text>
+            </View>
+
             {/* Cloud Sync Section */}
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <Cloud size={20} color="#fff" />
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <Cloud size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Cloud Backup & Sync</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Cloud Backup & Sync</Text>
               </View>
               <View style={styles.cardPadding}>
                 <Text style={styles.sectionDesc}>
                   Your data is automatically synced with Google Drive. Access your information across multiple devices and never lose a single invoice.
                 </Text>
-  
+
                 <TouchableOpacity
                   onPress={async () => {
                     showToast("Backing up to Cloud...", "info");
@@ -1327,12 +1911,12 @@ const SettingsPage = ({ navigation, route }) => {
             </Card>
 
             {/* Local backup section */}
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <Folder size={20} color="#fff" />
+            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10, marginTop: 12 }]}>
+              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+                  <Folder size={18} color="#fff" />
                 </View>
-                <Text style={styles.cardTitle}>Device Protection</Text>
+                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Device Protection</Text>
               </View>
               <View style={styles.cardPadding}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
@@ -1384,7 +1968,7 @@ const SettingsPage = ({ navigation, route }) => {
               {/* WhatsApp - Primary Action */}
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={() => Linking.openURL('whatsapp://send?phone=+919159317290&text=Hi Kwiq Billing Support, I need help with...')}
+                onPress={() => Linking.openURL('whatsapp://send?phone=+917558175156&text=Hi Kwiq Billing Support, I need help with...')}
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -1412,7 +1996,7 @@ const SettingsPage = ({ navigation, route }) => {
               {/* Call Us */}
               <TouchableOpacity
                 activeOpacity={0.7}
-                onPress={() => Linking.openURL('tel:+919159317290')}
+                onPress={() => Linking.openURL('tel:+917558175156')}
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -1429,7 +2013,7 @@ const SettingsPage = ({ navigation, route }) => {
                 </View>
                 <View style={{ flex: 1, marginLeft: 16 }}>
                   <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Call Support</Text>
-                  <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>+91 91593 17290</Text>
+                  <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>+91 75581 75156</Text>
                 </View>
                 <ChevronRight size={20} color="#cbd5e1" />
               </TouchableOpacity>
@@ -1475,9 +2059,16 @@ const SettingsPage = ({ navigation, route }) => {
       case 'logout':
         return (
           <View style={styles.tabContent}>
-            {/* Minimal Profile Header */}
-
-
+            {/* Logout Tab Header */}
+            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                <LogOut size={24} color="#fff" />
+              </View>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Sign Out</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+                Securely sign out of your Kwiq Bill account.
+              </Text>
+            </View>
             {/* Pro Visual: What Happens Section */}
             <View style={{ padding: 4 }}>
               <Text style={{ fontSize: 14, fontWeight: '900', color: '#000', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>
@@ -1784,7 +2375,7 @@ const SettingsPage = ({ navigation, route }) => {
         <ScrollView
           style={styles.scroller}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 10, flexGrow: 1 }}
+          contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
         >
           {renderTabContent()}
           {/* <View style={styles.footer}>
@@ -1827,16 +2418,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
     marginRight: 10,
     backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
+    borderWidth: 1.5,
+    borderColor: '#000',
   },
   tabItemActive: { backgroundColor: '#000', borderColor: '#000' },
-  tabText: { fontSize: 14, fontWeight: '700', color: '#64748b' },
+  tabText: { fontSize: 13, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 0.5 },
   tabTextActive: { color: '#fff' },
 
   scroller: { flex: 1 },
@@ -1844,19 +2435,19 @@ const styles = StyleSheet.create({
   card: {
     marginBottom: 24,
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#e2e8f0'
+    borderWidth: 2,
+    borderColor: '#000'
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 18,
-    borderBottomWidth: 1,
+    padding: 20,
+    borderBottomWidth: 1.5,
     borderBottomColor: '#f1f5f9',
-    backgroundColor: '#fafafa'
+    backgroundColor: '#fff'
   },
   headerIconContainer: { padding: 8, backgroundColor: '#000', borderRadius: 10 },
   cardTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
