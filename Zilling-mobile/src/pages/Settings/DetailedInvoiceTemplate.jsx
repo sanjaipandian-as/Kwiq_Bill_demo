@@ -23,6 +23,7 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
     const invoice = data || {
         invoiceNo: 'C8A24D35',
         date: '15/02/2026',
+        time: '11:56 AM',
         items: [
             { name: 'Sample Product', quantity: 1, price: 100, taxableValue: 100, total: 100, cgstRate: '0%', cgstAmt: '0.00', sgstRate: '0%', sgstAmt: '0.00' },
             { name: 'Sugar 1kg', hsn: '1901', quantity: 2, price: 50, taxableValue: 100, total: 105, cgstRate: '2.5%', cgstAmt: '2.50', sgstRate: '2.5%', sgstAmt: '2.50' },
@@ -96,6 +97,7 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
                 <View style={[styles.detailedCol, { flex: 1, padding: 4 }]}>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Invoice No:</Text> {invoice.invoiceNo}</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Invoice Date:</Text> {invoice.date}</Text>
+                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Time:</Text> {invoice.time || '12:00 PM'}</Text>
                     <View style={{ height: 4 }} />
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Reverse Charge (Y/N):</Text> No</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>State:</Text> {store.address?.state || '-'}</Text>

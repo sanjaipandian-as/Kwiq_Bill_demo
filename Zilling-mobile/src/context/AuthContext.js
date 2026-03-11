@@ -1,7 +1,7 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveUserDetailsToDrive, syncUserDataToDrive, restoreUserDataFromDrive } from '../services/googleDriveservices';
-import { fetchAllTableData, clearDatabase } from '../services/database';
+import { fetchAllTableData, clearDatabase, db } from '../services/database';
 import services from '../services/api';
 
 const AuthContext = createContext(null);
@@ -11,6 +11,66 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const logout = useCallback(async () => {
+    try {
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+      await GoogleSignin.signOut();
+    } catch (e) {
+      console.log('Google signOut error:', e);
+    } finally {
+      // Save their email before removing the user object so we know who the local DB belongs to
+      const currentUserStr = await AsyncStorage.getItem('user');
+      if (currentUserStr) {
+        try {
+          const u = JSON.parse(currentUserStr);
+          if (u.email) await AsyncStorage.setItem('last_logged_in_email', u.email);
+        } catch (e) { }
+      }
+
+      setUser(null);
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('user');
+      await AsyncStorage.removeItem('just_logged_in');
+
+      // We NO LONGER wipe the database or sync state on logout.
+      // This preserves the data for instant loading if the same user logs back in.
+      // Wiping now exclusively happens in googleLogin() if a DIFFERENT user logs in.
+    }
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) return null;
+
+      const latestUser = await services.auth.getCurrentUser();
+      if (latestUser) {
+        const savedUserDataStr = await AsyncStorage.getItem('user');
+        const userData = savedUserDataStr ? JSON.parse(savedUserDataStr) : {};
+        
+        const updatedUser = {
+          ...userData,
+          backendId: latestUser.id,
+          trialExpiresAt: latestUser.trialExpiresAt,
+          plan: latestUser.plan,
+          planExpiresAt: latestUser.planExpiresAt,
+          isBlocked: latestUser.isBlocked,
+        };
+        
+        await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+        setUser(updatedUser);
+        console.log('[Auth] User profile refreshed from backend. Plan:', latestUser.plan);
+        return updatedUser;
+      }
+    } catch (error) {
+      console.log('[Auth] Failed to refresh user profile:', error.message);
+      if (error.response && (error.response.status === 401 || error.response.status === 404)) {
+        await logout();
+      }
+    }
+    return null;
+  }, [logout]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -25,36 +85,16 @@ export const AuthProvider = ({ children }) => {
         if (savedUserDataStr && currentUser) {
           const userData = JSON.parse(savedUserDataStr);
           setUser(userData);
-
-          // Only refresh if we have a token
-          const token = await AsyncStorage.getItem('token');
-          if (token) {
-            try {
-              const latestUser = await services.auth.getCurrentUser();
-              if (latestUser) {
-                const updatedUser = {
-                  ...userData,
-                  backendId: latestUser.id,
-                  trialExpiresAt: latestUser.trialExpiresAt,
-                };
-                await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
-                setUser(updatedUser);
-              }
-            } catch (profileError) {
-              console.log('Failed to refresh user profile:', profileError.message);
-              // If the user is no longer in the DB or unauthorized, kick them out
-              if (profileError.response && (profileError.response.status === 401 || profileError.response.status === 404)) {
-                console.warn('User unauthorized. Logging out...');
-                await logout();
-              }
-            }
-          }
+          // Auto-refresh from backend
+          await refreshUser();
         } else if (savedUserDataStr && !currentUser) {
           // Attempt silent sign-in if we have a saved user but no active session object
           try {
             const user = await GoogleSignin.signInSilently();
             if (user) {
               setUser(JSON.parse(savedUserDataStr));
+              // Auto-refresh from backend
+              await refreshUser();
             } else {
               await logout(); // Clear everything if session is truly gone
             }
@@ -97,6 +137,9 @@ export const AuthProvider = ({ children }) => {
       if (authResponse.user) {
         if (authResponse.user.id) userData.backendId = authResponse.user.id;
         if (authResponse.user.trialExpiresAt) userData.trialExpiresAt = authResponse.user.trialExpiresAt;
+        if (authResponse.user.plan) userData.plan = authResponse.user.plan;
+        if (authResponse.user.planExpiresAt) userData.planExpiresAt = authResponse.user.planExpiresAt;
+        if (authResponse.user.isBlocked !== undefined) userData.isBlocked = authResponse.user.isBlocked;
       }
       console.log('Successfully exchanged Google token for backend JWT');
 
@@ -109,9 +152,38 @@ export const AuthProvider = ({ children }) => {
 
       // 4. RESTORE: Fetch Snapshot & Settings from Drive (Before setting user state)
       try {
-        await restoreUserDataFromDrive(userData, (msg, prog, stats) => {
-          if (onProgress) onProgress(msg, prog, stats);
-        });
+        const lastEmail = await AsyncStorage.getItem('last_logged_in_email');
+        const isSameUser = lastEmail === userData.email;
+
+        let needsFullRestore = true;
+
+        if (isSameUser) {
+          try {
+            const result = db.getFirstSync('SELECT COUNT(*) as count FROM products');
+            const savedSettings = await AsyncStorage.getItem('app_settings');
+
+            if (savedSettings || (result && result.count > 0)) {
+              needsFullRestore = false;
+            }
+          } catch (e) {
+            console.log('Error checking local DB:', e);
+          }
+        }
+
+        if (needsFullRestore) {
+          if (onProgress) onProgress('Clearing previous data...', 0.3);
+          await clearDatabase();
+          const { SyncService } = require('../services/OneWaySyncService');
+          await SyncService.resetSyncState();
+          await AsyncStorage.multiRemove(['app_settings', 'last_synced_timestamp', 'processed_events_ids', 'pending_upload_queue']);
+
+          await restoreUserDataFromDrive(userData, (msg, prog, stats) => {
+            if (onProgress) onProgress(msg, prog, stats);
+          });
+        } else {
+          console.log('[Auth] Skipped Drive restore. Local data belongs to ' + userData.email);
+          if (onProgress) onProgress('Loading local storage...', 0.5);
+        }
       } catch (restoreErr) {
         console.log('Restore failed:', restoreErr);
       }
@@ -155,25 +227,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = async () => {
-    try {
-      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
-      await GoogleSignin.signOut();
-    } catch (e) {
-      console.log('Google signOut error:', e);
-    } finally {
-      setUser(null);
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
-      await clearDatabase();
-      const { SyncService } = require('../services/OneWaySyncService');
-      await SyncService.resetSyncState();
-      await AsyncStorage.multiRemove(['app_settings', 'last_synced_timestamp', 'processed_events_ids', 'pending_upload_queue']);
-    }
-  };
 
   return (
-    <AuthContext.Provider value={{ user, googleLogin, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, googleLogin, logout, refreshUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

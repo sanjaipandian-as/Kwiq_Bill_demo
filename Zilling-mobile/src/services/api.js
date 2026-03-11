@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 const PRODUCTION_URL = 'https://kwiq-bill.onrender.com';
-const LOCAL_IP = '172.20.13.55'; // Your machine's current IPv4
+const LOCAL_IP = '10.126.97.96'; // Your machine's current IPv4
 const LOCAL_URL = Platform.OS === 'android'
   ? `http://${LOCAL_IP}:5001`
   : 'http://localhost:5001';
@@ -151,6 +151,9 @@ export const services = {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
     }
+  },
+  broadcasts: {
+    getLatest: () => API.get('/broadcasts/latest'),
   }
 };
 

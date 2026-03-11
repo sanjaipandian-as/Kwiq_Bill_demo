@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StatusBar, ScrollView, LayoutAnimation, UIManager } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StatusBar, ScrollView, LayoutAnimation, UIManager, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Plus, X, Upload, Save, Share2, Scan, ChevronDown } from 'lucide-react-native';
@@ -59,16 +59,34 @@ export default function BillingPage({ navigation, route }) {
   const isPrinterConnected = !!settings?.invoice?.selectedPrinter;
 
   const handleConnectPrinter = async () => {
-    try {
-      const printer = await Print.selectPrinterAsync();
-      if (printer) {
-        updateSettings('invoice', { selectedPrinter: printer });
-        showToast(`Printer Connected: ${printer.name || 'Selected'}`, 'success');
-      }
-    } catch (e) {
-      console.error("Printer Selection Error:", e);
-      Alert.alert("Printer Error", "Failed to select printer.");
-    }
+    Alert.alert(
+      "Connect Printer",
+      "Which type of printer would you like to connect?",
+      [
+        {
+          text: "Bluetooth Thermal",
+          onPress: () => {
+            navigation.navigate('Settings', { tab: 'print' });
+          }
+        },
+        {
+          text: "Wi-Fi / Network",
+          onPress: async () => {
+            try {
+              const printer = await Print.selectPrinterAsync();
+              if (printer) {
+                updateSettings('invoice', { selectedPrinter: printer });
+                showToast(`Printer Connected: ${printer.name || 'Selected'}`, 'success');
+              }
+            } catch (e) {
+              console.error("Printer Selection Error:", e);
+              Alert.alert("Printer Error", "Failed to select printer.");
+            }
+          }
+        },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
   };
 
   // Refresh data on focus
@@ -105,7 +123,7 @@ export default function BillingPage({ navigation, route }) {
       id: 1,
       customer: null,
       cart: [],
-      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0 },
+      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0, totalItems: 0, totalQty: 0 },
       paymentMode: 'Cash',
       amountReceived: '',
       remarks: '',
@@ -119,6 +137,7 @@ export default function BillingPage({ navigation, route }) {
   ]);
   const [activeBillId, setActiveBillId] = useState(1);
   const [selectedItemId, setSelectedItemId] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
 
   // --- Variant Selection State ---
@@ -217,7 +236,7 @@ export default function BillingPage({ navigation, route }) {
       });
 
       await clearBillingQueue();
-      showToast(`${queue.length} items added from scanner`, 'success');
+      showToast(`${queue.length} items added to your cart.`, 'success', 3000, null, "Cart Updated");
     }
   };
 
@@ -226,6 +245,8 @@ export default function BillingPage({ navigation, route }) {
     let aggGross = 0; // Pre-discount total
     let aggItemDisc = 0; // Total of per-item discounts
     let aggSubtotal = 0; // Taxable Value before bill-level discounts
+    let totalItems = 0;
+    let totalQty = 0;
 
     const isInclusive = settings?.tax?.defaultType === 'Inclusive' || settings?.tax?.priceMode === 'Inclusive';
 
@@ -236,6 +257,8 @@ export default function BillingPage({ navigation, route }) {
 
       aggGross += (price * qty);
       aggItemDisc += discount;
+      totalItems += 1;
+      totalQty += qty;
 
       const effectiveAmount = Math.max(0, (price * qty) - discount);
       aggSubtotal += effectiveAmount;
@@ -307,7 +330,9 @@ export default function BillingPage({ navigation, route }) {
       additionalCharges,
       total: roundedTotal,
       roundOff: roundOff,
-      pointsEarned: pointsEarned
+      pointsEarned: pointsEarned,
+      totalItems,
+      totalQty
     };
   };
 
@@ -385,7 +410,7 @@ export default function BillingPage({ navigation, route }) {
       id: newId,
       customer: null,
       cart: [],
-      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0 },
+      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0, totalItems: 0, totalQty: 0 },
       paymentMode: 'Cash',
       amountReceived: '',
       remarks: '',
@@ -407,7 +432,7 @@ export default function BillingPage({ navigation, route }) {
       id: (activeBills.length === 1) ? 1 : Date.now(),
       customer: null,
       cart: [],
-      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0 },
+      totals: { grossTotal: 0, itemDiscount: 0, subtotal: 0, tax: 0, discount: 0, additionalCharges: 0, roundOff: 0, total: 0, pointsEarned: 0, totalItems: 0, totalQty: 0 },
       paymentMode: 'Cash',
       amountReceived: '',
       remarks: '',
@@ -504,7 +529,7 @@ export default function BillingPage({ navigation, route }) {
     // STOCK CHECK BEFORE ADDING
     const currentStock = parseFloat(product.stock || 0);
     if (currentStock <= 0) {
-      showToast(`${product.name} is out of stock!`, 'error');
+      showToast(`${product.name} is currently unavailable.`, 'error', 3500, null, "Out of Stock");
       return;
     }
 
@@ -512,7 +537,7 @@ export default function BillingPage({ navigation, route }) {
 
     if (exists) {
       if (exists.quantity + 1 > currentStock) {
-        showToast(`Only ${currentStock} units available`, 'stock');
+        showToast(`Only ${currentStock} units remaining in inventory.`, 'stock', 3500, null, "Stock Limit Reached");
         return;
       }
       updateQuantity(cartItemId, exists.quantity + 1);
@@ -694,7 +719,10 @@ export default function BillingPage({ navigation, route }) {
 
     // Feature: Mandatory Customer Check
     if (!currentBill.customer || !currentBill.customer.phone) {
-      setModals(m => ({ ...m, customerCapture: true }));
+      showToast("Select or add a customer to save this bill.", 'customer', 5000, {
+        label: 'Identify Customer',
+        onPress: () => setModals(m => ({ ...m, customerSearch: true }))
+      }, "Identification Required");
       return;
     }
 
@@ -751,10 +779,10 @@ export default function BillingPage({ navigation, route }) {
       if (currentBill.originalInvoiceId) {
         payload.id = currentBill.originalInvoiceId;
         savedBill = await editTransaction(payload);
-        showToast("Invoice Updated Successfully", "success");
+        showToast("Invoice details have been updated.", "success", 3500, null, "Invoice Updated");
       } else {
         savedBill = await addTransaction(payload);
-        showToast("Invoice Saved Successfully", "success");
+        showToast("Invoice has been saved to your records.", "success", 3500, null, "Invoice Saved");
       }
 
       // Refresh products to update stock
@@ -768,31 +796,28 @@ export default function BillingPage({ navigation, route }) {
     }
   };
 
-  const handleSavePrint = async (format = '80mm') => {
+  const handleSavePrint = async (format = '80mm', copyCount = 1) => {
     if (currentBill.cart.length === 0) {
       showToast("Cart is empty!", "error");
       return;
     }
 
-    if (!currentBill.customer) {
-      Alert.alert("Customer Required", "Please select or add a customer with a name and mobile number to complete the bill.");
-      setModals(m => ({ ...m, customerSearch: true }));
-      return;
-    }
-
-    if (!currentBill.customer.name || !currentBill.customer.phone) {
-      Alert.alert("Missing Details", "Customer name and mobile number are mandatory for billing.");
-      setModals(m => ({ ...m, customerSearch: true }));
-      return;
-    }
-
-    // Feature: Mandatory Customer Check
-    if (!currentBill.customer || !currentBill.customer.phone) {
-      setModals(m => ({ ...m, customerCapture: true }));
+    if (!currentBill.customer || !currentBill.customer.name || !currentBill.customer.phone) {
+      showToast(
+        "A valid name and mobile number are required to finalize this invoice.",
+        'customer',
+        5000,
+        {
+          label: 'SELECT CUSTOMER',
+          onPress: () => setModals(m => ({ ...m, customerSearch: true }))
+        },
+        "Customer Details Required"
+      );
       return;
     }
 
     try {
+      setIsProcessing(true);
       const payload = {
         customerId: currentBill.customer ? (currentBill.customer.id || currentBill.customer._id) : '',
         customerName: currentBill.customer ? (currentBill.customer.fullName || currentBill.customer.name) : '',
@@ -857,26 +882,39 @@ export default function BillingPage({ navigation, route }) {
         savedBill = await addTransaction(payload);
       }
 
-      // 2. Action: Immediate Bill (Thermal Layout)
-      // We use 'customer' mode for the 3-inch/thermal bill style
-      await printReceipt(savedBill, format, settings, 'customer');
+      if (!savedBill) throw new Error("Failed to save transaction.");
 
-      // 3. Action: Show Formal Invoice Preview (A4/Template Style)
-      // This fulfills "show preview of the invoice" with the backend-selected template.
-      // We force 'A4' or 'A5' based on template settings, and mode 'invoice'
-      const invoiceFormat = settings?.invoice?.paperSize === '58mm' || settings?.invoice?.paperSize === '80mm' ? 'A4' : (settings?.invoice?.paperSize || 'A4');
-      await printReceipt(savedBill, invoiceFormat, settings, 'invoice');
+      // 2. Prepare for printing
+      const billDataToPrint = {
+        ...savedBill,
+        customer: currentBill.customer // Include full customer for printing
+      };
 
+      const thermalFormat = settings?.invoice?.billPaperSize || '80mm';
 
+      // 3. Print multiple copies if requested
+      for (let i = 0; i < copyCount; i++) {
+        await printReceipt(billDataToPrint, thermalFormat, settings, 'customer');
+        if (i < copyCount - 1) {
+          // Robust delay between prints
+          await new Promise(r => setTimeout(r, 800));
+        }
+      }
 
-      showToast("Invoice Finalized Successfully", "success");
+      showToast("Invoice finalized and printed.", "success", 4000, null, "Invoice Completed");
+
+      // Refresh context data
       fetchProducts();
       fetchCustomers();
+
+      // Close the bill tab after everything is done
       closeBill(activeBillId);
 
     } catch (error) {
       console.error("Billing Flow Error:", error);
-      Alert.alert("Error", "Failed to complete the billing process.");
+      Alert.alert("Billing Error", error?.message || "Failed to complete the billing process.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -886,13 +924,31 @@ export default function BillingPage({ navigation, route }) {
       return;
     }
     // This just prints the B&W preview/bill for the customer without closing the tab
-    await printReceipt(currentBill, format, settings, 'customer');
+    const thermalFormat = settings?.invoice?.billPaperSize || '80mm';
+    await printReceipt(currentBill, thermalFormat, settings, 'customer');
   };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        {isProcessing && (
+          <View style={{
+            ...StyleSheet.absoluteFillObject,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            zIndex: 9999,
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 40
+          }}>
+            <View style={{ backgroundColor: '#fff', padding: 30, borderRadius: 24, alignItems: 'center', width: '100%', maxWidth: 300 }}>
+              <ActivityIndicator size="large" color="#000" />
+              <Text style={{ marginTop: 20, fontSize: 18, fontWeight: '900', color: '#000', textAlign: 'center' }}>FINALIZING INVOICE</Text>
+              <Text style={{ marginTop: 8, fontSize: 13, color: '#64748b', textAlign: 'center', fontWeight: '600' }}>Please wait while we save and print your bill...</Text>
+            </View>
+          </View>
+        )}
+
 
         {/* Premium Header */}
         <LinearGradient
@@ -1332,7 +1388,7 @@ const styles = StyleSheet.create({
     bottom: -6,
     width: 20,
     height: 3,
-    backgroundColor: '#22c55e',
+    backgroundColor: '#fff',
     borderRadius: 2
   },
   billHistoryBtn: {
@@ -1368,7 +1424,7 @@ const styles = StyleSheet.create({
   activeModeBtnText: { color: '#fff' },
 
   // Content Area
-  content: { flex: 1, paddingHorizontal: 20, paddingTop: 15 },
+  content: { flex: 1, paddingHorizontal: 20, paddingTop: 4 },
 
   // Bill Selector Dropdown
   billSelectorOverlay: {

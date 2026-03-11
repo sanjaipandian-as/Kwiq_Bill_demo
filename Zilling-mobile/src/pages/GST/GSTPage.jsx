@@ -11,7 +11,8 @@ import {
     UIManager,
     StatusBar,
     Modal,
-    Alert
+    Alert,
+    TouchableOpacity
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -39,6 +40,7 @@ import { useTransactions } from '../../context/TransactionContext';
 import * as XLSX from 'xlsx';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -48,21 +50,19 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const { width } = Dimensions.get('window');
 
 // --- Premium Component: Stat Card ---
-const ModernStat = ({ label, value, subValue, icon: Icon, isPrimary = false, flex = 1 }) => (
-    <View style={[styles.statCard, isPrimary && styles.primaryStatCard, { flex }]}>
+const ModernStat = ({ label, value, subValue, icon: Icon, color = '#000', flex = 1 }) => (
+    <View style={styles.statCard}>
         <View style={styles.statHeader}>
-            <View style={[styles.statIconContainer, { backgroundColor: isPrimary ? 'rgba(255,255,255,0.15)' : '#000' }]}>
-                <Icon size={16} color={isPrimary ? '#fff' : '#fff'} />
+            <View style={[styles.statIconContainer, { backgroundColor: color + '15' }]}>
+                <Icon size={20} color={color} />
             </View>
-            <Text style={[styles.statLabel, isPrimary && { color: 'rgba(255,255,255,0.6)' }]}>{label}</Text>
+            <View style={{ flex: 1 }}>
+                <Text style={styles.statLabel}>{label}</Text>
+                <Text style={styles.statSubText}>{subValue}</Text>
+            </View>
         </View>
         <View style={styles.statBody}>
-            <Text style={[styles.statValue, isPrimary && { color: '#fff' }]}>₹{value}</Text>
-            {subValue && (
-                <View style={styles.statSubRow}>
-                    <Text style={[styles.statSubText, isPrimary && { color: 'rgba(255,255,255,0.5)' }]}>{subValue}</Text>
-                </View>
-            )}
+            <Text style={styles.statValue}>₹{value}</Text>
         </View>
     </View>
 );
@@ -308,139 +308,131 @@ export default function GSTPage() {
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-            <SafeAreaView style={styles.safeArea} edges={['top']}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <Pressable onPress={() => navigation.goBack()} style={styles.iconBtn}>
-                        <ChevronLeft size={22} color="#000" />
-                    </Pressable>
-                    <View style={styles.headerMain}>
-                        <Text style={styles.headerTitle}>GST Analytics</Text>
-                        <Text style={styles.headerSubtitle}>Compliance Tracking</Text>
+            <StatusBar barStyle="light-content" backgroundColor="#000" />
+            <LinearGradient colors={['#000', '#111']} style={styles.headerGradient}>
+                <SafeAreaView edges={['top']}>
+                    {/* Header */}
+                    <View style={styles.headerPremium}>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.premiumNavIcon}>
+                            <ChevronLeft size={22} color="#fff" />
+                        </TouchableOpacity>
+                        <View style={styles.headerMainPremium}>
+                            <Text style={styles.headerTitlePremium}>GST Analytics</Text>
+                            <Text style={styles.headerSubtitlePremium}>Compliance Tracking</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                            <TouchableOpacity style={styles.premiumNavIcon} onPress={() => setIsFilterOpen(true)}>
+                                <Filter size={18} color="#fff" />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.premiumNavIcon} onPress={handleExportExcel}>
+                                <Download size={18} color="#fff" />
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                    <Pressable style={styles.iconBtn} onPress={handleExportExcel}>
-                        <Download size={18} color="#000" />
-                    </Pressable>
-                </View>
 
-                {/* Main Filter Bar - Liquid Pilled Selection */}
-                <View style={styles.mainFilterBar}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-                        {['Today', 'Yesterday', 'This Week', 'This Month'].map(p => (
-                            <Pressable
-                                key={p}
-                                style={[styles.filterPill, period === p && styles.activeFilterPill]}
-                                onPress={() => changePeriod(p)}
-                            >
-                                <Text style={[styles.filterPillText, period === p && styles.activeFilterPillText]}>
-                                    {p === 'This Week' ? 'Week' : p === 'This Month' ? 'Month' : p}
-                                </Text>
-                            </Pressable>
-                        ))}
-                        <Pressable
-                            style={[styles.filterPill, period === 'Custom' && styles.activeFilterPill]}
-                            onPress={() => setIsCalendarOpen(true)}
-                        >
-                            <Calendar size={14} color={period === 'Custom' ? '#fff' : '#64748b'} style={{ marginRight: 6 }} />
-                            <Text style={[styles.filterPillText, period === 'Custom' && styles.activeFilterPillText]}>
-                                {period === 'Custom' ? getPeriodLabel() : 'Custom'}
+
+
+                    {/* Hero Visualization - Centered & Compact */}
+                    <View style={styles.heroCardPremium}>
+                        <View style={styles.heroHeaderCentered}>
+                            <Text style={styles.heroLabelPremium}>Net Tax Payable</Text>
+                            <Text style={styles.heroPeriodTextValue}>{getPeriodLabel()}</Text>
+                        </View>
+
+                        <View style={styles.heroMainAmountRow}>
+                            <Text style={styles.heroAmountPremium} numberOfLines={1} adjustsFontSizeToFit>
+                                ₹{gstData.totalGST}
                             </Text>
-                        </Pressable>
-                    </ScrollView>
-                    <Pressable style={styles.filterTrigger} onPress={() => setIsFilterOpen(true)}>
-                        <Filter size={18} color="#000" />
-                    </Pressable>
+                            {/* <View style={styles.heroTrendBox}>
+                                <TrendingUp size={10} color="#4ade80" />
+                                <Text style={styles.heroTrendText}>LIVE</Text>
+                            </View> */}
+                        </View>
+
+                        <View style={styles.heroSummaryContainer}>
+                            <View style={styles.heroSummaryCard}>
+                                <View style={styles.summaryItem}>
+                                    <Text style={styles.summaryLabel}>GROSS SALES</Text>
+                                    <Text style={styles.summaryValue}>₹{gstData.totalSales}</Text>
+                                </View>
+                                <View style={styles.summaryDivider} />
+                                <View style={styles.summaryItem}>
+                                    <Text style={styles.summaryLabel}>TAXABLE VALUE</Text>
+                                    <Text style={styles.summaryValue}>₹{gstData.taxableValue}</Text>
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                </SafeAreaView>
+            </LinearGradient>
+
+            <ScrollView
+                style={styles.mainScroll}
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
+            >
+                <Text style={styles.sectionHeader}>Tax Breakdown</Text>
+
+                {/* Improved Component Grid */}
+                <View style={styles.taxGroup}>
+                    <View style={styles.statsGrid}>
+                        <ModernStat
+                            label="SGST"
+                            value={gstData.sgst}
+                            subValue="State Component"
+                            icon={Building2}
+                            color="#3b82f6"
+                        />
+                        <ModernStat
+                            label="CGST"
+                            value={gstData.cgst}
+                            subValue="Central Component"
+                            icon={Landmark}
+                            color="#6366f1"
+                        />
+                    </View>
+
+                    <View style={styles.fullWidthStat}>
+                        <ModernStat
+                            label="IGST (Integrated Tax)"
+                            value={gstData.igst}
+                            subValue="Inter-state Transactions"
+                            icon={Globe}
+                            color="#8b5cf6"
+                        />
+                    </View>
                 </View>
 
-                <ScrollView
-                    contentContainerStyle={styles.scrollContent}
-                    showsVerticalScrollIndicator={false}
-                >
-                    {/* Hero Visualization */}
-                    <View style={styles.heroCard}>
-                        <View style={styles.heroHeader}>
-                            <View>
-                                <Text style={styles.heroLabel}>Net Tax Payable</Text>
-                                <Text style={styles.heroAmount}>₹{gstData.totalGST}</Text>
-                            </View>
-                            <View style={styles.heroIconBox}>
-                                <ShieldCheck size={24} color="#fff" />
-                            </View>
-                        </View>
-                        <View style={styles.heroFooter}>
-                            <View style={styles.heroStatItem}>
-                                <Text style={styles.heroStatLabel}>GROSS SALES</Text>
-                                <Text style={styles.heroStatValue}>₹{gstData.totalSales}</Text>
-                            </View>
-                            <View style={styles.heroStatDivider} />
-                            <View style={styles.heroStatItem}>
-                                <Text style={styles.heroStatLabel}>TAXABLE VALUE</Text>
-                                <Text style={styles.heroStatValue}>₹{gstData.taxableValue}</Text>
-                            </View>
-                        </View>
+                {/* Compliance Section */}
+                <View style={styles.timelineSection}>
+                    <View style={styles.sectionHeadRow}>
+                        <Text style={styles.sectionHeaderNoTop}>Compliance Timeline</Text>
+                        <ArrowRight size={14} color="#cbd5e1" />
                     </View>
 
-                    <Text style={styles.sectionHeader}>Tax Breakdown</Text>
-
-                    {/* Improved Component Grid */}
-                    <View style={styles.taxGroup}>
-                        <View style={styles.statsGrid}>
-                            <ModernStat
-                                label="SGST"
-                                value={gstData.sgst}
-                                subValue="State Component"
-                                icon={Building2}
-                            />
-                            <ModernStat
-                                label="CGST"
-                                value={gstData.cgst}
-                                subValue="Central Component"
-                                icon={Landmark}
-                            />
-                        </View>
-
-                        <View style={styles.fullWidthStat}>
-                            <ModernStat
-                                label="IGST (Integrated Tax)"
-                                value={gstData.igst}
-                                subValue="Inter-state Transactions"
-                                icon={Globe}
-                            />
-                        </View>
+                    <View style={styles.whiteCard}>
+                        <TrackingRow
+                            title="GSTR-1"
+                            description="Invoice-wise Outward supplies data"
+                            date="Monthly"
+                        />
+                        <TrackingRow
+                            title="GSTR-3B"
+                            description="Monthly self-declaration summary"
+                            date="Monthly"
+                            isLast={true}
+                        />
                     </View>
+                </View>
 
-                    {/* Compliance Section */}
-                    <View style={styles.timelineSection}>
-                        <View style={styles.sectionHeadRow}>
-                            <Text style={styles.sectionHeaderNoTop}>Compliance Timeline</Text>
-                            <ArrowRight size={14} color="#cbd5e1" />
-                        </View>
-
-                        <View style={styles.whiteCard}>
-                            <TrackingRow
-                                title="GSTR-1"
-                                description="Invoice-wise Outward supplies data"
-                                date="Monthly"
-                            />
-                            <TrackingRow
-                                title="GSTR-3B"
-                                description="Monthly self-declaration summary"
-                                date="Monthly"
-                                isLast={true}
-                            />
-                        </View>
-                    </View>
-
-                    {/* Pro Footer */}
-                    <View style={styles.advisoryBox}>
-                        <CircleSlash size={16} color="#94a3b8" />
-                        <Text style={styles.advisoryText}>
-                            Calculated from internal transaction logs. Always verify with your actual GST portal records before final settlement.
-                        </Text>
-                    </View>
-                </ScrollView>
-            </SafeAreaView>
+                {/* Pro Footer */}
+                <View style={styles.advisoryBox}>
+                    <CircleSlash size={16} color="#94a3b8" />
+                    <Text style={styles.advisoryText}>
+                        Calculated from internal transaction logs. Always verify with your actual GST portal records before final settlement.
+                    </Text>
+                </View>
+            </ScrollView>
 
             {/* Filter Drawer */}
             <Modal
@@ -466,11 +458,19 @@ export default function GSTPage() {
                                 { id: 'This Month', label: 'This Month', icon: Calendar },
                                 { id: 'This Year', label: 'This Year', icon: Calendar },
                                 { id: 'All Time', label: 'All Time', icon: Globe },
+                                { id: 'Custom', label: 'Custom Range', icon: CalendarDays },
                             ].map(item => (
                                 <Pressable
                                     key={item.id}
                                     style={[styles.filterItem, period === item.id && styles.activeFilterItem]}
-                                    onPress={() => changePeriod(item.id)}
+                                    onPress={() => {
+                                        if (item.id === 'Custom') {
+                                            setIsFilterOpen(false);
+                                            setTimeout(() => setIsCalendarOpen(true), 300);
+                                        } else {
+                                            changePeriod(item.id);
+                                        }
+                                    }}
                                 >
                                     <View style={styles.filterItemLeft}>
                                         <item.icon size={18} color={period === item.id ? '#000' : '#94a3b8'} />
@@ -549,99 +549,173 @@ export default function GSTPage() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#ffffff' },
-    safeArea: { flex: 1 },
+    container: { flex: 1, backgroundColor: '#f8fafc' },
+    mainScroll: { flex: 1 },
 
-    header: {
+    // Header Premium Design
+    headerGradient: {
+        backgroundColor: '#000',
+        paddingBottom: 40,
+        borderBottomLeftRadius: 36,
+        borderBottomRightRadius: 36,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.25,
+        shadowRadius: 20,
+        elevation: 10
+    },
+    headerPremium: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 24,
-        paddingBottom: 20,
-        backgroundColor: '#fff',
+        paddingTop: Platform.OS === 'ios' ? 0 : 10,
+        paddingBottom: 16,
         gap: 16
     },
-    iconBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 16,
-        backgroundColor: '#fff',
+    premiumNavIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 14,
+        backgroundColor: 'rgba(255,255,255,0.1)',
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1.5,
-        borderColor: '#f1f5f9',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 5,
-        elevation: 2
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)'
     },
-    headerMain: { flex: 1 },
-    headerTitle: { fontSize: 24, fontWeight: '900', color: '#000', letterSpacing: -0.8 },
-    headerSubtitle: { fontSize: 13, fontWeight: '700', color: '#94a3b8', marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.5 },
+    headerMainPremium: { flex: 1 },
+    headerTitlePremium: { fontSize: 24, fontWeight: '900', color: '#fff', letterSpacing: -0.8 },
+    headerSubtitlePremium: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.5)', marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.5 },
 
-    // Main Filter Bar - Liquid Style
-    mainFilterBar: {
+    // Main Filter Bar Premium
+    mainFilterBarPremium: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 24,
-        paddingVertical: 12,
-        backgroundColor: '#fff',
         gap: 12
     },
-    filterScroll: { gap: 8, paddingRight: 20 },
-    filterPill: {
+    filterScrollPremium: { gap: 10, paddingRight: 20 },
+    filterPillPremium: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 16,
         paddingVertical: 10,
         borderRadius: 14,
-        backgroundColor: '#f8fafc',
-        borderWidth: 1.5,
-        borderColor: '#f1f5f9'
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)'
     },
-    activeFilterPill: {
-        backgroundColor: '#000',
-        borderColor: '#000'
+    activeFilterPillPremium: {
+        backgroundColor: '#fff',
+        borderColor: '#fff'
     },
-    filterPillText: { fontSize: 13, fontWeight: '800', color: '#64748b' },
-    activeFilterPillText: { color: '#fff' },
-    filterTrigger: {
+    filterPillTextPremium: { fontSize: 13, fontWeight: '800', color: 'rgba(255,255,255,0.6)' },
+    activeFilterPillTextPremium: { color: '#000' },
+    filterTriggerPremium: {
         width: 44,
         height: 44,
         borderRadius: 14,
-        backgroundColor: '#fff',
-        borderWidth: 1.5,
-        borderColor: '#000',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
         alignItems: 'center',
         justifyContent: 'center'
     },
 
     scrollContent: { paddingBottom: 120 },
 
-    heroCard: {
-        marginHorizontal: 20,
-        backgroundColor: '#000',
-        borderRadius: 32,
-        padding: 24,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 15 },
-        shadowOpacity: 0.25,
-        shadowRadius: 25,
-        elevation: 15,
-        marginBottom: 30,
-        marginTop: 10
+    // Hero Premium Design (Inside Header)
+    heroCardPremium: {
+        paddingHorizontal: 24,
+        marginTop: 12,
+        gap: 20,
+        alignItems: 'center',
+        justifyContent: 'center'
     },
-    heroHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 },
-    heroLabel: { fontSize: 11, fontWeight: '900', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1.5 },
-    heroAmount: { fontSize: 40, fontWeight: '900', color: '#fff', marginTop: 4, letterSpacing: -1 },
-    heroIconBox: { width: 56, height: 56, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-    heroFooter: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
-    heroStatItem: { flex: 1 },
-    heroStatLabel: { fontSize: 9, fontWeight: '900', color: 'rgba(255,255,255,0.4)', marginBottom: 4, letterSpacing: 0.5 },
-    heroStatValue: { fontSize: 16, fontWeight: '900', color: '#fff' },
-    heroStatDivider: { width: 1.5, height: 24, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 15 },
+    heroHeaderCentered: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4
+    },
+    heroPeriodTextValue: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: 'rgba(255,255,255,0.4)',
+        textTransform: 'uppercase',
+        letterSpacing: 1
+    },
+    heroLabelPremium: {
+        fontSize: 12,
+        fontWeight: '900',
+        color: 'rgba(255,255,255,0.8)',
+        textTransform: 'uppercase',
+        letterSpacing: 2
+    },
+    heroMainAmountRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        width: '100%'
+    },
+    heroAmountPremium: {
+        fontSize: 42,
+        fontWeight: '900',
+        color: '#fff',
+        letterSpacing: -1,
+        textAlign: 'center'
+    },
+    heroTrendBox: {
+        backgroundColor: 'rgba(74, 222, 128, 0.12)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4
+    },
+    heroTrendText: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#4ade80'
+    },
+    heroSummaryContainer: {
+        marginTop: 4,
+        width: '100%'
+    },
+    heroSummaryCard: {
+        flexDirection: 'row',
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderRadius: 20,
+        padding: 16,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.04)'
+    },
+    summaryItem: {
+        flex: 1,
+        alignItems: 'center'
+    },
+    summaryLabel: {
+        fontSize: 11,
+        fontWeight: '900',
+        color: 'rgba(255,255,255,0.5)',
+        marginBottom: 8,
+        letterSpacing: 1.5
+    },
+    summaryValue: {
+        fontSize: 20,
+        fontWeight: '900',
+        color: '#fff',
+        letterSpacing: -0.5
+    },
+    summaryDivider: {
+        width: 1,
+        height: 40,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        marginHorizontal: 24
+    },
 
-    sectionHeader: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5, textTransform: 'uppercase', marginHorizontal: 24, marginBottom: 16, marginTop: 10 },
+    sectionHeader: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5, textTransform: 'uppercase', marginHorizontal: 24, marginBottom: 16, marginTop: 24 },
     sectionHeaderNoTop: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5, textTransform: 'uppercase' },
     sectionHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 24, marginBottom: 16 },
 
@@ -650,25 +724,25 @@ const styles = StyleSheet.create({
     fullWidthStat: { marginTop: 0 },
     statCard: {
         backgroundColor: '#fff',
-        borderRadius: 24,
-        padding: 20,
-        borderWidth: 1.5,
+        borderRadius: 32,
+        padding: 24,
+        borderWidth: 1,
         borderColor: '#f1f5f9',
         justifyContent: 'space-between',
-        minHeight: 120,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.02,
-        shadowRadius: 10,
-        elevation: 2
+        minHeight: 160,
+        shadowColor: '#64748b',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.12,
+        shadowRadius: 20,
+        elevation: 6,
+        flex: 1
     },
-    statHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
-    statIconContainer: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    statLabel: { fontSize: 12, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 },
+    statHeader: { gap: 12, marginBottom: 20 },
+    statIconContainer: { width: 44, height: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    statLabel: { fontSize: 13, fontWeight: '900', color: '#000', letterSpacing: 0.5 },
     statBody: { gap: 4 },
-    statValue: { fontSize: 24, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
-    statSubRow: { flexDirection: 'row', alignItems: 'center' },
-    statSubText: { fontSize: 11, fontWeight: '700', color: '#94a3b8' },
+    statValue: { fontSize: 26, fontWeight: '900', color: '#000', letterSpacing: -1 },
+    statSubText: { fontSize: 11, fontWeight: '700', color: '#94a3b8', marginTop: 2 },
 
     timelineSection: { marginTop: 35 },
     whiteCard: { marginHorizontal: 20, backgroundColor: '#fff', borderRadius: 28, padding: 20, borderWidth: 1.5, borderColor: '#f1f5f9' },

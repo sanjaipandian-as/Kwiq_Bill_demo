@@ -375,7 +375,7 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                         style={[styles.vipBadge, formData.tags.includes('VIP') && styles.vipBadgeOn]}
                         onPress={toggleVIP}
                     >
-                        <Star size={12} color={formData.tags.includes('VIP') ? "#fff" : "#64748b"} fill={formData.tags.includes('VIP') ? "#fff" : "none"} />
+                        <Star size={12} color={formData.tags.includes('VIP') ? "#000" : "#64748b"} fill={formData.tags.includes('VIP') ? "#000" : "none"} />
                         <Text style={[styles.vipBadgeText, formData.tags.includes('VIP') && styles.vipBadgeTextOn]}>VIP CLIENT</Text>
                     </TouchableOpacity>
                 </View>
@@ -829,9 +829,9 @@ const styles = StyleSheet.create({
         letterSpacing: 1.2, textTransform: 'uppercase',
     },
     vipBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9' },
-    vipBadgeOn: { backgroundColor: '#000', borderColor: '#000' },
+    vipBadgeOn: { backgroundColor: '#facc15', borderColor: '#eab308' },
     vipBadgeText: { fontSize: 10, fontWeight: '900', color: '#64748b' },
-    vipBadgeTextOn: { color: '#fff' },
+    vipBadgeTextOn: { color: '#000' },
 
     fieldContainer: { gap: 6 },
     fieldLabel: { fontSize: 12, fontWeight: '800', color: '#333', letterSpacing: 0.3 },

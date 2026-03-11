@@ -4,185 +4,20 @@ import { View, Text, StyleSheet, Platform } from 'react-native';
 const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceInter = false }) => {
     // Fallback/Demo Data
     const store = settings?.store || {
-        name: 'ஆச்சி மசாலா',
-        legalName: 'அப்ஸரா மார்க்கெட்டிங்',
-        address: { street: '36, பழைய வெற்றிலைக்கார தெரு', city: 'மதுரை-1', state: 'TN' },
-        contact: 'Ph:0452-4371419 Cell:9943415355',
-        whatsapp: '9894225311',
+        name: 'KWIQ BILLING STORE',
+        legalName: 'KWIQ SOLUTIONS PVT LTD',
+        address: { street: '123, Business Mall, Sector 4', city: 'Chennai', state: 'TN' },
+        contact: 'Ph:044-12345678 Cell:9888877777',
+        whatsapp: '9888877777',
         gstin: ''
     };
 
     const lang = settings?.invoice?.billLanguage || 'en';
 
     const translations = {
-        en: {
-            mid: 'MID',
-            date: 'Date',
-            receiptNo: 'Receipt No',
-            time: 'Time',
-            item: 'Item',
-            qty: 'Qty',
-            price: 'Price',
-            amt: 'Amount',
-            totalItems: 'Total Items',
-            total: 'Total',
-            taxPct: 'TAX %',
-            taxableVal: 'TAXABLE VAL.',
-            cgst: 'CGST',
-            sgst: 'SGST',
-            igst: 'IGST',
-            totalAmt: 'TOTAL AMT',
-            grandTotal: 'Grand Total',
-            whatsapp: 'WHATSAPP NO',
-            mobile: 'MOBILE NO',
-            items: [
-                { name: 'BADAM 10RS', quantity: 8, unit: 'S', price: 80.00, total: 640.00, taxRate: 5 },
-                { name: 'SAMBAR - 20G', quantity: 2, unit: 'S', price: 75.00, total: 150.00, taxRate: 5 },
-                { name: 'CHICKEN - 20G', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: '65 - 20G', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: 'KULAMBU PODI- 25G', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 }
-            ]
-        },
-        ta: {
-            mid: 'MID',
-            date: 'தேதி',
-            receiptNo: 'ரசீது எண்',
-            time: 'நேரம்',
-            item: 'பொருள்',
-            qty: 'அளவு',
-            price: 'விலை',
-            amt: 'தொகை',
-            totalItems: 'மொத்த பொருட்கள்',
-            total: 'மொத்தம்',
-            taxPct: 'வரி %',
-            taxableVal: 'வரிக்குரிய மதிப்பு',
-            cgst: 'CGST',
-            sgst: 'SGST',
-            igst: 'IGST',
-            totalAmt: 'மொத்த தொகை',
-            grandTotal: 'மொத்தம்',
-            whatsapp: 'வாட்ஸ்அப் எண்',
-            mobile: 'மொபைல் எண்',
-            items: [
-                { name: 'பாதாம் 10ரூ', quantity: 8, unit: 'S', price: 80.00, total: 640.00, taxRate: 5 },
-                { name: 'சாம்பார் - 20 கி', quantity: 2, unit: 'S', price: 75.00, total: 150.00, taxRate: 5 },
-                { name: 'சிக்கன் - 20 கி', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: '65 - 20 கி', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: 'குழம்புபொடி- 25 கி', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 }
-            ]
-        },
-        hi: {
-            mid: 'MID',
-            date: 'दिनांक',
-            receiptNo: 'रसीद संख्या',
-            time: 'समय',
-            item: 'वस्तु',
-            qty: 'मात्रा',
-            price: 'मूल्य',
-            amt: 'राशि',
-            totalItems: 'कुल वस्तुएं',
-            total: 'योग',
-            taxPct: 'कर %',
-            taxableVal: 'कर योग्य मूल्य',
-            cgst: 'CGST',
-            sgst: 'SGST',
-            igst: 'IGST',
-            totalAmt: 'कुल राशि',
-            grandTotal: 'कुल योग',
-            whatsapp: 'व्हाट्सएप नंबर',
-            mobile: 'मोबाइल नंबर',
-            items: [
-                { name: 'बादाम 10रु', quantity: 8, unit: 'S', price: 80.00, total: 640.00, taxRate: 5 },
-                { name: 'सांभर - 20 ग्राम', quantity: 2, unit: 'S', price: 75.00, total: 150.00, taxRate: 5 },
-                { name: 'चिकन - 20 ग्राम', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: '65 - 20 ग्राम', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: 'मसाला पाउडर- 25 ग्राम', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 }
-            ]
-        },
-        ml: {
-            mid: 'MID',
-            date: 'തീയതി',
-            receiptNo: 'രസീത് നമ്പർ',
-            time: 'സമയം',
-            item: 'ഇനം',
-            qty: 'അളവ്',
-            price: 'വില',
-            amt: 'തുക',
-            totalItems: 'ആകെ ഇനങ്ങൾ',
-            total: 'ആകെ',
-            taxPct: 'നികുതി %',
-            taxableVal: 'നികുതി വിധേയമായ തുക',
-            cgst: 'CGST',
-            sgst: 'SGST',
-            igst: 'IGST',
-            totalAmt: 'ആകെ തുക',
-            grandTotal: 'ആകെ തുക',
-            whatsapp: 'വാട്ട്‌സ്ആപ്പ് നമ്പർ',
-            mobile: 'മൊബൈൽ നമ്പർ',
-            items: [
-                { name: 'ബദാം 10 രൂപ', quantity: 8, unit: 'S', price: 80.00, total: 640.00, taxRate: 5 },
-                { name: 'സാമ്പാർ - 20 ഗ്രാം', quantity: 2, unit: 'S', price: 75.00, total: 150.00, taxRate: 5 },
-                { name: 'ചിക്കൻ - 20 ഗ്രാം', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: '65 - 20 ഗ്രാം', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: 'മസാലപ്പൊടി - 25 ഗ്രാം', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 }
-            ]
-        },
-        te: {
-            mid: 'MID',
-            date: 'తేదీ',
-            receiptNo: 'రశీదు సంఖ్య',
-            time: 'సమయం',
-            item: 'వస్తువు',
-            qty: 'పరిమాణం',
-            price: 'ధర',
-            amt: 'మొత్తం',
-            totalItems: 'మొత్తం వస్తువులు',
-            total: 'మొత్తం',
-            taxPct: 'పన్ను %',
-            taxableVal: 'పన్ను విధించదగిన విలువ',
-            cgst: 'CGST',
-            sgst: 'SGST',
-            igst: 'IGST',
-            totalAmt: 'మొత్తం మొత్తం',
-            grandTotal: 'మొత్తం',
-            whatsapp: 'వాట్సాప్ నంబర్',
-            mobile: 'మొబైల్ నంబర్',
-            items: [
-                { name: 'బాదం 10రూ', quantity: 8, unit: 'S', price: 80.00, total: 640.00, taxRate: 5 },
-                { name: 'సాంబార్ - 20 గ్రా', quantity: 2, unit: 'S', price: 75.00, total: 150.00, taxRate: 5 },
-                { name: 'చికెన్ - 20 గ్రా', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: '65 - 20 గ్రా', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: 'మసాలా పొడి- 25 గ్రా', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 }
-            ]
-        },
-        kn: {
-            mid: 'MID',
-            date: 'ದಿನಾಂಕ',
-            receiptNo: 'ರಸೀದಿ ಸಂಖ್ಯೆ',
-            time: 'ಸಮಯ',
-            item: 'ವಸ್ತು',
-            qty: 'ಪ್ರಮಾಣ',
-            price: 'ಬೆಲೆ',
-            amt: 'ಮೊತ್ತ',
-            totalItems: 'ಒಟ್ಟು ವಸ್ತುಗಳು',
-            total: 'ಒಟ್ಟು',
-            taxPct: 'ತೆರಿಗೆ %',
-            taxableVal: 'ತೆರಿಗೆಯ ಮೌಲ್ಯ',
-            cgst: 'CGST',
-            sgst: 'SGST',
-            igst: 'IGST',
-            totalAmt: 'ಒಟ್ಟು ಮೊತ್ತ',
-            grandTotal: 'ಒಟ್ಟು',
-            whatsapp: 'ವಾಟ್ಸಾಪ್ ಸಂಖ್ಯೆ',
-            mobile: 'ಮೊಬೈಲ್ ಸಂಖ್ಯೆ',
-            items: [
-                { name: 'ಬಾದಾಮಿ 10ರೂ', quantity: 8, unit: 'S', price: 80.00, total: 640.00, taxRate: 5 },
-                { name: 'ಸಾಂಬಾರ್ - 20 ಗ್ರಾಂ', quantity: 2, unit: 'S', price: 75.00, total: 150.00, taxRate: 5 },
-                { name: 'ಚಿಕನ್ - 20 ಗ್ರಾಂ', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: '65 - 20 ಗ್ರಾಂ', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
-                { name: 'ಮಸಾಲಾ ಪುಡಿ- 25 ಗ್ರಾಂ', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 }
-            ]
-        }
+        en: { mid: 'M.O.P', date: 'Date', receiptNo: 'Receipt No', time: 'Time', item: 'Item', qty: 'Qty', price: 'Price', amt: 'Amount', totalItems: 'Total Items', total: 'Total', taxPct: 'TAX %', taxableVal: 'TAXABLE VAL.', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', totalAmt: 'TOTAL AMT', grandTotal: 'Grand Total', whatsapp: 'WHATSAPP NO', mobile: 'MOBILE NO' },
+        ta: { mid: 'M.O.P', date: 'தேதி', receiptNo: 'ரசீது எண்', time: 'நேரம்', item: 'பொருள்', qty: 'அளவு', price: 'விலை', amt: 'தொகை', totalItems: 'மொத்த பொருட்கள்', total: 'மொத்தம்', taxPct: 'வரி %', taxableVal: 'வரிக்குரியது', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', totalAmt: 'மொத்த தொகை', grandTotal: 'மொத்தம்', whatsapp: 'வாட்ஸ்அப் எண்', mobile: 'மொபைல் எண்' },
+        hi: { mid: 'M.O.P', date: 'दिनांक', receiptNo: 'رसीद संख्या', time: 'समय', item: 'वस्तु', qty: 'मात्रा', price: 'मूल्य', amt: 'राशि', totalItems: 'कुल वस्तुएं', total: 'कुल', taxPct: 'कर %', taxableVal: 'कर योग्य', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', totalAmt: 'कुल राशि', grandTotal: 'कुल योग', whatsapp: 'व्हाट्सएप नंबर', mobile: 'मोबाइल नंबर' }
     };
 
     const t = translations[lang] || translations.en;
@@ -190,9 +25,15 @@ const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceI
     const invoice = data || {
         invoiceNo: '6440',
         date: '06/03/26',
-        time: '11:56',
-        mid: '1',
-        items: t.items,
+        time: '11:56 AM',
+        paymentMode: 'Cash',
+        items: t.items || [
+            { name: 'BADAM 10RS', quantity: 8, unit: 'S', price: 80.00, total: 640.00, taxRate: 5 },
+            { name: 'SAMBAR - 20G', quantity: 2, unit: 'S', price: 75.00, total: 150.00, taxRate: 5 },
+            { name: 'CHICKEN - 20G', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
+            { name: '65 - 20G', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 },
+            { name: 'KULAMBU PODI- 25G', quantity: 1, unit: 'S', price: 75.00, total: 75.00, taxRate: 5 }
+        ],
         totals: {
             subtotal: 966.40,
             tax: 48.32,
@@ -212,29 +53,58 @@ const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceI
             {/* Header */}
             <View style={styles.header}>
                 <Text style={styles.storeName}>{store.name}</Text>
-                <Text style={styles.contactText}>{store.contact || store.phone}</Text>
-                {store.legalName && <Text style={styles.legalName}>{store.legalName}</Text>}
-                {store.address?.street && <Text style={styles.addressText}>{store.address.street}</Text>}
-                {store.address?.city && <Text style={styles.addressText}>{store.address.city}</Text>}
 
-                {store.whatsapp && (
-                    <View style={{ marginTop: 8, alignItems: 'center' }}>
-                        <Text style={[styles.infoText, { fontSize: 10 }]}>{t.whatsapp}</Text>
-                        <Text style={[styles.infoText, { fontSize: 12 }]}>{store.whatsapp}</Text>
-                    </View>
+                <Text style={styles.contactText}>WHATSAPP NO: {store.contact || store.phone || store.whatsapp}</Text>
+
+                {/* Address — handle both string and {street, city} object */}
+                {(() => {
+                    const addr = store.address;
+                    if (!addr) return null;
+                    if (typeof addr === 'string') return <Text style={styles.addressText}>{addr}</Text>;
+                    return (
+                        <>
+                            {addr.street ? <Text style={styles.addressText}>{addr.street}</Text> : null}
+                            {addr.city ? <Text style={styles.addressText}>{addr.city}</Text> : null}
+                        </>
+                    );
+                })()}
+
+                {/* Show TAX INVOICE with double lines for invoice mode; single line for regular bills */}
+                {(data?.mode === 'invoice' || settings?.invoice?.mode === 'invoice') ? (
+                    <>
+                        <View style={[styles.dashedLine, { width: '100%', marginVertical: 4 }]} />
+                        <Text style={[styles.storeName, { fontSize: 13 }]}>TAX INVOICE</Text>
+                        <View style={[styles.dashedLine, { width: '100%', marginVertical: 4 }]} />
+                    </>
+                ) : (
+                    <View style={[styles.dashedLine, { width: '100%', marginVertical: 4 }]} />
                 )}
             </View>
 
             {/* Metadata */}
             <View style={[styles.row, { marginTop: 10, paddingHorizontal: 2 }]}>
-                <Text style={styles.infoText}>{t.mid}: {invoice.mid || '1'}</Text>
+                <Text style={styles.infoText}>
+                    {t.mid}: {
+                        (() => {
+                            const m = (invoice.paymentMode || '').toLowerCase();
+                            return m.includes('cash') ? 'Cash'
+                                : m.includes('upi') ? 'UPI'
+                                : m.includes('card') ? 'Card'
+                                : invoice.paymentMode || 'Cash';
+                        })()
+                    }
+                </Text>
                 <Text style={styles.infoText}>{t.date}: {invoice.date}</Text>
             </View>
             <View style={[styles.row, { paddingHorizontal: 2 }]}>
                 <Text style={styles.infoText}>{t.receiptNo}: {invoice.invoiceNo}</Text>
                 <Text style={styles.infoText}>{t.time}: {invoice.time || '11:56'}</Text>
             </View>
-            <Text style={[styles.infoText, { paddingHorizontal: 2 }]}>RE-WS-VIP 1</Text>
+            {isVIP(invoice.customer) && (
+                <Text style={[styles.infoText, { paddingHorizontal: 2, color: '#000', fontWeight: '900' }]}>
+                    RE-WS-VIP {invoice.customer?.fullName || invoice.customer?.name || ''}
+                </Text>
+            )}
 
             <View style={styles.dashedLine} />
 
@@ -312,10 +182,31 @@ const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceI
 
             {/* Footer */}
             <View style={{ alignItems: 'center', marginTop: 4 }}>
-                <Text style={styles.footerText}>{t.mobile}: {store.contact || store.phone || store.whatsapp || 'N/A'}</Text>
-                {store.whatsapp && store.whatsapp !== (store.contact || store.phone) && <Text style={[styles.footerText, { marginTop: 2 }]}>WHATSAPP: {store.whatsapp}</Text>}
-                <Text style={[styles.footerText, { marginTop: 10, fontSize: 10, letterSpacing: 1 }]}>THANK YOU! VISIT AGAIN</Text>
+                <Text style={styles.footerText}>MOBILE NO: {store.contact || store.phone || store.whatsapp || 'N/A'}</Text>
+
+                {/* Formal Details (Only for Invoice Mode) */}
+                {(data?.mode === 'invoice' || settings?.invoice?.mode === 'invoice') && (
+                    <View style={{ width: '100%', marginTop: 8 }}>
+                        {settings?.bankDetails?.bankName && (
+                            <View style={{ borderTopWidth: 1, borderTopColor: '#000', borderStyle: 'dashed', paddingTop: 4 }}>
+                                <Text style={[styles.infoText, { fontSize: 10 }]}>BANK DETAILS:</Text>
+                                <Text style={[styles.infoText, { fontSize: 9 }]}>Bank: {settings.bankDetails.bankName}</Text>
+                                <Text style={[styles.infoText, { fontSize: 9 }]}>A/C: {settings.bankDetails.accountNumber}</Text>
+                                <Text style={[styles.infoText, { fontSize: 9 }]}>IFSC: {settings.bankDetails.ifsc}</Text>
+                                <View style={[styles.dashedLine, { marginTop: 4 }]} />
+                            </View>
+                        )}
+                        <View style={{ alignItems: 'flex-end', marginTop: 15, paddingRight: 10 }}>
+                            <Text style={[styles.infoText, { fontSize: 11, marginBottom: 2 }]}>For {store.name}</Text>
+                            <View style={{ height: 25 }} />
+                            <Text style={[styles.footerText, { fontSize: 10 }]}>Authorised Signatory</Text>
+                        </View>
+                        <View style={[styles.dashedLine, { marginVertical: 8 }]} />
+                    </View>
+                )}
+
             </View>
+
             <View style={{ height: 20 }} />
         </View>
     );
@@ -376,7 +267,7 @@ const styles = StyleSheet.create({
         marginVertical: 6,
     },
     tableHeader: {
-        flexDirection: 'row', // Updated for alignment
+        flexDirection: 'row',
         paddingVertical: 2,
         paddingHorizontal: 2,
     },
@@ -439,5 +330,11 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
     }
 });
+
+const isVIP = (cust) => {
+    if (!cust) return false;
+    const tags = cust.tags || '';
+    return typeof tags === 'string' ? tags.includes('VIP') : (Array.isArray(tags) && tags.includes('VIP'));
+};
 
 export default ProfessionalThermalTemplate;

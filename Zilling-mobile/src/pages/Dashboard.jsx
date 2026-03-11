@@ -11,6 +11,7 @@ import {
 } from 'lucide-react-native';
 
 import SideMenu from '../components/SideMenu';
+import BroadcastOverlay from '../components/BroadcastOverlay';
 import ExpenseModal from './Expenses/ExpenseModal';
 import { useProducts } from '../context/ProductContext';
 import { useTransactions } from '../context/TransactionContext';
@@ -128,6 +129,10 @@ export default function Dashboard() {
         filteredTx = transactions.filter(t => new Date(t.date) >= monthStart);
         filteredExp = expenses.filter(e => new Date(e.date) >= monthStart);
         break;
+      case 'All':
+        filteredTx = transactions;
+        filteredExp = expenses;
+        break;
       default: // Last 7 Days (fallback)
         const sevenDaysAgo = new Date(todayStart);
         sevenDaysAgo.setDate(todayStart.getDate() - 7);
@@ -230,13 +235,30 @@ export default function Dashboard() {
     };
   }, [transactions, products, expenses, dateFilter, productFilter]);
 
-  const trialDaysRemaining = useMemo(() => {
-    if (!user?.trialExpiresAt) return null;
-    const expirationDate = new Date(user.trialExpiresAt);
-    const today = new Date();
-    const timeDiff = expirationDate.getTime() - today.getTime();
-    const days = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-    return days > 0 ? days : null;
+  const planInfo = useMemo(() => {
+    if (!user) return null;
+    const planNames = {
+      'free': 'Free Trial',
+      '1m': '1 Month Pro',
+      '3m': '3 Month Pro',
+      '1y': '1 Year Pro',
+      '3y': '3 Year Pro',
+      '5y': '5 Year Professional'
+    };
+    
+    const isFree = user.plan === 'free';
+    const expiryDate = isFree ? (user.trialExpiresAt ? new Date(user.trialExpiresAt) : null) : (user.planExpiresAt ? new Date(user.planExpiresAt) : null);
+    
+    if (!expiryDate || isNaN(expiryDate.getTime())) return null;
+
+    const daysRemaining = Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    
+    return {
+      name: planNames[user.plan] || 'Pro Access',
+      daysRemaining: Math.max(0, daysRemaining),
+      isFree,
+      expiryDate
+    };
   }, [user]);
 
   const dateOptions = ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month', 'All'];
@@ -244,6 +266,7 @@ export default function Dashboard() {
 
   return (
     <View style={styles.mainContainer}>
+      <BroadcastOverlay />
       <SideMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
 
       {/* 1. Enhanced Mesh Gradient Header */}
@@ -261,7 +284,7 @@ export default function Dashboard() {
                 </Pressable>
                 <View>
                   <Text style={styles.greeting}>Hello,</Text>
-                  <Text style={styles.userName}>{user?.name || 'Sanjai Pandian'}</Text>
+                  <Text style={styles.userName}>{user?.name || user?.email?.split('@')[0] || 'Administrator'}</Text>
                 </View>
               </View>
 
@@ -297,39 +320,6 @@ export default function Dashboard() {
       <ScrollView style={styles.contentScroll} showsVerticalScrollIndicator={false}>
         <View style={styles.bodyWrapper}>
 
-          {/* Dynamic Trial Card */}
-          {trialDaysRemaining !== null && trialDaysRemaining <= 30 && (
-            <View style={styles.trialCardContainer}>
-              <LinearGradient
-                colors={
-                  trialDaysRemaining > 20 ? ['#22c55e', '#16a34a'] : // First 10 days - Green
-                    trialDaysRemaining > 10 ? ['#FFA502', '#FF6348'] : // 11 to 20 days - Orange
-                      ['#FF6B6B', '#FF4757'] // Last 10 days - Red
-                }
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.trialCard}
-              >
-                <View style={styles.trialIcon}>
-                  <Clock size={20} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.trialTitle}>Free Trial Period</Text>
-                  <Text style={styles.trialSub}>
-                    {trialDaysRemaining === 1
-                      ? 'Last day of your free trial!'
-                      : `${trialDaysRemaining} days remaining in your trial.`}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.trialBtn}
-                  onPress={() => navigation.navigate('Settings', { tab: 'contact' })}
-                >
-                  <Text style={styles.trialBtnText}>Upgrade</Text>
-                </TouchableOpacity>
-              </LinearGradient>
-            </View>
-          )}
 
           {/* Action Grid */}
           <View style={styles.actionGrid}>

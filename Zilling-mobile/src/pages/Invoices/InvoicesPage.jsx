@@ -9,8 +9,19 @@ import {
   ScrollView,
   Modal,
   Platform,
+  TextInput,
+  StatusBar,
   TouchableOpacity,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
+
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import {
@@ -33,17 +44,26 @@ import {
   ChevronDown,
   Filter,
   Globe,
-  ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
-  LayoutGrid
+  LayoutGrid,
+  ChevronLeftIcon,
+  Printer,
+  AlertCircle,
+  PieChart,
+  Info,
 } from 'lucide-react-native';
 
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useSettings } from '../../context/SettingsContext';
-import { printReceipt, shareReceiptPDF } from '../../utils/printUtils';
+import { printReceipt, shareReceiptPDF, printMultipleReceipts } from '../../utils/printUtils';
 import { useTransactions } from '../../context/TransactionContext';
 import { Card } from '../../components/ui/Card';
+import DetailedInvoiceTemplate from '../Settings/DetailedInvoiceTemplate';
+import ClassicInvoiceTemplate from '../Settings/ClassicInvoiceTemplate';
+import CompactInvoiceTemplate from '../Settings/CompactInvoiceTemplate';
+import MinimalInvoiceTemplate from '../Settings/MinimalInvoiceTemplate';
+import ThermalInvoiceTemplate from '../Settings/ThermalInvoiceTemplate';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useToast } from '../../context/ToastContext';
 
@@ -64,6 +84,7 @@ export default function InvoicesPage() {
   const [selectedCustomDate, setSelectedCustomDate] = useState(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [showStatusFilter, setShowStatusFilter] = useState(false);
 
   // Calendar State
   const [currentCalView, setCurrentCalView] = useState(new Date());
@@ -72,6 +93,19 @@ export default function InvoicesPage() {
   const [isDetailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [editingInvoice, setEditingInvoice] = useState(null);
+
+  // Print Modal State
+  const [printFormatModalVisible, setPrintFormatModalVisible] = useState(false);
+  const [invoiceToPrint, setInvoiceToPrint] = useState(null);
+
+  // Preview Modal State
+  const [previewFormatModalVisible, setPreviewFormatModalVisible] = useState(false);
+  const [invoiceToPreview, setInvoiceToPreview] = useState(null);
+
+  // Unified Preview State
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+  const [previewFormat, setPreviewFormat] = useState('A4'); // 'A4' or 'Thermal'
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({
@@ -90,33 +124,74 @@ export default function InvoicesPage() {
     }, [])
   );
 
-  const handlePreview = async (invoice) => {
+  const handlePreview = (invoice) => {
+    setInvoiceToPreview(invoice);
+    setPreviewFormatModalVisible(true);
+  };
+
+  const executePreview = async (format) => {
     try {
+      setPreviewFormatModalVisible(false);
+      if (!invoiceToPreview) return;
+      const invoice = invoiceToPreview;
+
       const billData = {
         ...invoice,
         id: invoice.id,
+        invoiceNo: invoice.invoiceNumber || invoice.id,
         weekly_sequence: invoice.weekly_sequence,
         cart: invoice.items || [],
+        items: (invoice.items || []).map(item => ({
+          ...item,
+          taxableValue: item.taxableValue || (item.price * item.quantity),
+          total: item.total || (item.price * item.quantity),
+          cgstAmt: (item.taxAmount / 2).toFixed(2),
+          sgstAmt: (item.taxAmount / 2).toFixed(2),
+          igstAmt: (item.taxAmount || 0).toFixed(2),
+          cgstRate: (parseFloat(item.taxRate) / 2) + '%',
+          sgstRate: (parseFloat(item.taxRate) / 2) + '%',
+          igstRate: (item.taxRate || '0') + '%'
+        })),
+        customerName: invoice.customerName || 'Guest',
         totals: {
           total: invoice.total || 0,
           subtotal: invoice.subtotal || 0,
           tax: invoice.tax || 0,
+          cgst: (invoice.tax / 2) || 0,
+          sgst: (invoice.tax / 2) || 0,
+          igst: invoice.tax || 0,
           discount: invoice.discount || 0,
           additionalCharges: invoice.additionalCharges || 0,
           roundOff: invoice.roundOff || 0
         },
         customer: {
-          name: invoice.customerName
+          name: invoice.customerName || 'Guest',
+          address: '-',
+          mobile: '-',
+          gstin: '-'
         },
-        date: invoice.date
+        date: new Date(invoice.date).toLocaleDateString('en-GB'),
+        time: new Date(invoice.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        total: invoice.total,
+        subtotal: invoice.subtotal || 0,
+        tax: invoice.tax || 0,
+        discount: invoice.discount || 0,
+        additionalCharges: invoice.additionalCharges || 0,
+        roundOff: invoice.roundOff || 0,
+        internalNotes: invoice.internalNotes || '',
+        taxType: invoice.taxType || 'intra'
       };
 
-      // Force A4 for System Preview (Invoice Mode)
-      // This ensures we see the "Invoice Template" view, not the Thermal Bill view
-      await printReceipt(billData, 'A4', settings);
+      if (format === 'A4' || format === '80mm' || format === '58mm') {
+        setPreviewData(billData);
+        setPreviewFormat(format === 'A4' ? 'A4' : 'Thermal');
+        setPreviewVisible(true);
+      } else {
+        await printReceipt(billData, format, settings, 'invoice');
+      }
     } catch (error) {
       console.error("Preview Error:", error);
-      showToast("Failed to preview invoice", "error");
+      showToast("Failed to preview template", "error");
     }
   };
 
@@ -180,26 +255,6 @@ export default function InvoicesPage() {
     });
   };
 
-  const handleClearAll = () => {
-    setConfirmModal({
-      isOpen: true,
-      title: "☢️ WIPE ALL DATA?",
-      message: "Are you absolutely certain? This will PERMANENTLY delete every single invoice from this device.\n\n" +
-        "⚠️ NOTE: Bulk clearing invoices does NOT automatically restore stock for all items. Use individual deletes if you need stock restoration.\n\n" +
-        "This action cannot be undone.",
-      variant: 'danger',
-      confirmLabel: 'WIPE ALL DATA',
-      cancelLabel: 'Cancel',
-      onConfirm: async () => {
-        try {
-          await clearAllTransactions();
-          showToast("All invoices cleared successfully", "success");
-        } catch (err) {
-          showToast("Failed to clear invoices", "error");
-        }
-      }
-    });
-  };
 
   // Date Filter Functions - GST Analytics Style
   const changePeriod = (p) => {
@@ -320,7 +375,14 @@ export default function InvoicesPage() {
     const matchesSearch = invId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       weeklyNo.includes(searchTerm) ||
       customer.toLowerCase().includes(searchTerm.toLowerCase());
-    const status = inv.status ? (inv.status.charAt(0) + inv.status.slice(1).toLowerCase()) : 'Pending';
+    const rawStatus = inv.status || 'Pending';
+    let status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
+    
+    // Normalize PARTIALLY PAID to just "Partial" to match the tab ID exactly
+    if (status.toUpperCase() === 'PARTIALLY PAID' || status.toUpperCase() === 'PARTIAL') {
+      status = 'Partial';
+    }
+
     const matchesStatusFilter = activeFilter === 'All' || status === activeFilter;
 
     // Date filtering - GST Analytics Style
@@ -360,9 +422,11 @@ export default function InvoicesPage() {
 
   const getStatusStyle = (status) => {
     switch (status?.toUpperCase()) {
-      case 'PAID': return { bg: '#dcfce7', border: '#dcfce7', text: '#15803d', icon: CheckCircle2, label: 'PAID' };
-      case 'UNPAID': return { bg: '#fee2e2', border: '#fee2e2', text: '#b91c1c', icon: Clock, label: 'UNPAID' };
-      default: return { bg: '#f1f5f9', border: '#f1f5f9', text: '#475569', icon: FileText, label: (status || 'Unknown').toUpperCase() };
+      case 'PAID': return { solidBg: '#000', border: '#000', text: '#fff', icon: CheckCircle2, label: 'PAID' };
+      case 'PARTIAL':
+      case 'PARTIALLY PAID': return { solidBg: '#fff7ed', border: '#ffedd5', text: '#ea580c', icon: PieChart, label: 'P.PAID' };
+      case 'UNPAID': return { solidBg: '#fef2f2', border: '#fee2e2', text: '#ef4444', icon: AlertCircle, label: 'UNPAID' };
+      default: return { solidBg: '#f8fafc', border: '#f1f5f9', text: '#64748b', icon: FileText, label: (status || 'Unknown').toUpperCase() };
     }
   };
 
@@ -372,16 +436,55 @@ export default function InvoicesPage() {
     { label: 'Paid', value: `₹${transactions.filter(t => t.status === 'PAID').reduce((sum, t) => sum + (t.total || 0), 0).toLocaleString()}`, icon: CheckCircle2, color: '#15803d', bg: '#dcfce7' },
   ];
 
-  const handlePrint = async (invoice) => {
+  const handlePrint = (invoice) => {
+    setInvoiceToPrint(invoice);
+    setPrintFormatModalVisible(true);
+  };
+
+  const executePrint = async (format) => {
     try {
-      // Adapt invoice data for print templates
+      setPrintFormatModalVisible(false);
+      if (!invoiceToPrint) return;
+      const invoice = invoiceToPrint;
+
+      // Adapt invoice data for print templates with rich mapping
       const billData = {
         ...invoice,
         id: invoice.id,
+        invoiceNo: invoice.invoiceNumber || invoice.id,
         weekly_sequence: invoice.weekly_sequence,
-        items: invoice.items || [], // IMPORTANT
+        cart: invoice.items || [],
+        items: (invoice.items || []).map(item => ({
+          ...item,
+          taxableValue: item.taxableValue || (item.price * item.quantity),
+          total: item.total || (item.price * item.quantity),
+          cgstAmt: (item.taxAmount / 2).toFixed(2),
+          sgstAmt: (item.taxAmount / 2).toFixed(2),
+          igstAmt: (item.taxAmount || 0).toFixed(2),
+          cgstRate: (parseFloat(item.taxRate) / 2) + '%',
+          sgstRate: (parseFloat(item.taxRate) / 2) + '%',
+          igstRate: (item.taxRate || '0') + '%'
+        })),
         customerName: invoice.customerName || 'Guest',
-        date: invoice.date,
+        totals: {
+          total: invoice.total || 0,
+          subtotal: invoice.subtotal || 0,
+          tax: invoice.tax || 0,
+          cgst: (invoice.tax / 2) || 0,
+          sgst: (invoice.tax / 2) || 0,
+          igst: invoice.tax || 0,
+          discount: invoice.discount || 0,
+          additionalCharges: invoice.additionalCharges || 0,
+          roundOff: invoice.roundOff || 0
+        },
+        customer: {
+          name: invoice.customerName || 'Guest',
+          address: '-',
+          mobile: '-',
+          gstin: '-'
+        },
+        date: new Date(invoice.date).toLocaleDateString('en-GB'),
+        time: new Date(invoice.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         total: invoice.total,
         subtotal: invoice.subtotal || 0,
         tax: invoice.tax || 0,
@@ -389,146 +492,292 @@ export default function InvoicesPage() {
         additionalCharges: invoice.additionalCharges || 0,
         roundOff: invoice.roundOff || 0,
         internalNotes: invoice.internalNotes || '',
+        taxType: invoice.taxType || 'intra'
       };
 
-      await printReceipt(billData, settings);
+      if (format === 'A4' || format === '80mm' || format === '58mm') {
+        setPreviewData(billData);
+        setPreviewFormat(format === 'A4' ? 'A4' : 'Thermal');
+        setPreviewVisible(true);
+      } else {
+        await printReceipt(billData, format, settings, 'invoice');
+      }
     } catch (err) {
       console.error('Print error', err);
-      alert('Failed to print invoice');
+      showToast('Failed to print invoice', "error");
     }
+  };
+
+  const handlePrintAll = async () => {
+    if (filteredInvoices.length === 0) {
+      showToast("No invoices found to print", "info");
+      return;
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: "PRINT ALL INVOICES?",
+      message: `You are about to print ${filteredInvoices.length} invoices. This might take a while and consume a lot of paper. Proceed?`,
+      variant: 'warning',
+      confirmLabel: 'PRINT ALL',
+      cancelLabel: 'CANCEL',
+      onConfirm: async () => {
+        try {
+          const formattedBills = filteredInvoices.map(invoice => ({
+            ...invoice,
+            id: invoice.id,
+            weekly_sequence: invoice.weekly_sequence,
+            items: invoice.items || [],
+            customerName: invoice.customerName || 'Guest',
+            date: invoice.date,
+            total: invoice.total,
+            subtotal: invoice.subtotal || 0,
+            tax: invoice.tax || 0,
+            discount: invoice.discount || 0,
+            additionalCharges: invoice.additionalCharges || 0,
+            roundOff: invoice.roundOff || 0,
+            internalNotes: invoice.internalNotes || '',
+          }));
+          await printMultipleReceipts(formattedBills, settings, 'invoice');
+        } catch (err) {
+          console.error('Print All error', err);
+          showToast('Failed to print multiple invoices', 'error');
+        }
+      }
+    });
   };
 
 
   const renderInvoiceItem = ({ item }) => {
     const status = getStatusStyle(item.status);
+    const initial = (item.customerName || 'G').charAt(0).toUpperCase();
 
     return (
-      <Pressable
-        style={styles.invoiceCard}
+      <TouchableOpacity
+        style={styles.invoiceModernCard}
         onPress={() => handleInvoicePress(item)}
-        onLongPress={() => handleDelete(item)}
-        delayLongPress={600} // Slightly faster response
+        activeOpacity={0.8}
       >
-        <View style={styles.cardHeaderRow}>
-          <View>
-            <Text style={styles.customerName} numberOfLines={1}>{item.customerName || 'Guest'}</Text>
-            <Text style={styles.invoiceMeta}>
-              #{item.invoiceNumber || item.id?.toString().slice(-6).toUpperCase() || 'TEMP'}  •  {new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-            </Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.amount}>₹{(item.total || 0).toLocaleString()}</Text>
-          </View>
-        </View>
-
-        <View style={styles.divider} />
-
-        <View style={styles.cardFooterRow}>
-          <View style={[styles.statusPill, { backgroundColor: status.bg, borderColor: status.border }]}>
-            <View style={[styles.statusDot, { backgroundColor: status.text }]} />
-            <Text style={[styles.statusText, { color: status.text }]}>{status.label}</Text>
+        <View style={styles.cardMainRow}>
+          {/* Avatar Area */}
+          <View style={styles.avatarContainer}>
+            <Text style={styles.avatarText}>{initial}</Text>
           </View>
 
-          <View style={styles.cardActions}>
-            <TouchableOpacity onPress={() => handlePrint(item)} style={styles.actionIconBtn}>
-              <Download size={18} color="#475569" strokeWidth={2} />
-            </TouchableOpacity>
+          {/* Info Area */}
+          <View style={styles.infoContainer}>
+            <View style={styles.nameHeader}>
+              <Text style={styles.modernCustomerName} numberOfLines={1}>{item.customerName || 'Guest Customer'}</Text>
+              <Text style={styles.modernAmount}>₹{(item.total || 0).toLocaleString()}</Text>
+            </View>
 
-            <TouchableOpacity onPress={() => handleShare(item)} style={styles.actionIconBtn}>
-              <Share2 size={18} color="#475569" strokeWidth={2} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => handlePreview(item)}
-              style={styles.previewBtn}
-            >
-              <Text style={styles.previewBtnText}>Open</Text>
-              <ChevronRight size={14} color="#fff" strokeWidth={3} />
-            </TouchableOpacity>
+            <View style={styles.metaRow}>
+              <View style={styles.idTag}>
+                <Text style={styles.idTagText}>#{item.invoiceNumber || item.id?.toString().slice(-6).toUpperCase()}</Text>
+              </View>
+              <View style={styles.dateMeta}>
+                <Clock size={10} color="#94a3b8" />
+                <Text style={styles.dateMetaText}>
+                  {new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
-      </Pressable>
+
+        <View style={styles.cardSeparator} />
+
+        <View style={styles.cardActionFooter}>
+          <View style={[styles.statusModernPill, { backgroundColor: status.solidBg, borderColor: status.border, gap: 6 }]}>
+            <status.icon size={12} color={status.text} strokeWidth={3} />
+            <Text style={[styles.statusModernText, { color: status.text }]}>{status.label}</Text>
+          </View>
+
+          <View style={styles.actionGroup}>
+            <TouchableOpacity onPress={() => handlePrint(item)} style={styles.modernIconAction}>
+              <Printer size={16} color="#475569" strokeWidth={2.5} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleShare(item)} style={styles.modernIconAction}>
+              <Download size={16} color="#475569" strokeWidth={2.5} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleDelete(item)} style={styles.modernIconActionDanger}>
+              <Trash2 size={16} color="#ef4444" strokeWidth={2.5} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handlePreview(item)} style={styles.modernOpenBtn}>
+              <Text style={styles.modernOpenText}>View Bill</Text>
+              <ChevronRight size={12} color="#fff" strokeWidth={4} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
     );
   };
 
   return (
     <View style={styles.mainContainer}>
-      <View style={styles.headerWrapper}>
-        <LinearGradient
-          colors={['#000000', '#0a0a0a']} // Black gradient for curved header
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
+      <StatusBar barStyle="light-content" backgroundColor="#000" />
+      <View style={styles.headerContainer}>
+        <LinearGradient colors={['#000', '#111']} style={styles.headerGradient}>
           <SafeAreaView edges={['top']}>
-            <View style={styles.header}>
-              <View style={styles.headerTitleRow}>
-                <Pressable onPress={() => navigation.goBack()} style={styles.backBtnWrapper}>
-                  <ChevronLeft size={24} color="#fff" />
-                </Pressable>
-                <Text style={styles.title}>Invoices</Text>
+            {/* Top Navigation */}
+            <View style={styles.topNav}>
+              <Pressable onPress={() => navigation.goBack()} style={styles.navIcon}>
+                <ChevronLeft size={22} color="#fff" />
+              </Pressable>
+              <View style={styles.navTitleBox}>
+                <Text style={styles.navTitle}>Invoices</Text>
+                <Text style={styles.navSubtitle}>{filteredInvoices.length} transactions found</Text>
               </View>
-              <View style={styles.headerActions}>
-                <Pressable
-                  style={[styles.iconBtnDark, period === 'Custom' && styles.iconBtnDarkActive]}
-                  onPress={() => setIsCalendarOpen(true)}
-                >
-                  <Calendar size={18} color={period === 'Custom' ? '#fff' : '#0f172a'} />
-                </Pressable>
-                <Pressable style={styles.iconBtnDark} onPress={() => setIsFilterOpen(true)}>
-                  <Filter size={18} color="#0f172a" />
-                </Pressable>
-                <Pressable style={styles.iconBtnDark} onPress={handleAddPress}>
-                  <Plus size={20} color="#0f172a" />
-                </Pressable>
+              <View style={styles.headerActionsStack}>
+                <TouchableOpacity style={styles.headerActionBtnWhite} onPress={() => navigation.navigate('RecycleBin')}>
+                  <Recycle size={18} color="#000" strokeWidth={2.5} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.headerActionBtnWhite} onPress={handlePrintAll}>
+                  <Printer size={18} color="#000" strokeWidth={2.5} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.headerActionBtnWhite} onPress={handleAddPress}>
+                  <Plus size={20} color="#000" strokeWidth={2.5} />
+                </TouchableOpacity>
               </View>
             </View>
 
-            <View style={styles.searchContainer}>
-              <View style={styles.searchBar}>
-                <Search size={18} color="#64748b" />
-                <Input
-                  style={styles.searchInputCustom}
-                  placeholder="Search invoices..."
-                  placeholderTextColor="#94a3b8"
+            {/* Search and Filters Row */}
+            <View style={styles.searchRow}>
+              <View style={styles.searchBox}>
+                <Search size={16} color="rgba(255,255,255,0.45)" />
+                <TextInput
+                  placeholder="Search customer, bill #..."
                   value={searchTerm}
                   onChangeText={setSearchTerm}
+                  style={styles.searchInput}
+                  placeholderTextColor="rgba(255,255,255,0.35)"
                 />
+                <TouchableOpacity
+                  style={styles.filterTrigger}
+                  onPress={() => setIsFilterOpen(true)}
+                >
+                  <Filter size={16} color={activeFilter !== 'All' ? '#fff' : 'rgba(255,255,255,0.6)'} />
+                </TouchableOpacity>
               </View>
             </View>
 
-            {/* Status Filter Row */}
-            <View style={styles.filterRow}>
-              {['All', 'Paid', 'Unpaid'].map(status => {
-                const isActive = activeFilter === status;
-                return (
-                  <Pressable
-                    key={status}
-                    style={[styles.filterBtn, isActive ? styles.filterBtnActive : styles.filterBtnInactive]}
-                    onPress={() => setActiveFilter(status)}
-                  >
-                    <Text style={[styles.filterText, isActive ? styles.filterTextActive : styles.filterTextInactive]}>{status}</Text>
-                  </Pressable>
-                );
-              })}
+            {/* Summary Statistics Strip */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 22, marginTop: 10, gap: 10 }}>
+              <View style={[styles.summaryStrip, { flex: 1, marginHorizontal: 0, marginTop: 0 }]}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Total Revenue</Text>
+                  <Text style={styles.summaryValue}>₹{filteredInvoices.reduce((s, i) => s + (i.total || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</Text>
+                </View>
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Period</Text>
+                  <TouchableOpacity onPress={() => setIsCalendarOpen(true)} style={styles.periodPill}>
+                    <Calendar size={10} color="#fff" />
+                    <Text style={styles.periodText}>{period}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Invoices</Text>
+                  <Text style={styles.summaryValue}>{filteredInvoices.length}</Text>
+                </View>
+              </View>
 
-              <Pressable
-                style={[styles.filterBtn, styles.recycleBtn]}
-                onPress={() => navigation.navigate('RecycleBin')}
+              <TouchableOpacity
+                style={{
+                  width: 46,
+                  height: '100%',
+                  minHeight: 52,
+                  backgroundColor: showStatusFilter ? '#fff' : 'rgba(255,255,255,0.05)',
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: showStatusFilter ? '#fff' : 'rgba(255,255,255,0.08)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onPress={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setShowStatusFilter(!showStatusFilter);
+                }}
+                activeOpacity={0.7}
               >
-                <Recycle size={14} color="#ef4444" />
-                <Text style={styles.recycleText}>Recycle Bin</Text>
-              </Pressable>
+                <Filter size={18} color={showStatusFilter ? '#000' : '#fff'} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Filter Tabs Row */}
+            <View style={{ overflow: 'hidden' }}>
+              {showStatusFilter && (
+                <View style={[styles.tabRowWrapper, { marginTop: 16, marginBottom: 0 }]}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScrollContent}>
+                    {[
+                      { id: 'All', label: 'All', icon: LayoutGrid },
+                      { id: 'Paid', label: 'Paid', icon: CheckCircle2 },
+                      { id: 'Partial', label: 'Partial', icon: PieChart },
+                      { id: 'Unpaid', label: 'Unpaid', icon: AlertCircle }
+                    ].map(statusObj => {
+                      const isActive = activeFilter === statusObj.id;
+                      const IconComponent = statusObj.icon;
+
+                      const activeBg = statusObj.id === 'Paid' ? '#000' : '#fff';
+                      const activeBorder = statusObj.id === 'Paid' ? '#333' : '#fff';
+                      const activeText = statusObj.id === 'Paid' ? '#fff' : '#000';
+
+                      return (
+                        <TouchableOpacity
+                          key={statusObj.id}
+                          style={[
+                            styles.tabChip,
+                            {
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 6,
+                              backgroundColor: isActive ? activeBg : 'rgba(255,255,255,0.08)',
+                              borderWidth: 1,
+                              borderColor: isActive ? activeBorder : 'rgba(255,255,255,0.1)',
+                              paddingVertical: 10,
+                              paddingHorizontal: 16,
+                              borderRadius: 14,
+                            }
+                          ]}
+                          onPress={() => setActiveFilter(statusObj.id)}
+                          activeOpacity={0.7}
+                        >
+                          {statusObj.id !== 'All' && <IconComponent size={14} color={isActive ? activeText : 'rgba(255,255,255,0.7)'} strokeWidth={2.5} />}
+                          <Text style={[styles.tabChipText, { color: isActive ? activeText : 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: isActive ? '800' : '600' }]}>{statusObj.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    <TouchableOpacity
+                      style={[styles.recycleBinChip, { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.3)', paddingVertical: 10 }]}
+                      onPress={() => navigation.navigate('RecycleBin')}
+                      activeOpacity={0.7}
+                    >
+                      <Recycle size={14} color="#fca5a5" />
+                      <Text style={[styles.recycleBinText, { color: '#fca5a5', fontSize: 13 }]}>Recycle Bin</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                </View>
+              )}
             </View>
           </SafeAreaView>
         </LinearGradient>
       </View>
+      {/* We moved Filter Tabs Row into the headerGradient above */}
 
       <FlatList
         data={filteredInvoices}
         keyExtractor={(item, index) => item.id ? item.id.toString() : `inv-${index}`}
         renderItem={renderInvoiceItem}
-        contentContainerStyle={styles.listContainer}
+        contentContainerStyle={styles.listPadding}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.emptyStateContainer}>
+            <FileText size={64} color="#cbd5e1" strokeWidth={1} />
+            <Text style={styles.emptyTitle}>No Invoices Found</Text>
+            <Text style={styles.emptySubtitle}>Try adjusting your filters or search term</Text>
+          </View>
+        }
       />
 
       {/* --- DETAILS MODAL --- */}
@@ -559,19 +808,22 @@ export default function InvoicesPage() {
                       <Text style={styles.summaryIdLabel}>INVOICE NO</Text>
                       <Text style={styles.summaryIdValue}>{selectedInvoice.invoiceNumber || selectedInvoice.id}</Text>
                     </View>
-                    <View style={[
-                      styles.modernStatusBadge,
-                      { backgroundColor: selectedInvoice.status === 'PAID' ? '#ecfdf5' : '#fef2f2' }
-                    ]}>
-                      <View style={[
-                        styles.statusDot,
-                        { backgroundColor: selectedInvoice.status === 'PAID' ? '#10b981' : '#ef4444' }
-                      ]} />
-                      <Text style={[
-                        styles.modernStatusText,
-                        { color: selectedInvoice.status === 'PAID' ? '#059669' : '#dc2626' }
-                      ]}>{selectedInvoice.status}</Text>
-                    </View>
+                    {(() => {
+                      const ms = getStatusStyle(selectedInvoice.status);
+                      const IconComp = ms.icon;
+                      return (
+                        <View style={[
+                          styles.modernStatusBadge,
+                          { backgroundColor: ms.solidBg, borderColor: ms.border, borderWidth: 1 }
+                        ]}>
+                          <IconComp size={12} color={ms.text} strokeWidth={3} />
+                          <Text style={[
+                            styles.modernStatusText,
+                            { color: ms.text }
+                          ]}>{ms.label}</Text>
+                        </View>
+                      );
+                    })()}
                   </View>
 
                   <View style={styles.summaryMetaRow}>
@@ -682,9 +934,16 @@ export default function InvoicesPage() {
 
                   <TouchableOpacity style={styles.modernActionBtn} onPress={() => handlePrint(selectedInvoice)}>
                     <View style={[styles.actionIconContainer, { backgroundColor: '#f1f5f9' }]}>
+                      <Printer size={20} color="#000" />
+                    </View>
+                    <Text style={styles.modernActionText}>Print</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.modernActionBtn} onPress={() => handleShare(selectedInvoice)}>
+                    <View style={[styles.actionIconContainer, { backgroundColor: '#f1f5f9' }]}>
                       <Download size={20} color="#000" />
                     </View>
-                    <Text style={styles.modernActionText}>Save PDF</Text>
+                    <Text style={styles.modernActionText}>Export</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -975,233 +1234,539 @@ export default function InvoicesPage() {
           </View>
         </Pressable>
       </Modal>
+
+      {/* --- PRINT FORMAT MODAL --- */}
+      <Modal visible={printFormatModalVisible} animationType="fade" transparent={true}>
+        <Pressable style={styles.modalOverlay} onPress={() => setPrintFormatModalVisible(false)}>
+          <View style={styles.filterModal}>
+            <View style={styles.modalHeader}>
+              <View style={styles.headerTextSection}>
+                <Text style={styles.modalTitle}>Choose Print Format</Text>
+                <Text style={styles.modalSubtitle}>Select your preferred receipt printer type</Text>
+              </View>
+              <TouchableOpacity onPress={() => setPrintFormatModalVisible(false)} style={styles.modalCloseBtn}>
+                <X size={16} color="#000" strokeWidth={3} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 16, marginTop: 10 }}>
+              <TouchableOpacity style={styles.statusOption} onPress={() => executePrint(settings?.invoice?.billPaperSize || '80mm')}>
+                <Printer size={20} color="#000" style={{ marginBottom: 4 }} />
+                <Text style={[styles.statusOptionText, { color: '#000' }]}>Thermal Invoice</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.statusOption} onPress={() => executePrint('A4')}>
+                <FileText size={20} color="#000" style={{ marginBottom: 4 }} />
+                <Text style={[styles.statusOptionText, { color: '#000' }]}>A4 Invoice (Full Page)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.statusOption} onPress={() => executePrint('A5')}>
+                <FileText size={20} color="#000" style={{ marginBottom: 4 }} />
+                <Text style={[styles.statusOptionText, { color: '#000' }]}>A5 Invoice (Half Page)</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* --- PREVIEW FORMAT MODAL --- */}
+      <Modal visible={previewFormatModalVisible} animationType="fade" transparent={true}>
+        <Pressable style={styles.modalOverlay} onPress={() => setPreviewFormatModalVisible(false)}>
+          <View style={styles.filterModal}>
+            <View style={styles.modalHeader}>
+              <View style={styles.headerTextSection}>
+                <Text style={styles.modalTitle}>Choose Preview Type</Text>
+                <Text style={styles.modalSubtitle}>How would you like to view this record?</Text>
+              </View>
+              <TouchableOpacity onPress={() => setPreviewFormatModalVisible(false)} style={styles.modalCloseBtn}>
+                <X size={16} color="#000" strokeWidth={3} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 16, marginTop: 10 }}>
+              <TouchableOpacity style={styles.statusOption} onPress={() => executePreview(settings?.invoice?.billPaperSize || '80mm')}>
+                <Printer size={20} color="#000" style={{ marginBottom: 4 }} />
+                <Text style={[styles.statusOptionText, { color: '#000' }]}>Thermal Bill Format</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.statusOption} onPress={() => executePreview('A4')}>
+                <FileText size={20} color="#000" style={{ marginBottom: 4 }} />
+                <Text style={[styles.statusOptionText, { color: '#000' }]}>A4 Invoice Format</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* --- UNIFIED INVOICE PREVIEW MODAL (A4 & Thermal) --- */}
+      <Modal
+        visible={previewVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setPreviewVisible(false)}
+      >
+        <View style={styles.a4PreviewOverlay}>
+          <View style={[styles.a4PreviewContent, previewFormat === 'Thermal' && { maxWidth: 350 }]}>
+            {/* Header */}
+            <View style={styles.a4PreviewHeader}>
+              <View>
+                <Text style={styles.a4PreviewTitle}>{previewFormat} Preview</Text>
+                <Text style={styles.a4PreviewSubtitle}>
+                  {previewFormat === 'A4' 
+                    ? `Format: ${settings?.invoice?.template || 'Classic'}` 
+                    : `Thermal Receipt Mode`}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setPreviewVisible(false)}
+                style={styles.a4CloseBtn}
+              >
+                <X size={20} color="#000" strokeWidth={3} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Template Rendering */}
+            <ScrollView
+              style={styles.a4PreviewScroll}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.a4PreviewScrollContent}
+            >
+              <View style={[styles.templateWrapper, previewFormat === 'Thermal' && { paddingVertical: 10 }]}>
+                {(() => {
+                  if (previewFormat === 'Thermal') {
+                    return <ThermalInvoiceTemplate settings={settings} data={previewData} taxType={previewData?.taxType || 'intra'} />;
+                  }
+
+                  const template = settings?.invoice?.template || 'Classic';
+                  const props = { settings, data: previewData };
+
+                  switch (template) {
+                    case 'Detailed':
+                      return <DetailedInvoiceTemplate {...props} />;
+                    case 'Compact':
+                      return <CompactInvoiceTemplate {...props} />;
+                    case 'Minimal':
+                      return <MinimalInvoiceTemplate {...props} />;
+                    case 'Classic':
+                    default:
+                      return <ClassicInvoiceTemplate {...props} />;
+                  }
+                })()}
+              </View>
+
+              <View style={styles.previewFooterInfo}>
+                <Info size={14} color="#64748b" />
+                <Text style={styles.previewFooterText}>
+                  This is a digital preview. Actual {previewFormat.toLowerCase()} print may vary based on your hardware.
+                </Text>
+              </View>
+            </ScrollView>
+
+            {/* Bottom Actions */}
+            <View style={styles.a4PreviewActions}>
+              <TouchableOpacity
+                onPress={() => setPreviewVisible(false)}
+                style={styles.a4BackBtn}
+              >
+                <Text style={styles.a4BackBtnText}>Close</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={async () => {
+                  const format = previewFormat === 'A4' ? 'A4' : (settings?.invoice?.billPaperSize || '80mm');
+                  await printReceipt(previewData, format, settings, 'invoice');
+                }}
+                style={styles.a4PrintBtn}
+              >
+                <Printer size={18} color="#fff" />
+                <Text style={styles.a4PrintBtnText}>Print {previewFormat}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: '#f8fafc' },
-  headerWrapper: { backgroundColor: '#f8fafc', zIndex: 10 },
+  headerContainer: { backgroundColor: '#f8fafc' },
   headerGradient: {
+    backgroundColor: '#000',
     paddingBottom: 24,
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
-    paddingHorizontal: 22,
-    paddingTop: 10,
-    shadowColor: '#0f172a',
+    paddingTop: Platform.OS === 'ios' ? 0 : 10,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.2,
     shadowRadius: 20,
     elevation: 10
   },
-  header: {
+  topNav: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 6
+    justifyContent: 'space-between',
+    paddingHorizontal: 22,
+    paddingTop: 16,
+    paddingBottom: 20,
   },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  backBtnWrapper: {
-    padding: 10,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+  navIcon: {
+    width: 42,
+    height: 42,
     borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)'
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  title: { fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
-  headerActions: { flexDirection: 'row', gap: 8 },
-  iconBtnDark: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  navTitleBox: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  navTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#fff',
+    letterSpacing: -0.5,
+  },
+  navSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  headerActionsStack: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  headerActionBtnWhite: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  iconBtnDarkActive: {
-    backgroundColor: '#000',
+  headerActionBtnWhiteDanger: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#fef2f2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#fee2e2',
   },
-
-  searchContainer: { marginBottom: 20, paddingHorizontal: 24, marginTop: 20 },
-  searchBar: {
+  searchRow: {
+    paddingHorizontal: 22,
+    marginBottom: 20,
+    marginTop: 10,
+  },
+  searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
     paddingHorizontal: 16,
     height: 52,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  searchInputCustom: {
+  searchInput: {
     flex: 1,
     fontSize: 15,
-    color: '#000000',
-    fontWeight: '500',
-    paddingLeft: 12,
-    height: '100%'
+    color: '#fff',
+    fontWeight: '600',
+    marginLeft: 12,
   },
-
-  // Status Filter Row
-  filterRow: {
+  filterTrigger: {
+    padding: 8,
+    marginLeft: 10,
+  },
+  summaryStrip: {
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  filterBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginHorizontal: 22,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
     borderRadius: 20,
     borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginTop: 10,
   },
-  filterBtnInactive: {
-    backgroundColor: '#f1f5f9',
-    borderColor: '#e2e8f0'
+  summaryItem: {
+    alignItems: 'center',
   },
-  filterBtnActive: {
-    backgroundColor: '#000',
-    borderColor: '#000'
+  summaryLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.4)',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 4,
   },
-  filterText: { fontSize: 13, fontWeight: '700' },
-  filterTextInactive: { color: '#64748b' },
-  filterTextActive: { color: '#fff' },
-
-  recycleBtn: {
-    marginLeft: 'auto',
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#fff',
+  },
+  summaryDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  periodPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#fef2f2',
-    borderColor: '#fecaca',
-    paddingHorizontal: 12
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
-  recycleText: {
+  periodText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#ef4444'
+    color: '#fff',
   },
-
-  listContainer: { padding: 20, paddingBottom: 100 },
-  invoiceCard: {
-    marginBottom: 16,
-    borderRadius: 24,
+  tabRowWrapper: {
+    marginTop: 24,
+    marginBottom: 12,
+  },
+  tabScrollContent: {
+    paddingHorizontal: 22,
+    gap: 10,
+    alignItems: 'center',
+  },
+  tabChip: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 14,
     backgroundColor: '#fff',
-    padding: 20,
-    shadowColor: '#64748b',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 3,
     borderWidth: 1,
-    borderColor: '#f1f5f9'
+    borderColor: '#f1f5f9',
   },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16
+  tabChipActive: {
+    backgroundColor: '#000',
+    borderColor: '#000',
   },
-  customerName: {
-    fontSize: 17,
+  tabChipText: {
+    fontSize: 14,
     fontWeight: '800',
-    color: '#0f172a',
-    letterSpacing: -0.3,
-    marginBottom: 4
+    color: '#64748b',
   },
-  invoiceMeta: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#94a3b8',
-    letterSpacing: 0.2
+  tabChipTextActive: {
+    color: '#fff',
   },
-  amount: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#0f172a',
-    letterSpacing: -0.5
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#f1f5f9',
-    marginBottom: 16
-  },
-  cardFooterRow: {
+  recycleBinChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 50,
-    gap: 6,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: '#fff1f1',
     borderWidth: 1,
+    borderColor: '#fee2e2',
+    marginLeft: 10,
   },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  recycleBinText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#ef4444',
   },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5
+  listPadding: {
+    paddingBottom: 100,
+    paddingTop: 10,
   },
-
-  cardActions: {
+  invoiceModernCard: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 16,
+    marginHorizontal: 22,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#64748b',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  cardMainRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8
+    gap: 16,
   },
-  actionIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+  avatarContainer: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
     backgroundColor: '#f8fafc',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0'
+    borderColor: '#f1f5f9',
   },
-  previewBtn: {
+  avatarText: { fontSize: 20, fontWeight: '800', color: '#0f172a' },
+  infoContainer: {
+    flex: 1,
+  },
+  nameHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  modernCustomerName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+    flex: 1,
+    marginRight: 10,
+  },
+  modernAmount: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#000',
+  },
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0f172a',
-    paddingHorizontal: 14,
-    height: 36,
-    borderRadius: 12,
-    gap: 6,
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3
+    gap: 12,
   },
-  previewBtnText: {
+  idTag: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  idTagText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748b',
+    letterSpacing: 0.5,
+  },
+  dateMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dateMetaText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  cardSeparator: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 16,
+  },
+  cardActionFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  statusModernPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexShrink: 1,
+  },
+  statusModernDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusModernText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  actionGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  modernIconAction: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  modernIconActionDanger: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#fef2f2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#fee2e2',
+  },
+  modernOpenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#000',
+    paddingHorizontal: 10,
+    height: 34,
+    borderRadius: 8,
+    marginLeft: 2,
+  },
+  modernOpenText: {
     color: '#fff',
     fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.3
+    fontWeight: '800',
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 100,
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0f172a',
+    marginTop: 20,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
   },
 
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)', // Slightly lighter overlay
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end'
   },
   modalContent: {
@@ -1225,7 +1790,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginVertical: 12
   },
-
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1254,9 +1818,31 @@ const styles = StyleSheet.create({
     elevation: 3,
     marginLeft: 15
   },
-
+  filterModal: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingTop: 24,
+    paddingHorizontal: 0,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+  },
+  statusOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginHorizontal: 24,
+  },
+  statusOptionText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a'
+  },
   detailScroll: { paddingHorizontal: 24 },
-
   summaryTopCard: {
     backgroundColor: '#f8fafc',
     borderRadius: 24,
@@ -1269,32 +1855,26 @@ const styles = StyleSheet.create({
   summaryTopMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
   summaryIdLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', letterSpacing: 1, marginBottom: 4 },
   summaryIdValue: { fontSize: 18, fontWeight: '900', color: '#0f172a' },
-
   modernStatusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, gap: 8 },
   modernStatusText: { fontSize: 12, fontWeight: '800' },
-
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
   summaryMetaRow: { flexDirection: 'row', gap: 20 },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
   itemCountText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-
   customerCard: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderRadius: 20, borderWidth: 1, borderColor: '#f1f5f9', gap: 16 },
   customerAvatar: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 20, fontWeight: '800', color: '#0f172a' },
   customerInfo: { flex: 1 },
   customerNameMain: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginBottom: 2 },
   customerSubText: { fontSize: 13, fontWeight: '500', color: '#64748b' },
-
   itemsContainer: { backgroundColor: '#f8fafc', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#e2e8f0' },
   modernItemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   itemMainInfo: { flex: 1 },
   modernItemName: { fontSize: 14, fontWeight: '700', color: '#0f172a', marginBottom: 2 },
   modernItemPricePer: { fontSize: 12, fontWeight: '500', color: '#64748b' },
   modernItemTotal: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
-
   modernTotalCard: { marginTop: 24, padding: 20, backgroundColor: '#0f172a', borderRadius: 24 },
   calcRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   calcLabel: { fontSize: 14, fontWeight: '500', color: '#94a3b8' },
@@ -1303,220 +1883,27 @@ const styles = StyleSheet.create({
   netTotalLabel: { fontSize: 12, fontWeight: '800', color: '#94a3b8', letterSpacing: 1 },
   netTotalSub: { fontSize: 10, fontWeight: '500', color: '#64748b', marginTop: 2 },
   netTotalValue: { fontSize: 24, fontWeight: '900', color: '#fff' },
-
   remarksBox: { marginTop: 24, padding: 16, backgroundColor: '#fffbeb', borderRadius: 20, borderWidth: 1, borderColor: '#fef3c7' },
   remarksHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   remarksTitle: { fontSize: 10, fontWeight: '800', color: '#854d0e', letterSpacing: 1 },
   remarksText: { fontSize: 14, fontWeight: '600', color: '#92400e', lineHeight: 20, fontStyle: 'italic' },
-
   modernActionGrid: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 32, gap: 12 },
   modernActionBtn: { flex: 1, alignItems: 'center', gap: 10 },
   actionIconContainer: { width: 60, height: 60, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' },
   modernActionText: { fontSize: 12, fontWeight: '800', color: '#000' },
-
   statusSelector: { flexDirection: 'row', gap: 12, marginTop: 10 },
   statusOption: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center', borderWidth: 1.5, borderColor: '#e2e8f0' },
   statusOptionActive: { backgroundColor: '#000', borderColor: '#000' },
   statusOptionText: { fontSize: 14, fontWeight: '800', color: '#64748b' },
   statusOptionTextActive: { color: '#fff' },
-
   editForm: { padding: 24 },
-  inputLabel: { fontSize: 13, fontWeight: '700', color: '#64748b', marginBottom: 8, marginLeft: 4 },
   modalFooter: { padding: 24, borderTopWidth: 1, borderTopColor: '#f1f5f9', flexDirection: 'row', gap: 16 },
   cancelBtn: { flex: 1, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#f1f5f9' },
   saveBtn: { flex: 2, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#0f172a' },
   savetxt: { color: '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 0.5 },
 
-
-  dateFilterScroll: {
-    paddingHorizontal: 22,
-    gap: 8,
-  },
-  dateFilterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-  },
-  dateFilterChipActive: {
-    backgroundColor: '#fff',
-    borderColor: '#fff',
-  },
-  calendarChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dateFilterChipText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.8)',
-  },
-  dateFilterChipTextActive: {
-    color: '#000',
-  },
-
-  // Date Picker Modal Styles
-  datePickerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  datePickerModal: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    maxHeight: '85%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 20,
-  },
-  datePickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  datePickerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  datePickerContent: {
-    padding: 24,
-  },
-  datePickerSection: {
-    marginBottom: 24,
-  },
-  datePickerLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#64748b',
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  yearMonthBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-    marginRight: 8,
-  },
-  yearMonthBtnActive: {
-    backgroundColor: '#000',
-  },
-  yearMonthBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#64748b',
-  },
-  yearMonthBtnTextActive: {
-    color: '#fff',
-  },
-  monthGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  monthBtn: {
-    width: '23%',
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-  },
-  monthBtnActive: {
-    backgroundColor: '#000',
-  },
-  monthBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#64748b',
-  },
-  monthBtnTextActive: {
-    color: '#fff',
-  },
-  dayGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  dayBtn: {
-    width: '13%',
-    aspectRatio: 1,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayBtnActive: {
-    backgroundColor: '#000',
-  },
-  dayBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#64748b',
-  },
-  dayBtnTextActive: {
-    color: '#fff',
-  },
-  selectedDateDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#f8fafc',
-    padding: 16,
-    borderRadius: 16,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  selectedDateText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  datePickerFooter: {
-    flexDirection: 'row',
-    gap: 12,
-    padding: 24,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-  },
-  datePickerCancelBtn: {
-    flex: 1,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: '#f1f5f9',
-  },
-  datePickerCancelText: {
-    color: '#64748b',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  datePickerConfirmBtn: {
-    flex: 2,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: '#000',
-  },
-  // Modal Styles - GST Analytics Style
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  // Filter Modal
   filterModal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, maxHeight: '80%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  modalTitle: { fontSize: 18, fontWeight: '900', color: '#000' },
   modalCloseBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
   modalScroll: { marginBottom: 10 },
   filterItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderColor: '#f8fafc' },
@@ -1525,27 +1912,23 @@ const styles = StyleSheet.create({
   filterItemLabel: { fontSize: 15, fontWeight: '700', color: '#475569' },
   activeFilterItemLabel: { color: '#000', fontWeight: '900' },
 
-  // Premium Calendar Styles - GST Analytics Style
+  // Premium Calendar
   premiumCal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
   calTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
   calNav: { flexDirection: 'row', alignItems: 'center', gap: 20 },
   calNavBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', borderRadius: 8 },
   calMonthLabel: { fontSize: 17, fontWeight: '900', color: '#000' },
   calClose: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
-
   calWeekRow: { flexDirection: 'row', marginBottom: 15 },
   calWeekText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '900', color: '#cbd5e1' },
-
   calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   calDayCell: { width: 45, height: 45, margin: 2, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   calDayActive: { backgroundColor: '#000' },
   calDayText: { fontSize: 14, fontWeight: '700', color: '#475569' },
   calDayTextActive: { color: '#fff', fontWeight: '900' },
-
   calTodayBtn: { marginTop: 25, height: 50, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
   calTodayText: { fontSize: 14, fontWeight: '800', color: '#000' },
 
-  // New Edit Form Styles
   billingTip: {
     backgroundColor: '#f1f5f9',
     padding: 16,
@@ -1589,5 +1972,133 @@ const styles = StyleSheet.create({
   footerContainer: {
     paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     backgroundColor: '#fff',
+  },
+
+  // --- A4 Preview Modal Styles ---
+  a4PreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16
+  },
+  a4PreviewContent: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 500,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 32,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.4,
+    shadowRadius: 30,
+    elevation: 25
+  },
+  a4PreviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#e2e8f0'
+  },
+  a4PreviewTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#000',
+    letterSpacing: -0.5
+  },
+  a4PreviewSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '700',
+    marginTop: 2
+  },
+  a4CloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  a4PreviewScroll: {
+    flex: 1
+  },
+  a4PreviewScrollContent: {
+    padding: 20,
+    paddingBottom: 40
+  },
+  templateWrapper: {
+    backgroundColor: '#fff',
+    borderRadius: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+    overflow: 'hidden',
+    width: '100%'
+  },
+  previewFooterInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 24,
+    paddingHorizontal: 12
+  },
+  previewFooterText: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+    flex: 1,
+    lineHeight: 16
+  },
+  a4PreviewActions: {
+    flexDirection: 'row',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderTopWidth: 1.5,
+    borderTopColor: '#e2e8f0',
+    gap: 12,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20
+  },
+  a4BackBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  a4BackBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#64748b'
+  },
+  a4PrintBtn: {
+    flex: 1.5,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#000',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4
+  },
+  a4PrintBtnText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#fff'
   }
 });

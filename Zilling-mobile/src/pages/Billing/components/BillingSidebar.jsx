@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, 
 import { Card } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-import { Calculator, Printer, Scan, Calendar, Save, Plus, Award, HelpCircle } from 'lucide-react-native';
+import { Calculator, Printer, Scan, Calendar, Save, Plus, Award, HelpCircle, Star, Minus } from 'lucide-react-native';
 import CalculatorModal from './CalculatorModal';
 
 // Import for PDF Export
@@ -37,12 +37,21 @@ const BillingSidebar = ({
     loyaltyPointsRedeemed = 0,
     remarks = ''
 }) => {
+    const isVIP = customer && (
+        typeof customer.tags === 'string'
+            ? customer.tags.includes('VIP')
+            : (Array.isArray(customer.tags) && customer.tags.includes('VIP'))
+    );
+
     const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+    const [printCopyCount, setPrintCopyCount] = useState(1);
     const currentDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     const selectedBillTemplate = settings?.invoice?.billTemplate || 'Classic';
 
     const generateAndExportBill = async (size) => {
-        if (onSavePrint) onSavePrint(size);
+        if (onSavePrint) {
+            await onSavePrint(size, printCopyCount);
+        }
     };
 
     return (
@@ -62,11 +71,22 @@ const BillingSidebar = ({
 
             {/* Customer Section */}
             <TouchableOpacity onPress={() => onCustomerSearch('search')} style={styles.customerCard}>
-                <View style={styles.customerIcon}>
-                    <Text style={styles.customerIconText}>{customer ? customer.name.charAt(0) : '?'}</Text>
+                <View style={[styles.customerIcon, isVIP && { backgroundColor: '#facc15' }]}>
+                    {isVIP ? (
+                        <Star size={20} color="#000" fill="#000" />
+                    ) : (
+                        <Text style={styles.customerIconText}>{customer ? customer.name.charAt(0) : '?'}</Text>
+                    )}
                 </View>
                 <View style={{ flex: 1 }}>
-                    <Text style={styles.labelSmall}>BILL TO</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.labelSmall}>BILL TO</Text>
+                        {isVIP && (
+                            <View style={styles.vipBadgeMini}>
+                                <Text style={styles.vipBadgeTextMini}>VIP CLIENT</Text>
+                            </View>
+                        )}
+                    </View>
                     <Text style={styles.customerNameMain}>{customer ? customer.name : 'Select Customer'}</Text>
                 </View>
                 <View style={styles.addBtnCircle}>
@@ -205,7 +225,7 @@ const BillingSidebar = ({
                     ))}
                 </View>
 
-                <Text style={[styles.sectionTitleSmall, { marginTop: 20 }]}>PAYMENT MODE</Text>
+                <Text style={styles.sectionTitleSmall}>PAYMENT MODE</Text>
                 <View style={styles.modeToggle}>
                     {['Cash', 'UPI', 'Card'].map(m => (
                         <TouchableOpacity
@@ -270,38 +290,62 @@ const BillingSidebar = ({
                     amountReceived={amountReceived}
                     remarks={remarks}
                 />
+
+            </View>
+
+            {/* Print Copy Selection - Redesigned as Stepper */}
+            <View style={styles.copyCountSection}>
+                <Text style={styles.copyLabel}>Bill Copies</Text>
+                <View style={styles.stepperContainer}>
+                    <TouchableOpacity
+                        style={styles.stepBtn}
+                        onPress={() => setPrintCopyCount(prev => Math.max(1, prev - 1))}
+                    >
+                        <Minus size={18} color="#000" />
+                    </TouchableOpacity>
+
+                    <View style={styles.countDisplay}>
+                        <Text style={styles.countValue}>{printCopyCount}</Text>
+                    </View>
+
+                    <TouchableOpacity
+                        style={styles.stepBtn}
+                        onPress={() => setPrintCopyCount(prev => Math.min(10, prev + 1))}
+                    >
+                        <Plus size={18} color="#000" />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <View style={styles.finalActions}>
                 {/* Printer Status Indicator */}
                 <TouchableOpacity
-                    style={styles.printerStatusRow}
+                    style={styles.printerStatusCard}
                     onPress={onConnectPrinter}
                     activeOpacity={0.7}
                 >
-                    <View style={[styles.statusDot, { backgroundColor: isPrinterConnected ? '#22c55e' : '#ef4444' }]} />
-                    <Text style={[styles.printerStatusText, { color: isPrinterConnected ? '#166534' : '#ef4444' }]}>
-                        {isPrinterConnected ? 'Printer Active' : 'Connect the Printer'}
-                    </Text>
+                    <View style={styles.statusInfoRow}>
+                        <Printer size={18} color="#000" />
+                        <Text style={styles.printerStatusLabel}>PRINTER STATUS</Text>
+                        <Text style={[styles.printerStatusValue, { color: isPrinterConnected ? '#22c55e' : '#ef4444' }]}>
+                            {isPrinterConnected ? 'CONNECTED' : 'NOT CONNECTED'}
+                        </Text>
+                    </View>
                 </TouchableOpacity>
 
                 {!isPrinterConnected && (
                     <TouchableOpacity
-                        style={styles.helpConnectBtn}
+                        style={styles.helpConnectBtnSimpl}
                         onPress={onHelpConnect}
                     >
-                        <HelpCircle size={16} color="#000" />
-                        <Text style={styles.helpConnectBtnText}>Help to connect printer</Text>
+                        <HelpCircle size={16} color="#475569" />
+                        <Text style={styles.helpConnectBtnTextSimpl}>How to connect printer?</Text>
                     </TouchableOpacity>
                 )}
 
                 <TouchableOpacity style={styles.mainCompleteBtn} onPress={() => generateAndExportBill('80mm')}>
-                    <Save size={20} color="#000" />
-                    <Text style={styles.mainCompleteBtnText}>Complete & Print Bill</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => generateAndExportBill('A4')} style={styles.secondarySaveBtn}>
-                    <Text style={styles.secondarySaveBtnText}>Save and Share A4 PDF</Text>
+                    <Save size={20} color="#fff" />
+                    <Text style={styles.mainCompleteBtnText}>COMPLETE BILL ({printCopyCount})</Text>
                 </TouchableOpacity>
             </View>
         </ScrollView>
@@ -347,11 +391,11 @@ const styles = StyleSheet.create({
     statusOptionText: { fontSize: 11, fontWeight: '800', color: '#94a3b8' },
     statusOptionTextActive: { color: '#fff' },
 
-    modeToggle: { flexDirection: 'row', gap: 8 },
-    modeOption: { flex: 1, paddingVertical: 12, borderRadius: 14, backgroundColor: '#f8fafc', alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
-    modeOptionActive: { backgroundColor: '#eff6ff', borderColor: '#22c55e' },
-    modeOptionText: { fontSize: 14, fontWeight: '800', color: '#475569' },
-    modeOptionTextActive: { color: '#22c55e' },
+    modeToggle: { flexDirection: 'row', gap: 10 },
+    modeOption: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' },
+    modeOptionActive: { backgroundColor: '#000', borderColor: '#000' },
+    modeOptionText: { fontSize: 13, fontWeight: '800', color: '#64748b' },
+    modeOptionTextActive: { color: '#fff' },
 
     referenceSection: { marginTop: 12 },
     refInput: { backgroundColor: '#f8fafc', borderRadius: 12, height: 48, fontWeight: '700' },
@@ -367,9 +411,9 @@ const styles = StyleSheet.create({
     previewMetaText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
     previewDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' },
 
-    finalActions: { marginBottom: 30 },
-    mainCompleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#22c55e', height: 64, borderRadius: 20 },
-    mainCompleteBtnText: { fontSize: 16, fontWeight: '900', color: '#000' },
+    finalActions: { marginBottom: 30, paddingHorizontal: 4 },
+    mainCompleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#000', height: 60, borderRadius: 16, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
+    mainCompleteBtnText: { fontSize: 15, fontWeight: '900', color: '#fff', letterSpacing: 1 },
     secondarySaveBtn: { marginTop: 15, alignItems: 'center' },
     secondarySaveBtnText: { color: '#000', fontSize: 13, fontWeight: '700' },
     helpConnectBtn: {
@@ -435,6 +479,88 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: '900',
         color: '#0f172a',
+    },
+    // Redesigned Copy Count Styles (Stepper)
+    copyCountSection: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#fff',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        borderRadius: 20,
+        marginBottom: 20,
+        borderWidth: 1.5,
+        borderColor: '#f1f5f9'
+    },
+    copyLabel: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#1e293b'
+    },
+    stepperContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16
+    },
+    stepBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        backgroundColor: '#f8fafc',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#e2e8f0'
+    },
+    countDisplay: {
+        minWidth: 30,
+        alignItems: 'center'
+    },
+    countValue: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#000'
+    },
+    // Printer Status Card
+    printerStatusCard: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 16,
+        borderWidth: 1.5,
+        borderColor: '#f1f5f9',
+        overflow: 'hidden'
+    },
+    statusInfoRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10
+    },
+    printerStatusLabel: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#94a3b8',
+        letterSpacing: 1,
+        flex: 1
+    },
+    printerStatusValue: {
+        fontSize: 12,
+        fontWeight: '900',
+        letterSpacing: 0.5
+    },
+    helpConnectBtnSimpl: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        marginBottom: 20
+    },
+    helpConnectBtnTextSimpl: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
+        textDecorationLine: 'underline'
     },
     redeemBtn: {
         backgroundColor: '#f1f5f9',
@@ -513,13 +639,26 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: '#64748b',
     },
+    vipBadgeMini: {
+        backgroundColor: '#facc15',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 6,
+        marginBottom: 4
+    },
+    vipBadgeTextMini: {
+        fontSize: 7,
+        fontWeight: '900',
+        color: '#000',
+        letterSpacing: 0.5
+    }
 });
 
 const BillLivePreview = ({ items, totals, settings, template, taxType, customer, billId, paymentMode, amountReceived, remarks }) => {
     const invoiceData = {
         invoiceNo: billId,
         date: new Date().toLocaleDateString('en-IN'),
-        time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
         customer: customer,
         paymentMode: paymentMode,
         items: items,

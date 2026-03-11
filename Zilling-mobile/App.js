@@ -12,9 +12,13 @@ import { SettingsProvider } from './src/context/SettingsContext';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { ExpenseProvider } from './src/context/ExpenseContext'
 import { ToastProvider } from './src/context/ToastContext';
+import { NetworkProvider } from './src/context/NetworkContext';
 import SyncStatusIndicator from './src/components/SyncStatusIndicator';
 import { initializeDB } from './src/services/database';
 import './src/utils/crypto'; // Ensure crypto polyfill is active
+import { useFonts } from 'expo-font';
+import IndianScriptRenderer from './src/components/IndianScriptRenderer';
+import { globalPrintRef } from './src/utils/printGlobals';
 
 // Allows the auth session to close correctly on Android
 WebBrowser.maybeCompleteAuthSession();
@@ -38,7 +42,7 @@ const AuthenticatedApp = () => {
   // This ensures no in-memory state (products, customers, etc.) leaks between sessions.
   return (
     <TrialGuard>
-      <SettingsProvider key={user?.id || 'guest'} user={user}>
+      <SettingsProvider user={user}>
         <CustomerProvider>
           <ProductProvider>
             <ExpenseProvider>
@@ -57,6 +61,10 @@ const AuthenticatedApp = () => {
 import { PermissionsAndroid } from 'react-native';
 import * as Device from 'expo-device';
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    'NotoSansTamil': require('./assets/fonts/NotoSansTamil-VariableFont_wdth,wght.ttf'),
+  });
+
   // useEffect is no longer needed for configuration
   useEffect(() => {
     // initializeDB() is now called automatically in src/services/database.js
@@ -95,9 +103,12 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ToastProvider>
-        <AuthProvider>
-          <AuthenticatedApp />
-        </AuthProvider>
+        <NetworkProvider>
+          <AuthProvider>
+            <AuthenticatedApp />
+            <IndianScriptRenderer ref={globalPrintRef} />
+          </AuthProvider>
+        </NetworkProvider>
       </ToastProvider>
     </SafeAreaProvider>
   );

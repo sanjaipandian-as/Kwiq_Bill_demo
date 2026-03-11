@@ -34,6 +34,9 @@ import {
   Trophy,
   Clock,
   Phone,
+  ArrowUpDown,
+  Briefcase,
+  Layers,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useCustomers } from '../../context/CustomerContext';
@@ -43,6 +46,18 @@ import { useToast } from '../../context/ToastContext';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 const { width } = Dimensions.get('window');
+
+// Avatar is always black
+const avatarBg = '#111';
+
+const SortChip = ({ label, active, onPress }) => (
+  <TouchableOpacity
+    style={[styles.sortChip, active && styles.sortChipActive]}
+    onPress={onPress}
+  >
+    <Text style={[styles.sortChipLabel, active && styles.sortChipLabelActive]}>{label}</Text>
+  </TouchableOpacity>
+);
 
 // Reusable compact party row component
 const PartyRow = React.memo(({ item, onPress, onHistory, onDelete }) => {
@@ -245,15 +260,31 @@ export default function CustomersPage({ route }) {
   const handleSave = async (data) => {
     try {
       if (selectedCustomer) {
+        const wasVIP = (selectedCustomer.tags || '').includes('VIP');
+        // Handle tags as array (from modal) or string (from DB)
+        const isNowVIP = Array.isArray(data.tags) ? data.tags.includes('VIP') : (data.tags || '').includes('VIP');
+
         await updateCustomer(selectedCustomer.id, data);
-        showToast('Customer updated successfully', 'success');
+
+        if (!wasVIP && isNowVIP) {
+          showToast(`Account successfully upgraded to VIP status.`, 'success', 4000, null, `${data.fullName || selectedCustomer.name} is Now VIP!`);
+        } else {
+          showToast('Customer information updated successfully.', 'success', 3000, null, 'Profile Updated');
+        }
       } else {
-        await addCustomer(data);
-        showToast('Customer added successfully', 'success');
+        const savedCust = await addCustomer(data);
+        const isVIP = Array.isArray(data.tags) ? data.tags.includes('VIP') : (data.tags || '').includes('VIP');
+
+        if (isVIP) {
+          showToast(`New client added with premium VIP benefits.`, 'success', 4000, null, 'New VIP Member');
+        } else {
+          showToast('New customer profile has been created.', 'success', 3000, null, 'Customer Added');
+        }
       }
       setIsModalOpen(false);
-    } catch {
-      showToast('Failed to save customer', 'error');
+    } catch (err) {
+      console.error('Save error:', err);
+      showToast('We encountered an error while saving. Please try again.', 'error', 3500, null, 'Save Failed');
     }
   };
 
@@ -287,28 +318,7 @@ export default function CustomersPage({ route }) {
 
   const FILTERS = ['All', 'Individual', 'Business', 'VIP'];
 
-  const ListHeader = () => (
-    <View style={styles.listHeader}>
-      {/* Filter chips — always visible, horizontal scroll */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chipRow}
-      >
-        {FILTERS.map(f => (
-          <TouchableOpacity
-            key={f}
-            onPress={() => setFilterType(f)}
-            style={[styles.chip, filterType === f && styles.chipActive]}
-          >
-            <Text style={[styles.chipLabel, filterType === f && styles.chipLabelActive]}>{f}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-
-    </View>
-  );
+  const ListHeader = () => null;
 
   return (
     <View style={styles.container}>
@@ -319,63 +329,86 @@ export default function CustomersPage({ route }) {
         <LinearGradient colors={['#000', '#111']} style={styles.headerGradient}>
           <SafeAreaView edges={['top']}>
             {/* Top nav */}
-            <View style={styles.topNav}>
-              <Pressable onPress={() => navigation.goBack()} style={styles.navIcon}>
-                <ChevronLeft size={22} color="#fff" />
-              </Pressable>
-              <View style={styles.navTitleBox}>
+            <View style={styles.mainHeader}>
+              <View>
                 <Text style={styles.navTitle}>Parties</Text>
-                <Text style={styles.navSubtitle}>{customers.length} contacts saved</Text>
+                <Text style={styles.navSubtitle}>{customers.length} Contacts saved</Text>
               </View>
-              <TouchableOpacity style={styles.addBtn} onPress={handleAddNew}>
-                <UserPlus size={20} color="#000" strokeWidth={2.5} />
-              </TouchableOpacity>
+              <View style={styles.headerActions}>
+                <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
+                  <ChevronLeft size={22} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.addBtn} onPress={handleAddNew}>
+                  <UserPlus size={22} color="#000" strokeWidth={2.5} />
+                </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Search bar — always expanded */}
+            {/* Portfolio Stats Row */}
+            <View style={styles.statsRow}>
+              <View style={styles.statBox}>
+                <Text style={styles.statNum}>₹{stats.revenue}</Text>
+                <Text style={styles.statLabel}>Revenue</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={[styles.statNum, stats.due !== '0' && { color: '#fca5a5' }]}>₹{stats.due}</Text>
+                <Text style={styles.statLabel}>Due</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statNum}>{stats.vips}</Text>
+                <Text style={styles.statLabel}>VIPs</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statNum}>{stats.total}</Text>
+                <Text style={styles.statLabel}>Total</Text>
+              </View>
+            </View>
+
+            {/* Search row */}
             <View style={styles.searchRow}>
-              <View style={styles.searchBox}>
-                <Search size={16} color="rgba(255,255,255,0.45)" />
+              <View style={styles.searchBar}>
+                <Search size={18} color="rgba(255,255,255,0.35)" />
                 <TextInput
                   ref={searchRef}
-                  placeholder="Search name or mobile…"
+                  placeholder="Search name or phone..."
                   value={searchTerm}
                   onChangeText={setSearchTerm}
                   style={styles.searchInput}
-                  placeholderTextColor="rgba(255,255,255,0.35)"
-                  returnKeyType="search"
-                  clearButtonMode="never"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
                 />
                 {searchTerm !== '' && (
-                  <TouchableOpacity onPress={() => setSearchTerm('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <X size={16} color="rgba(255,255,255,0.5)" />
+                  <TouchableOpacity onPress={() => setSearchTerm('')}>
+                    <X size={18} color="rgba(255,255,255,0.4)" />
                   </TouchableOpacity>
                 )}
               </View>
+              <TouchableOpacity
+                style={[styles.filterBtn, showFilters && styles.filterBtnActive]}
+                onPress={() => setShowFilters(!showFilters)}
+              >
+                <Filter size={20} color={showFilters ? '#000' : '#fff'} strokeWidth={2} />
+              </TouchableOpacity>
             </View>
 
-            {/* Summary strip */}
-            <View style={styles.summaryStrip}>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Portfolio</Text>
-                <Text style={styles.summaryValue}>₹{stats.revenue}</Text>
+            {/* Sort/Filter Bar - Conditional */}
+            {showFilters && (
+              <View style={styles.sortBar}>
+                <View style={styles.sortLeft}>
+                  <ArrowUpDown size={14} color="rgba(255,255,255,0.4)" />
+                  <Text style={styles.sortBarLabel}>Filter</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortChipsRow}>
+                  {FILTERS.map(f => (
+                    <SortChip
+                      key={f}
+                      label={f}
+                      active={filterType === f}
+                      onPress={() => setFilterType(f)}
+                    />
+                  ))}
+                </ScrollView>
               </View>
-              <View style={styles.summaryDivider} />
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Pending Due</Text>
-                <Text style={[styles.summaryValue, stats.due !== '0' && styles.dueValueHeader]}>₹{stats.due}</Text>
-              </View>
-              <View style={styles.summaryDivider} />
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>VIP Clients</Text>
-                <Text style={styles.summaryValue}>{stats.vips}</Text>
-              </View>
-              <View style={styles.summaryDivider} />
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Total</Text>
-                <Text style={styles.summaryValue}>{stats.total}</Text>
-              </View>
-            </View>
+            )}
           </SafeAreaView>
         </LinearGradient>
       </View>
@@ -440,49 +473,113 @@ const styles = StyleSheet.create({
   // ── Header ──────────────────────────────────────
   headerContainer: { backgroundColor: '#f8fafc' },
   headerGradient: {
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    paddingBottom: 16,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    paddingBottom: 22,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8
   },
 
-  topNav: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 10, gap: 12,
+  mainHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 4
   },
-  navIcon: {
-    width: 38, height: 38, borderRadius: 12,
+  headerActions: { flexDirection: 'row', gap: 10 },
+  headerBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  navTitle: { fontSize: 30, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
+  navSubtitle: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.45)', marginTop: 2 },
+  addBtn: {
+    width: 46, height: 46, borderRadius: 14, backgroundColor: '#fff',
     alignItems: 'center', justifyContent: 'center',
   },
-  navTitleBox: { flex: 1 },
-  navTitle: { fontSize: 22, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
-  navSubtitle: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.4)', marginTop: -1 },
-  addBtn: {
-    width: 40, height: 40, borderRadius: 12, backgroundColor: '#fff',
-    alignItems: 'center', justifyContent: 'center',
+
+  // Stats Grid
+  statsRow: {
+    flexDirection: 'row',
+    marginHorizontal: 22,
+    marginTop: 12,
+    marginBottom: 12,
+    gap: 8
+  },
+  statBox: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center'
+  },
+  statNum: { fontSize: 16, fontWeight: '800', color: '#fff' },
+  statLabel: {
+    fontSize: 10, color: 'rgba(255,255,255,0.4)',
+    fontWeight: '700', marginTop: 2,
+    textTransform: 'uppercase', letterSpacing: 0.3
   },
 
   // Search
-  searchRow: { paddingHorizontal: 20, paddingBottom: 12 },
-  searchBox: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12, paddingHorizontal: 12, height: 42, gap: 8,
+  searchRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingBottom: 8 },
+  searchBar: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)', height: 50,
+    borderRadius: 14, paddingHorizontal: 14, gap: 10
   },
-  searchInput: { flex: 1, fontSize: 16, fontWeight: '600', color: '#fff' },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: '#fff' },
+  filterBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  filterBtnActive: { backgroundColor: '#fff' },
 
-  // Summary strip
-  summaryStrip: {
-    flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: 20,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14,
+  // Sort Bar
+  sortBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 24,
+    paddingRight: 12,
+    paddingVertical: 8
   },
-  summaryItem: { flex: 1, alignItems: 'center' },
-  summaryLabel: { fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 0.5 },
-  summaryValue: { fontSize: 16, fontWeight: '900', color: '#fff', marginTop: 2 },
-  dueValueHeader: { color: '#f87171' },
-  summaryDivider: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.12)' },
+  sortLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: 10
+  },
+  sortBarLabel: {
+    fontSize: 12, color: 'rgba(255,255,255,0.3)',
+    fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5
+  },
+  sortChipsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 20 },
+  sortChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1.5,
+    borderColor: 'transparent'
+  },
+  sortChipActive: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderColor: '#fff'
+  },
+  sortChipLabel: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontWeight: '700' },
+  sortChipLabelActive: { color: '#fff', fontWeight: '800' },
 
   // ── List header ─────────────────────────────────
   listHeader: { paddingTop: 14 },

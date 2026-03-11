@@ -15,6 +15,7 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
         date: '14/2/2026',
         customer: { name: '' },
         paymentMode: 'Cash',
+        time: '11:56 AM',
         items: [
             { name: 'Sugar 1kg', quantity: 1, price: 50, total: 50 }
         ],
@@ -28,27 +29,51 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
     return (
         <View style={styles.thermalPaper}>
             <Text style={styles.tpStoreName}>{store.name}</Text>
-            <Text style={[styles.tpText, styles.tpTextCenter]}>{store.address?.street}, {store.address?.city}</Text>
-            <Text style={[styles.tpText, styles.tpTextCenter]}>Phone: {store.contact}</Text>
-            {store.gstin && <Text style={[styles.tpText, styles.tpTextCenter]}>GSTIN: {store.gstin}</Text>}
+            <Text style={[styles.tpText, styles.tpTextCenter]}>Phone: {store.contact || store.phone || ''}</Text>
+            {store.gstin ? <Text style={[styles.tpText, styles.tpTextCenter]}>GSTIN: {store.gstin}</Text> : null}
 
-            <View style={styles.tpDashedLine} />
-            <Text style={styles.tpHeader}>BILL RECEIPT</Text>
-            <View style={styles.tpDashedLine} />
+            {/* Only show TAX INVOICE with double lines for invoice mode; single line for regular bills */}
+            {(data?.mode === 'invoice' || settings?.invoice?.mode === 'invoice') ? (
+                <>
+                    <View style={styles.tpDashedLine} />
+                    <Text style={styles.tpHeader}>TAX INVOICE</Text>
+                    <View style={styles.tpDashedLine} />
+                </>
+            ) : (
+                <View style={styles.tpDashedLine} />
+            )}
 
             <View style={styles.tpRow}>
                 <Text style={styles.tpText}>Bill No: {invoice.invoiceNo}</Text>
                 <Text style={styles.tpText}>Date: {invoice.date}</Text>
             </View>
             <View style={styles.tpRow}>
-                <Text style={styles.tpText}>Cust: {invoice.customer?.name || ''}</Text>
-                <Text style={styles.tpText}>Mode: {invoice.paymentMode}</Text>
+                <Text style={styles.tpText}>Time: {invoice.time || '12:00 PM'}</Text>
+                <Text style={[styles.tpText, { fontWeight: 'bold' }]}>Mode: {
+                    (() => {
+                        const m = (invoice.paymentMode || '').toLowerCase();
+                        return m.includes('cash') ? 'Cash'
+                            : m.includes('upi') ? 'UPI'
+                            : m.includes('card') ? 'Card'
+                            : invoice.paymentMode || 'Cash';
+                    })()
+                }</Text>
             </View>
-
+            {/* Customer row — only show when there's a real named customer */}
+            {(() => {
+                const cust = invoice.customer?.name || invoice.customerName || '';
+                if (!cust || cust.trim().toLowerCase() === 'guest') return null;
+                return (
+                    <View style={styles.tpRow}>
+                        <Text style={styles.tpText}>Cust: {cust}{isVIP(invoice.customer) ? ' (VIP)' : ''}</Text>
+                    </View>
+                );
+            })()}
             <View style={styles.tpDashedLine} />
             <View style={styles.tpRow}>
-                <Text style={[styles.tpTextBold, { width: 30 }]}>Sn</Text>
+                <Text style={[styles.tpTextBold, { width: 25 }]}>Sn</Text>
                 <Text style={[styles.tpTextBold, { flex: 1 }]}>Item</Text>
+                <Text style={[styles.tpTextBold, { width: 35, textAlign: 'center' }]}>Qty</Text>
                 <Text style={[styles.tpTextBold, { width: 50, textAlign: 'right' }]}>Rate</Text>
                 <Text style={[styles.tpTextBold, { width: 60, textAlign: 'right' }]}>Amt</Text>
             </View>
@@ -57,14 +82,18 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
             {/* ITEMS */}
             {invoice.items.map((item, index) => (
                 <View key={index} style={styles.tpRow}>
-                    <Text style={[styles.tpText, { width: 30 }]}>{index + 1}</Text>
+                    <Text style={[styles.tpText, { width: 25 }]}>{index + 1}</Text>
                     <Text style={[styles.tpText, { flex: 1 }]}>{item.name}</Text>
+                    <Text style={[styles.tpText, { width: 35, textAlign: 'center' }]}>{item.quantity}{item.unit || 'S'}</Text>
                     <Text style={[styles.tpText, { width: 50, textAlign: 'right' }]}>{parseFloat(item.price).toFixed(2)}</Text>
                     <Text style={[styles.tpText, { width: 60, textAlign: 'right' }]}>{parseFloat(item.total).toFixed(2)}</Text>
                 </View>
             ))}
 
             <View style={styles.tpDashedLine} />
+            <View style={styles.tpRow}>
+                <Text style={styles.tpText}>Items: {invoice.totals.totalItems || 0} / Qty: {parseFloat(invoice.totals.totalQty || 0).toFixed(3)}</Text>
+            </View>
             <View style={styles.tpRow}>
                 <Text style={styles.tpText}>Taxable Amount:</Text>
                 <Text style={styles.tpTextBold}>₹{parseFloat(invoice.totals.subtotal).toFixed(2)}</Text>
@@ -117,9 +146,14 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
                 </>
             )}
             <View style={styles.tpDashedLine} />
-            <Text style={[styles.tpText, styles.tpTextCenter]}>Thank You! Visit Again.</Text>
         </View>
     );
+};
+
+const isVIP = (cust) => {
+    if (!cust) return false;
+    const tags = cust.tags || '';
+    return typeof tags === 'string' ? tags.includes('VIP') : (Array.isArray(tags) && tags.includes('VIP'));
 };
 
 const styles = StyleSheet.create({
