@@ -62,7 +62,22 @@ const SideMenu = ({ isOpen, onClose }) => {
                             )}
                         </View>
                         <View style={{ flex: 1 }}>
-                            <Text style={styles.userName} numberOfLines={1}>{user?.name || 'Administrator'}</Text>
+                            <Text style={styles.userName} numberOfLines={1}>{user?.name || user?.email?.split('@')[0] || 'Administrator'}</Text>
+                            <View style={[styles.planBadge, { backgroundColor: user?.plan === 'free' ? '#f1f5f9' : '#000' }]}>
+                                <Text style={[styles.planText, { color: user?.plan === 'free' ? '#64748b' : '#fff' }]}>
+                                    {(() => {
+                                        const planNames = {
+                                            'free': 'Free Trial',
+                                            '1m': '1 Month Pro',
+                                            '3m': '3 Month Pro',
+                                            '1y': '1 Year Pro',
+                                            '3y': '3 Year Pro',
+                                            '5y': '5 Year Professional'
+                                        };
+                                        return planNames[user?.plan] || 'Pro Access';
+                                    })()}
+                                </Text>
+                            </View>
                         </View>
                     </View>
                     <Pressable onPress={onClose} style={styles.closeIcon}>
@@ -176,7 +191,21 @@ const styles = StyleSheet.create({
     },
     avatarImage: { width: '100%', height: '100%', backgroundColor: '#fff' },
     avatarText: { color: '#fff', fontSize: 22, fontWeight: '900' },
-    userName: { fontSize: 18, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+    userName: { fontSize: 18, fontWeight: '900', color: '#000', letterSpacing: -0.5, marginBottom: 4 },
+    planBadge: {
+        alignSelf: 'flex-start',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#e2e8f0'
+    },
+    planText: {
+        fontSize: 10,
+        fontWeight: '900',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5
+    },
     closeIcon: {
         width: 42,
         height: 42,

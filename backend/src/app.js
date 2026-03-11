@@ -13,6 +13,8 @@ const invoiceRoutes = require('./routes/invoiceRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const broadcastRoutes = require('./routes/broadcastRoutes');
 
 const app = express();
 
@@ -72,6 +74,9 @@ app.use('/invoices', invoiceRoutes);
 app.use('/expenses', expenseRoutes);
 app.use('/reports', reportRoutes);
 app.use('/settings', settingsRoutes);
+app.use('/broadcasts', broadcastRoutes);
+
+app.use('/admin', adminRoutes);
 
 // Error Handling
 app.use(notFound);

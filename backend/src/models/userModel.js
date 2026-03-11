@@ -31,6 +31,24 @@ const userSchema = mongoose.Schema(
             type: Date,
             required: false,
         },
+        plan: {
+            type: String,
+            required: true,
+            enum: ['free', '1m', '3m', '1y', '3y', '5y'],
+            default: 'free',
+        },
+        planExpiresAt: {
+            type: Date,
+            required: false,
+        },
+        isBlocked: {
+            type: Boolean,
+            default: false,
+        },
+        lastActive: {
+            type: Date,
+            default: Date.now,
+        }
     },
     {
         timestamps: true,

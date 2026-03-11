@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-import { Search, X, UserPlus } from 'lucide-react-native';
+import { Search, X, UserPlus, Star } from 'lucide-react-native';
 import { useCustomers } from '../../../context/CustomerContext';
 
 const CustomerSearchModal = ({ isOpen, onClose, onSelect, onAddNew }) => {
@@ -30,26 +30,46 @@ const CustomerSearchModal = ({ isOpen, onClose, onSelect, onAddNew }) => {
         return name.toLowerCase().includes(searchTerm.toLowerCase()) || phone.includes(searchTerm);
     });
 
-    const renderItem = ({ item }) => (
-        <TouchableOpacity
-            style={styles.customerCard}
-            onPress={() => {
-                onSelect(item);
-                onClose();
-            }}
-        >
-            <View style={styles.avatarCircle}>
-                <Text style={styles.avatarChar}>{(item.name || 'U')[0].toUpperCase()}</Text>
-            </View>
-            <View style={styles.customerMeta}>
-                <Text style={styles.customerNameText}>{item.name}</Text>
-                <Text style={styles.customerPhoneText}>{item.phone}</Text>
-            </View>
-            <View style={styles.pointsBadge}>
-                <Text style={styles.pointsBadgeText}>{item.loyaltyPoints || 0} pts</Text>
-            </View>
-        </TouchableOpacity>
+    const isVIP = (item) => item && (
+        typeof item.tags === 'string'
+            ? item.tags.includes('VIP')
+            : (Array.isArray(item.tags) && item.tags.includes('VIP'))
     );
+
+    const renderItem = ({ item }) => {
+        const vip = isVIP(item);
+        return (
+            <TouchableOpacity
+                style={styles.customerCard}
+                onPress={() => {
+                    onSelect(item);
+                    onClose();
+                }}
+            >
+                <View style={[styles.avatarCircle, vip && { backgroundColor: '#facc15' }]}>
+                    {vip ? (
+                        <Star size={22} color="#000" fill="#000" />
+                    ) : (
+                        <Text style={styles.avatarChar}>{(item.name || 'U')[0].toUpperCase()}</Text>
+                    )}
+                </View>
+                <View style={styles.customerMeta}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.customerNameText}>{item.name}</Text>
+                        {vip && (
+                            <View style={styles.vipBadgeMini}>
+                                <Text style={styles.vipBadgeTextMini}>VIP</Text>
+                            </View>
+                        )}
+                    </View>
+                    <Text style={styles.customerPhoneText}>{item.phone}</Text>
+                </View>
+                <View style={styles.pointsBadge}>
+                    <Text style={styles.pointsBadgeText}>{item.loyaltyPoints || 0} pts</Text>
+                </View>
+            </TouchableOpacity>
+        );
+    };
 
     const handleAddNew = () => {
         onClose();
@@ -158,7 +178,19 @@ const styles = StyleSheet.create({
     secondaryBtn: { flex: 1, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9' },
     secondaryBtnText: { fontSize: 14, fontWeight: '800', color: '#475569' },
     primaryBtn: { flex: 2, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000', flexDirection: 'row', gap: 10 },
-    primaryBtnText: { fontSize: 14, fontWeight: '800', color: '#fff' }
+    primaryBtnText: { fontSize: 14, fontWeight: '800', color: '#fff' },
+    vipBadgeMini: {
+        backgroundColor: '#000',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    vipBadgeTextMini: {
+        fontSize: 8,
+        fontWeight: '900',
+        color: '#facc15',
+        letterSpacing: 0.5
+    }
 });
 
 export default CustomerSearchModal;

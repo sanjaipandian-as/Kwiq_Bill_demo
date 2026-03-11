@@ -5,6 +5,8 @@ import * as FileSystem from 'expo-file-system';
 
 import { triggerAutoSave } from '../services/autosaveService';
 import services, { API } from '../services/api';
+import { useNetwork } from './NetworkContext';
+import { useToast } from './ToastContext';
 
 const SettingsContext = createContext();
 
@@ -52,6 +54,7 @@ export const SettingsProvider = ({ children, user }) => {
             headerTitle: 'Tax Invoice',
             footerNote: 'Thank you for shopping!',
             termsAndConditions: '1. Goods once sold will not be taken back.',
+            conditionsText: '',
             invoicePaperSize: 'A4',
             billPaperSize: '80mm',
             showLogo: true,
@@ -66,7 +69,8 @@ export const SettingsProvider = ({ children, user }) => {
             showTerms: true,
             showLoyaltyPoints: false,
             showSignature: true,
-            selectedPrinter: null
+            selectedPrinter: null,
+            billLanguage: 'en'
         },
         defaults: {
             language: 'en',
@@ -96,6 +100,43 @@ export const SettingsProvider = ({ children, user }) => {
     const [isUploading, setIsUploading] = useState(false);
     const [dbProfileComplete, setDbProfileComplete] = useState(false); // Tracks if profile exists in MongoDB
     const [isLogoUploading, setIsLogoUploading] = useState(false);
+
+    // Network / Auto-Sync States
+    const { isConnected, wasOfflinePreviously, setWasOffline } = useNetwork();
+    const { showToast } = useToast();
+    const [estimatedUploadTime, setEstimatedUploadTime] = useState(0);
+
+    useEffect(() => {
+        // Roughly 2 seconds per queued item
+        setEstimatedUploadTime(queueLength * 2);
+    }, [queueLength]);
+
+    useEffect(() => {
+        if (isConnected && wasOfflinePreviously) {
+            checkQueueStatus().then(async (len) => {
+                if (len > 0) {
+                    showToast(`Cloud Restored: Syncing ${len} offline items...`, 'info');
+                    try {
+                        const { SyncService } = require('../services/OneWaySyncService');
+                        await SyncService.retryQueue();
+                        await checkQueueStatus();
+                        showToast("Sync Successful: All offline bills backed up to Drive!", 'success');
+                    } catch (e) {
+                        showToast("Background sync encountered an error.", 'error');
+                    }
+                }
+                setWasOffline(false);
+            });
+        }
+    }, [isConnected, wasOfflinePreviously]);
+
+    useEffect(() => {
+        checkQueueStatus();
+        const qInterval = setInterval(() => {
+            checkQueueStatus();
+        }, 5000);
+        return () => clearInterval(qInterval);
+    }, []);
 
     const checkQueueStatus = async () => {
         try {
@@ -196,166 +237,165 @@ export const SettingsProvider = ({ children, user }) => {
     useEffect(() => {
         const initializeSettings = async () => {
             setLoading(true);
+
+            // 1. Instantly load local data
             await loadSettings();
             await loadSyncTime();
             await checkQueueStatus();
 
-            // Initial Sync: Blocking if user is logged in
-            // This ensures the user stays on the loading screen until data is fetched
+            let hasUnlockedUI = false;
+
             if (user && user.id) {
-                console.log('[SettingsContext] Initializing blocking sync...');
-                let isFreshLogin = false;
+                // OFFLINE-FIRST: Unblock the UI immediately if local profile is complete
                 try {
-                    const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
-                    if (justLoggedIn === 'true') {
-                        isFreshLogin = true;
-                        console.log('[SettingsContext] Skipping syncAllData — user just completed fresh login sync.');
-                        await AsyncStorage.removeItem('just_logged_in'); // Consume the flag
-
-                        // Show a smooth 3..2..1 countdown timer for user trust
-                        for (let i = 3; i > 0; i--) {
-                            setSyncStatus(`Aligning Your Data... (Est. time: ${i}s)`);
-                            await new Promise(r => setTimeout(r, 1000));
-                        }
-                        setSyncStatus('Data was aligned. Opening app...');
-                        await new Promise(r => setTimeout(r, 600)); // Give the success checkmark time to show
-                    } else {
-                        await syncAllData(false);
-                    }
-                } catch (e) {
-                    console.warn('[SettingsContext] Initial sync failed, allowing access:', e.message);
-                }
-
-                // STEP 1: Fetch store/bank/tax/invoice settings from Google Drive
-                let driveDataLoaded = false;
-                try {
-                    if (isFreshLogin) {
-                        console.log('[SettingsContext] Skipping Drive settings fetch - already loaded during auth.');
-                        driveDataLoaded = true; // Kept true so DB data doesn't overwrite it
-                    } else {
-                        console.log('[SettingsContext] Fetching settings from Drive...');
-                        const { fetchSettingsFromDrive } = require('../services/googleDriveservices');
-                        const driveResult = await fetchSettingsFromDrive(user);
-                        if (driveResult) {
-                            driveDataLoaded = true;
-                            // Update React state with Drive-sourced settings
-                            setSettings(prev => {
-                                const merged = { ...prev, ...driveResult };
-                                return merged;
-                            });
-                            console.log('[SettingsContext] ✅ Drive settings loaded (store, bank, tax, invoice)');
-                        } else {
-                            console.log('[SettingsContext] ⚠️ No settings found on Drive, will use DB fallback');
-                        }
-                    }
-                } catch (driveErr) {
-                    console.warn('[SettingsContext] Drive settings fetch failed:', driveErr.message);
-                }
-
-                // STEP 2: Check DB for profile existence + fetch LOGO (and full details if Drive failed)
-                try {
-                    console.log('[SettingsContext] Checking database for profile & logo...');
-                    const response = await services.settings.getSettings();
-                    const dbSettings = response?.data || response;
-
-                    if (dbSettings && dbSettings.onboardingCompletedAt) {
-                        console.log('[SettingsContext] ✅ Profile found in database');
-                        setDbProfileComplete(true);
-
-                        // Always extract LOGO from DB
-                        const dbLogo = dbSettings.store?.logo || null;
-
-                        setSettings(prev => {
-                            let updated;
-
-                            // SMART FALLBACK: Just because we "loaded" drive data, doesn't mean it wasn't empty. 
-                            // We MUST verify we actually have a store name to consider it a valid Drive restore.
-                            const hasValidDriveData = driveDataLoaded && !!prev.store?.name;
-
-                            if (hasValidDriveData) {
-                                // Drive data was successfully loaded AND contained real store data.
-                                updated = {
-                                    ...prev,
-                                    onboardingCompletedAt: dbSettings.onboardingCompletedAt,
-                                    store: {
-                                        ...prev.store,
-                                        logo: dbLogo || prev.store?.logo || null,
-                                    },
-                                };
-                                console.log('[SettingsContext] Using Drive for details, DB for logo only');
-                            } else {
-                                // Drive data NOT available OR it was empty — safely fallback to MongoDB for EVERYTHING!
-                                updated = {
-                                    ...prev,
-                                    onboardingCompletedAt: dbSettings.onboardingCompletedAt,
-                                    store: {
-                                        ...prev.store,
-                                        ...(dbSettings.store || {}),
-                                        logo: dbLogo || prev.store?.logo || null,
-                                    },
-                                    bankDetails: {
-                                        ...prev.bankDetails,
-                                        ...(dbSettings.bankDetails || {}),
-                                    },
-                                    tax: {
-                                        ...prev.tax,
-                                        ...(dbSettings.tax || {}),
-                                    },
-                                    invoice: {
-                                        ...prev.invoice,
-                                        ...(dbSettings.invoice || {}),
-                                    },
-                                    defaults: {
-                                        ...prev.defaults,
-                                        ...(dbSettings.defaults || {}),
-                                    },
-                                };
-                                console.log('[SettingsContext] Drive unavailable or empty — using DB for all details');
-                            }
-
-                            AsyncStorage.setItem('app_settings', JSON.stringify(updated));
-                            console.log('[SettingsContext] Logo from DB:', dbLogo?.substring(0, 40) || 'none');
-                            console.log('[SettingsContext] Store name:', updated.store?.name || 'empty');
-                            return updated;
-                        });
-                    } else {
-                        console.log('[SettingsContext] ⚠️ Profile NOT found in database — will show onboarding');
-                        setDbProfileComplete(false);
-                    }
-                } catch (dbErr) {
-                    console.warn('[SettingsContext] DB profile check failed:', dbErr.message);
-
-                    // Fallback: If DB check fails (offline?), check if we already have it locally
                     const saved = await AsyncStorage.getItem('app_settings');
                     if (saved) {
                         const local = JSON.parse(saved);
-                        if (local.onboardingCompletedAt) {
-                            console.log('[SettingsContext] 🌐 DB offline, but local profile complete. Allowing access.');
-                            setDbProfileComplete(true);
-                        } else {
-                            setDbProfileComplete(false);
+                        if (local.onboardingCompletedAt || !!local.store?.name) {
+                            console.log('[SettingsContext] Local settings verified. Unlocking UI instantly for Offline-First.');
+                            setDbProfileComplete(!!local.onboardingCompletedAt);
+                            setLoading(false);
+                            hasUnlockedUI = true;
                         }
-                    } else {
-                        setDbProfileComplete(false);
                     }
+                } catch (e) {
+                    console.log('Error verifying offline settings:', e);
                 }
-            } else {
-                // Not logged in — default to false
-                setDbProfileComplete(false);
-            }
 
-            setLoading(false);
+                // 2. Run Network Syncs (will occur in background if UI was already unlocked)
+                (async () => {
+                    console.log('[SettingsContext] Beginning background sync process...');
+                    let isFreshLogin = false;
+                    try {
+                        const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
+                        if (justLoggedIn === 'true') {
+                            isFreshLogin = true;
+                            console.log('[SettingsContext] Skipping syncAllData — user just completed fresh login sync.');
+                            await AsyncStorage.removeItem('just_logged_in'); // Consume the flag
+
+                            // Only show countdown if the UI is still locked
+                            if (!hasUnlockedUI) {
+                                for (let i = 3; i > 0; i--) {
+                                    setSyncStatus(`Aligning Your Data... (Est. time: ${i}s)`);
+                                    await new Promise(r => setTimeout(r, 1000));
+                                }
+                                setSyncStatus('Data was aligned. Opening app...');
+                                await new Promise(r => setTimeout(r, 600)); // Give the success checkmark time to show
+                            }
+                        } else {
+                            await syncAllData(false); // Does syncDown in the background
+                        }
+                    } catch (e) {
+                        console.warn('[SettingsContext] Background sync check failed:', e.message);
+                    }
+
+                    // STEP 1: Fetch store/bank/tax/invoice settings from Google Drive
+                    let driveDataLoaded = false;
+                    try {
+                        if (isFreshLogin) {
+                            console.log('[SettingsContext] Skipping Drive settings fetch - already loaded during auth.');
+                            driveDataLoaded = true; // Kept true so DB data doesn't overwrite it
+                        } else {
+                            console.log('[SettingsContext] Fetching settings from Drive in background...');
+                            const { fetchSettingsFromDrive } = require('../services/googleDriveservices');
+                            const driveResult = await fetchSettingsFromDrive(user);
+                            if (driveResult) {
+                                driveDataLoaded = true;
+                                setSettings(prev => {
+                                    return { ...prev, ...driveResult };
+                                });
+                                console.log('[SettingsContext] ✅ Background Drive settings loaded');
+                            }
+                        }
+                    } catch (driveErr) {
+                        console.warn('[SettingsContext] Background Drive settings fetch failed:', driveErr.message);
+                    }
+
+                    // STEP 2: Check DB for profile existence + fetch LOGO
+                    try {
+                        console.log('[SettingsContext] Checking database for profile & logo in background...');
+                        const response = await services.settings.getSettings();
+                        const dbSettings = response?.data || response;
+
+                        if (dbSettings && dbSettings.onboardingCompletedAt) {
+                            console.log('[SettingsContext] ✅ Profile found in database');
+                            setDbProfileComplete(true);
+
+                            const dbLogo = dbSettings.store?.logo || null;
+
+                            setSettings(prev => {
+                                let updated;
+                                const hasValidDriveData = driveDataLoaded && !!prev.store?.name;
+
+                                if (hasValidDriveData) {
+                                    updated = {
+                                        ...prev,
+                                        onboardingCompletedAt: dbSettings.onboardingCompletedAt,
+                                        store: {
+                                            ...prev.store,
+                                            logo: dbLogo || prev.store?.logo || null,
+                                        },
+                                    };
+                                } else {
+                                    updated = {
+                                        ...prev,
+                                        onboardingCompletedAt: dbSettings.onboardingCompletedAt,
+                                        store: {
+                                            ...prev.store,
+                                            ...(dbSettings.store || {}),
+                                            logo: dbLogo || prev.store?.logo || null,
+                                        },
+                                        bankDetails: {
+                                            ...prev.bankDetails,
+                                            ...(dbSettings.bankDetails || {}),
+                                        },
+                                        tax: {
+                                            ...prev.tax,
+                                            ...(dbSettings.tax || {}),
+                                        },
+                                        invoice: {
+                                            ...prev.invoice,
+                                            ...(dbSettings.invoice || {}),
+                                        },
+                                        defaults: {
+                                            ...prev.defaults,
+                                            ...(dbSettings.defaults || {}),
+                                        },
+                                    };
+                                }
+
+                                AsyncStorage.setItem('app_settings', JSON.stringify(updated));
+                                return updated;
+                            });
+                        } else {
+                            if (!hasUnlockedUI) setDbProfileComplete(false);
+                        }
+                    } catch (dbErr) {
+                        console.warn('[SettingsContext] DB profile check failed:', dbErr.message);
+                        if (!hasUnlockedUI) {
+                            const saved = await AsyncStorage.getItem('app_settings');
+                            if (saved) {
+                                const local = JSON.parse(saved);
+                                setDbProfileComplete(!!local.onboardingCompletedAt);
+                            } else {
+                                setDbProfileComplete(false);
+                            }
+                        }
+                    }
+
+                    // Ensure loading is set to false exactly once if it hasn't been already
+                    if (!hasUnlockedUI) {
+                        setLoading(false);
+                    }
+                })();
+            } else {
+                setDbProfileComplete(false);
+                setLoading(false);
+            }
         };
 
         initializeSettings();
-
-        const intervalId = setInterval(() => {
-            console.log('[AutoSync] Triggering periodic sync...');
-            syncAllData(false);
-        }, 1 * 60 * 1000);
-
-        return () => clearInterval(intervalId);
-    }, [user]);
+    }, [user?.id, user?.email]);
 
     const uploadLogoToCloud = async (logoData) => {
         if (!logoData || logoData.startsWith('http')) return logoData;
@@ -484,62 +524,73 @@ export const SettingsProvider = ({ children, user }) => {
         try {
             const updated = { ...fullSettings, lastUpdatedAt: new Date() };
 
-            // 1. Instant Local Update
+            // 1. Instant Local Update - THIS IS THE MOST IMPORTANT STEP FOR OFFLINE-FIRST
             setSettings(updated);
             await AsyncStorage.setItem('app_settings', JSON.stringify(updated));
+            console.log('[SettingsContext] ✅ Local settings saved successfully (Offline-First)');
 
             let finalToSync = updated;
 
-            // 2. Upload logo to Cloudinary if needed (await this)
+            // 2. Attempt logo upload to Cloudinary (Non-blocking if it fails)
             const logoData = updated.store?.logo;
             if (logoData && !logoData.startsWith('http')) {
                 setIsLogoUploading(true);
-                const cloudUrl = await uploadLogoToCloud(logoData);
-                if (cloudUrl && cloudUrl !== logoData) {
-                    finalToSync = {
-                        ...updated,
-                        store: { ...updated.store, logo: cloudUrl }
-                    };
-                    setSettings(finalToSync);
-                    await AsyncStorage.setItem('app_settings', JSON.stringify(finalToSync));
+                try {
+                    const cloudUrl = await uploadLogoToCloud(logoData);
+                    if (cloudUrl && cloudUrl !== logoData) {
+                        finalToSync = {
+                            ...updated,
+                            store: { ...updated.store, logo: cloudUrl }
+                        };
+                        setSettings(finalToSync);
+                        await AsyncStorage.setItem('app_settings', JSON.stringify(finalToSync));
+                    }
+                } catch (logoErr) {
+                    console.log('[SettingsContext] Logo upload failed (Offline), will retry later.');
                 }
                 setIsLogoUploading(false);
             }
 
-            // 3. AWAIT MongoDB save — ensures data is in DB before proceeding
+            // 3. Attempt MongoDB & Drive Sync (If offline, we just mark as dirty)
             if (user && user.id) {
                 const portable = await ensurePortableSettings(finalToSync);
-                // Strip Mongoose metadata fields before sending
                 const { _id, __v, createdAt, updatedAt, ...cleanPortable } = portable;
-                console.log('[SettingsContext] Saving to MongoDB (awaiting)...');
-                await services.settings.updateSettings(cleanPortable);
-                console.log('[SettingsContext] ✅ MongoDB save confirmed!');
 
-                // Mark DB profile as complete now that we've saved
-                setDbProfileComplete(true);
+                try {
+                    console.log('[SettingsContext] Attempting background cloud sync...');
+                    // Try MongoDB
+                    await services.settings.updateSettings(cleanPortable);
+                    console.log('[SettingsContext] ✅ Cloud Sync: MongoDB updated.');
+                    setDbProfileComplete(true);
+                    await AsyncStorage.setItem('settings_dirty', 'false');
+                    setIsSettingsDirty(false);
 
-                // 4. Fire-and-forget Drive sync (background, non-blocking)
-                (async () => {
-                    try {
-                        const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                        await syncSettingsToDrive(user, portable);
-                        console.log('[SettingsContext] Drive sync completed.');
-                    } catch (err) {
-                        console.warn('[SettingsContext] Drive sync failed (non-critical):', err.message);
-                    }
-                })();
+                    // Try Google Drive
+                    const { syncSettingsToDrive } = require('../services/googleDriveservices');
+                    syncSettingsToDrive(user, portable)
+                        .then(() => console.log('[SettingsContext] ✅ Cloud Sync: Google Drive updated.'))
+                        .catch(e => console.log('[SettingsContext] Drive sync failed (Background).'));
+                } catch (networkErr) {
+                    console.log('[SettingsContext] Cloud sync failed (Device is Offline). Settings marked for retry.');
+                    await AsyncStorage.setItem('settings_dirty', 'true');
+                    setIsSettingsDirty(true);
+
+                    // Inform the user that it's saved locally
+                    if (showToast) showToast("Offline: Saved locally. Sync pending.", "info");
+                }
             }
 
-            // 5. Trigger secondary hooks
+            // 4. Trigger secondary hooks (like backups)
             setTimeout(() => {
                 triggerAutoSave().catch(e => console.warn('AutoSave Warning:', e));
             }, 50);
 
             return true;
         } catch (error) {
-            console.error('Failed to save settings:', error);
+            console.error('Critical failure in saveFullSettings:', error);
             setIsUploading(false);
             setIsLogoUploading(false);
+            // Only throw if even the LOCAL save failed (very rare)
             throw error;
         } finally {
             setIsUploading(false);
@@ -627,7 +678,9 @@ export const SettingsProvider = ({ children, user }) => {
             isLogoUploading,
             checkQueueStatus,
             dbProfileComplete,
-            syncStats
+            syncStats,
+            estimatedUploadTime,
+            isConnected
         }}>
             {children}
         </SettingsContext.Provider>

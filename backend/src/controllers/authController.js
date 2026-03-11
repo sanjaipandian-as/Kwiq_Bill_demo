@@ -109,6 +109,9 @@ const googleLogin = asyncHandler(async (req, res) => {
                 email: user.email,
                 role: user.role,
                 trialExpiresAt: user.trialExpiresAt,
+                plan: user.plan,
+                planExpiresAt: user.planExpiresAt,
+                isBlocked: user.isBlocked,
             },
             token: generateToken(user._id),
         });
@@ -133,6 +136,9 @@ const getUserProfile = asyncHandler(async (req, res) => {
             email: user.email,
             role: user.role,
             trialExpiresAt: user.trialExpiresAt,
+            plan: user.plan,
+            planExpiresAt: user.planExpiresAt,
+            isBlocked: user.isBlocked,
         });
     } else {
         res.status(404);

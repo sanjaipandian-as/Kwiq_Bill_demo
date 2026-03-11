@@ -60,15 +60,19 @@ function normalizeItems(raw) {
  */
 function normalizeVariants(raw) {
     const list = normalizeItems(raw);
-    return list.map(v => ({
-        ...v,
-        name: String(v.name || v.detail || ''),
-        sku: String(v.sku || ''),
-        price: (v.price !== null && v.price !== undefined && v.price !== '') ? Number(v.price) : null,
-        cost_price: Number((v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)) || 0,
-        stock: Number((v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock : ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty : ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))) || 0,
-        tax_rate: Number(v.tax_rate || v.taxRate || 0),
-    }));
+    return list.map(v => {
+        const computedCost = Number((v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)) || 0;
+        return {
+            ...v,
+            name: String(v.name || v.detail || ''),
+            sku: String(v.sku || ''),
+            price: (v.price !== null && v.price !== undefined && v.price !== '') ? Number(v.price) : null,
+            cost_price: computedCost,
+            costPrice: computedCost,
+            stock: Number((v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock : ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty : ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))) || 0,
+            tax_rate: Number(v.tax_rate || v.taxRate || 0),
+        };
+    });
 }
 
 /**
@@ -430,7 +434,8 @@ export const SyncService = {
                 const parts = f.name.replace('.json', '').split('_');
                 // Pattern: event_TIMESTAMP_TYPE_EVENTID
                 const probableEventId = parts[parts.length - 1];
-                return !processedSet.has(probableEventId);
+                // Also ignore files we know are permanently broken
+                return !processedSet.has(probableEventId) && !processedSet.has(f.id);
             });
 
             if (filesToProcess.length === 0) {
@@ -441,8 +446,8 @@ export const SyncService = {
             updateStatus(`${filesToProcess.length} new events found.`, 0.68);
 
             // Optimization: Fetch event contents in parallel batches
-            // Increased BATCH_SIZE to 80 to accelerate the synchronization process.
-            const BATCH_SIZE = 80;
+            // Increased BATCH_SIZE to 500 to accelerate the synchronization process.
+            const BATCH_SIZE = 500;
             let processedCount = 0;
             let failures = 0;
             const totalToProcess = filesToProcess.length;
@@ -458,6 +463,9 @@ export const SyncService = {
             // Get token once upfront — only refresh if we get a 401
             let currentToken = await getAccessToken();
             if (!currentToken) throw new Error("Token expired or missing");
+
+            // Store IDs for batch saving
+            let newProcessedIds = [...processedIds];
 
             for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
                 const batch = filesToProcess.slice(i, i + BATCH_SIZE);
@@ -487,10 +495,10 @@ export const SyncService = {
                     let attempts = 0;
                     while (attempts < 2) { // Reduced from 3 to 2 retries for speed
                         try {
-                            // Use 30s timeout for event files (increased from 15s for stability)
+                            // Use 90s timeout for event files (increased for larger batch size stability)
                             const contentRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
                                 headers: { Authorization: `Bearer ${currentToken}` }
-                            }, 30000);
+                            }, 90000);
 
                             // If 401, refresh token once and retry
                             if (contentRes.status === 401 && attempts === 0) {
@@ -533,10 +541,17 @@ export const SyncService = {
                                     try {
                                         const bytes = CryptoJS.AES.decrypt(contentToParse, syncKey);
                                         const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                                        if (decrypted) contentToParse = decrypted;
+                                        if (decrypted) {
+                                            contentToParse = decrypted;
+                                        } else {
+                                            throw new Error('Key mismatch');
+                                        }
                                     } catch (decErr) {
                                         console.warn(`[Sync] Decryption failed for ${file.name}. Possibly wrong key.`);
-                                        return null;
+                                        // Mark as permanently failed to avoid endless redownloading loop
+                                        newProcessedIds.push(file.id);
+                                        processedSet.add(file.id);
+                                        return { _isInvalid: true, fileId: file.id };
                                     }
                                 }
                                 return JSON.parse(contentToParse);
@@ -549,7 +564,10 @@ export const SyncService = {
                             console.warn(`[Sync] Download attempt ${attempts} failed for ${file.name}: ${e.message}`);
                             if (attempts >= 2) {
                                 console.error(`[Sync] Failed to download event ${file.name} after 2 attempts.`);
-                                return null;
+                                // Stop retrying broken downloads forever
+                                newProcessedIds.push(file.id);
+                                processedSet.add(file.id);
+                                return { _isInvalid: true, fileId: file.id };
                             }
                             // Shorter backoff: 500ms then 1s
                             await new Promise(r => setTimeout(r, 500 * attempts));
@@ -567,7 +585,7 @@ export const SyncService = {
                     db.withTransactionSync(() => {
                         for (let j = 0; j < envelopes.length; j++) {
                             const envelope = envelopes[j];
-                            if (!envelope) {
+                            if (!envelope || envelope._isInvalid) {
                                 failures++;
                                 continue;
                             }
@@ -576,13 +594,13 @@ export const SyncService = {
 
                             try {
                                 this.applyEventSync(envelope);
-                                processedIds.push(envelope.eventId);
+                                newProcessedIds.push(envelope.eventId);
                                 processedSet.add(envelope.eventId);
                                 processedCount++;
                             } catch (applyError) {
                                 console.error(`[Sync] Failed to apply event ${envelope.eventId} (${envelope.type}):`, applyError.message);
                                 // Mark as processed to avoid retrying a permanently broken event
-                                processedIds.push(envelope.eventId);
+                                newProcessedIds.push(envelope.eventId);
                                 processedSet.add(envelope.eventId);
                                 failures++;
                             }
@@ -593,15 +611,15 @@ export const SyncService = {
                     // Fallback: apply events individually outside transaction
                     for (let j = 0; j < envelopes.length; j++) {
                         const envelope = envelopes[j];
-                        if (!envelope || processedSet.has(envelope.eventId)) continue;
+                        if (!envelope || envelope._isInvalid || processedSet.has(envelope.eventId)) continue;
                         try {
                             this.applyEventSync(envelope);
-                            processedIds.push(envelope.eventId);
+                            newProcessedIds.push(envelope.eventId);
                             processedSet.add(envelope.eventId);
                             processedCount++;
                         } catch (applyError) {
                             console.error(`[Sync] Fallback apply failed for ${envelope.eventId}:`, applyError.message);
-                            processedIds.push(envelope.eventId);
+                            newProcessedIds.push(envelope.eventId);
                             processedSet.add(envelope.eventId);
                             failures++;
                         }
@@ -615,7 +633,7 @@ export const SyncService = {
             }
 
             // Save processed IDs once at the end (not per-batch)
-            await AsyncStorage.setItem(PROCESSED_EVENTS_KEY, JSON.stringify(processedIds));
+            await AsyncStorage.setItem(PROCESSED_EVENTS_KEY, JSON.stringify(newProcessedIds));
 
             await AsyncStorage.setItem(LAST_SYNCED_KEY, new Date().toISOString());
             const finalMsg = `Sync Complete! Applied ${processedCount} new events. ${failures > 0 ? `(${failures} failed)` : ''}`;

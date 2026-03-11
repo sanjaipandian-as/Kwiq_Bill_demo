@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,6 +23,7 @@ export const exportToDeviceFolders = async (allData, user = null, options = {}) 
 
         // --- 2. Local Device Backup ---
         const tables = Object.keys(allData);
+        // Standard expo-file-system supports SAF directly on Android
         const SAF = FileSystem.StorageAccessFramework;
 
         if (Platform.OS === 'android' && SAF) {
@@ -36,6 +37,7 @@ export const exportToDeviceFolders = async (allData, user = null, options = {}) 
                     await SAF.readDirectoryAsync(rootUri);
                     permissionsGranted = true;
                 } catch (e) {
+                    console.warn("[Backup] Saved root URI is no longer accessible:", e.message);
                     rootUri = null;
                 }
             }
@@ -49,19 +51,28 @@ export const exportToDeviceFolders = async (allData, user = null, options = {}) 
 
                 try {
                     isRequestingPermission = true;
+                    console.log("[Backup] Requesting directory permissions...");
                     const permissions = await SAF.requestDirectoryPermissionsAsync();
-                    if (permissions.granted) {
+
+                    if (permissions && permissions.granted) {
                         rootUri = permissions.directoryUri;
                         await AsyncStorage.setItem(STORAGE_KEY_BACKUP_URI, rootUri);
                         permissionsGranted = true;
+                        console.log("[Backup] Permission granted for:", rootUri);
+                    } else {
+                        console.log("[Backup] Permission denied by user.");
+                        return { success: false, error: 'Permission denied' };
                     }
                 } catch (safErr) {
-                    if (safErr.message.includes("unfinished permission request")) {
-                        console.warn("[Backup] Previous permission request is still open.");
-                        Alert.alert("Permission Error", "A folder selection window is already open. Please complete or cancel it before trying again.");
+                    console.error("[Backup] SAF Permission Error:", safErr);
+                    if (safErr.message?.includes("unfinished permission request")) {
+                        Alert.alert("Permission Busy", "A folder selection window is already open. Please complete or cancel it.");
+                    } else if (safErr.message?.includes("User cancelled")) {
+                        console.log("[Backup] User cancelled folder selection.");
                     } else {
                         throw safErr;
                     }
+                    return { success: false, error: safErr.message };
                 } finally {
                     isRequestingPermission = false;
                 }

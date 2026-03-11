@@ -5,15 +5,174 @@ import { exportToDeviceFolders } from '../services/backupservices';
 import { fetchAllTableData } from '../services/database';
 import { BLEPrinter, COMMANDS, ColumnAlignment } from 'react-native-thermal-receipt-printer-image-qr';
 import * as FileSystem from 'expo-file-system';
+import { globalPrintRef } from './printGlobals';
 
-export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm') => {
+const hasIndianScript = (text) => {
+    if (!text) return false;
+    const regex = /[\u0B80-\u0BFF\u0900-\u097F\u0D00-\u0D7F\u0C00-\u0C7F\u0C80-\u0CFF]/;
+    return regex.test(text);
+};
+
+// Global state to track printer connection to avoid redundant connects which can crash native side
+let lastConnectedAddress = null;
+let connectionTimestamp = 0;
+// Forces a fresh connection for most separate bills to avoid stale driver state
+const CONNECTION_EXPIRY = 30000;
+// Maximum ms we wait for any single BLE print/connect call before treating it as stuck
+const PRINT_TIMEOUT_MS = 12000;
+
+/**
+ * Wraps a BLE printer promise with a hard timeout.
+ * If the printer hangs (e.g. powered off mid-print, or barcode scanner
+ * interrupts the BLE radio), this rejects after PRINT_TIMEOUT_MS and
+ * automatically invalidates the cached connection so the next attempt
+ * triggers a clean reconnect rather than silently hanging.
+ */
+const withPrintTimeout = (promise, label = 'print') => {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            // Invalidate the cached connection so the next print reconnects cleanly
+            lastConnectedAddress = null;
+            connectionTimestamp = 0;
+            reject(new Error(`[Printer] ${label} timed out after ${PRINT_TIMEOUT_MS / 1000}s. Please try again.`));
+        }, PRINT_TIMEOUT_MS);
+
+        promise.then(
+            (result) => { clearTimeout(timer); resolve(result); },
+            (err) => { clearTimeout(timer); reject(err); }
+        );
+    });
+};
+
+/**
+ * Exported helper: call this to force a clean reconnect on the next
+ * print operation (e.g. from a "Reset & Retry" button in the UI).
+ */
+export const resetPrinterConnection = () => {
+    lastConnectedAddress = null;
+    connectionTimestamp = 0;
+    console.log('[Printer] Connection state manually reset — will reconnect on next print.');
+};
+
+const ensurePrinterConnected = async (address) => {
+    if (!address) return false;
+
+    // Fast cache check - only skip connect if it was within the expiry window
+    if (lastConnectedAddress === address && (Date.now() - connectionTimestamp < CONNECTION_EXPIRY)) {
+        return true;
+    }
+
+    try {
+        // Only init if we've never connected in this session to avoid driver resets
+        if (!lastConnectedAddress) {
+            try { await BLEPrinter.init(); } catch (e) { }
+        }
+
+        // Wrap connectPrinter itself — if BT is off or device vanished this can hang
+        await withPrintTimeout(BLEPrinter.connectPrinter(address), 'connect');
+        lastConnectedAddress = address;
+        connectionTimestamp = Date.now();
+        await new Promise(r => setTimeout(r, 500)); // Wait for hardware to stabilize
+        return true;
+    } catch (e) {
+        console.warn('[Printer] Connection failed, attempting reset:', e);
+        try {
+            await BLEPrinter.closeConn();
+            await new Promise(r => setTimeout(r, 300));
+            await withPrintTimeout(BLEPrinter.connectPrinter(address), 'connect-retry');
+            lastConnectedAddress = address;
+            connectionTimestamp = Date.now();
+            return true;
+        } catch (retryErr) {
+            console.error('[Printer] Final connection failure:', retryErr);
+            lastConnectedAddress = null;
+            return false;
+        }
+    }
+};
+
+const isVIP = (cust) => {
+    if (!cust) return false;
+    const tags = cust.tags || '';
+    return typeof tags === 'string' ? tags.includes('VIP') : (Array.isArray(tags) && tags.includes('VIP'));
+};
+
+const printHybrid = async (content, options = {}, paperFormat = '80mm') => {
+    // CRITICAL: If no Indian scripts detected in entire content, 
+    // send as ONE single command to ensure the tightest possible spacing.
+    if (!hasIndianScript(content)) {
+        await BLEPrinter.printText(content, options);
+        return;
+    }
+
+    const lines = content.split('\n');
+    const pixelWidth = paperFormat === '80mm' ? 576 : 384;
+
+    let currentBlock = "";
+    let isIndicMode = false;
+
+    const flush = async () => {
+        if (!currentBlock) return;
+        try {
+            if (isIndicMode) {
+                const clean = currentBlock.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+                const uri = await globalPrintRef.current?.renderTextToImage(clean, pixelWidth, 24);
+                if (uri) {
+                    // Timeout guard: image sends are the most likely to hang
+                    await withPrintTimeout(BLEPrinter.printPic(uri, { width: pixelWidth }), 'printPic');
+                    await new Promise(r => setTimeout(r, 150));
+                } else {
+                    await withPrintTimeout(BLEPrinter.printText(currentBlock + '\n', options), 'printText-indic-fallback');
+                }
+            } else {
+                // Standard text block - preserves tight line spacing
+                await withPrintTimeout(BLEPrinter.printText(currentBlock + '\n', options), 'printText');
+                await new Promise(r => setTimeout(r, 60));
+            }
+        } catch (err) {
+            console.warn('[printHybrid] Flush error (or timeout):', err);
+            // Attempt a safe ASCII fallback if printing crashed/timed-out
+            try {
+                const safeText = currentBlock.replace(/[^\x20-\x7E\n]/g, "?");
+                await withPrintTimeout(BLEPrinter.printText(safeText + '\n', options), 'printText-safe-fallback');
+            } catch (e) {
+                // If even the fallback fails, invalidate the connection cache
+                lastConnectedAddress = null;
+            }
+        }
+        currentBlock = "";
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (i === lines.length - 1 && line.trim() === '') continue;
+
+        const lineIsIndic = hasIndianScript(line);
+        if (lineIsIndic !== isIndicMode && currentBlock) {
+            await flush();
+        }
+
+        isIndicMode = lineIsIndic;
+        currentBlock += (currentBlock ? "\n" : "") + line;
+    }
+    await flush();
+};
+
+
+export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm', mode = 'customer') => {
     try {
         const printerAddress = settings?.invoice?.selectedPrinter?.address;
         const template = settings?.invoice?.billTemplate || 'Standard';
 
-        if (template === 'Professional') {
-            return await printProfessionalBluetoothReceipt(bill, settings, format);
+        // 'Classic' is the SettingsContext default value for the bill template selector.
+        // It maps to the Professional thermal layout (clean column format).
+        // 'Professional' also routes here. Only 'Standard' uses the plain ESC/POS path below.
+        // For Invoice mode, always use Professional regardless of setting.
+        if (template === 'Professional' || template === 'Classic' || mode === 'invoice') {
+            return await printProfessionalBluetoothReceipt(bill, settings, format, mode);
         }
+
+        // ── STANDARD TEMPLATE (only when billTemplate is explicitly 'Standard') ──────────
 
         const store = settings?.store || {};
         const isInter = bill.taxType === 'inter';
@@ -31,13 +190,9 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
             return " ".repeat(spaces) + String(s) + "\n";
         };
 
-        // 1. Initialize and Connect
-        await BLEPrinter.init();
-        if (printerAddress) {
-            try {
-                await BLEPrinter.connectPrinter(printerAddress);
-                await new Promise(r => setTimeout(r, 600));
-            } catch (e) { console.warn('BT Conn Error:', e); }
+        // 1. Ensure Connection
+        if (printerAddress && !(await ensurePrinterConnected(printerAddress))) {
+            throw new Error("Printer not connected. Please check Settings.");
         }
 
         // 2. Tax Summary calculation omitted from items list as requested
@@ -67,39 +222,70 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
         header += COMMANDS.TEXT_FORMAT.TXT_4SQUARE + (store.name || 'Store Name').toUpperCase() + "\n";
         header += COMMANDS.TEXT_FORMAT.TXT_NORMAL;
 
-        const storeAddr = typeof store.address === 'object' ? `${store.address.street || ''} ${store.address.city || ''}` : (store.address || '');
-        if (storeAddr.trim()) header += center(storeAddr.trim());
         if (store.contact || store.phone) header += center("Ph: " + (store.contact || store.phone));
         if (store.gstin) header += center("GSTIN: " + store.gstin);
         header += drawLine('-');
-        header += center("TAX INVOICE / BILL");
-        header += drawLine('-');
+        if (mode === 'invoice') {
+            header += center("TAX INVOICE");
+            header += drawLine('-');
+        }
 
-        // 4. Meta - 2 Columns
+        // Meta rows — Bill No + Date + Time on one line
         const now = new Date(bill.date || Date.now());
-        const ds = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
-        const ts = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const ds = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+        // Manual AM/PM -- toLocaleTimeString on Android outputs U+202F (narrow no-break space) before
+        // AM/PM which ESC/POS printers render as garbage like 'c>'. Build the string manually.
+        const rawH = now.getHours();
+        const rawM = now.getMinutes();
+        const ampm = rawH >= 12 ? 'PM' : 'AM';
+        const h12 = rawH % 12 || 12;
+        const ts = h12 + ':' + rawM.toString().padStart(2, '0') + ' ' + ampm;
 
-        const bNo = `Bill No: ${bill.weekly_sequence || bill.id}`;
-        const dStr = `Date: ${ds}`;
-        header += padR(bNo, width - dStr.length) + dStr + "\n";
+        const bNo = `Bill: ${bill.weekly_sequence || (bill.id ? String(bill.id).slice(-6).toUpperCase() : '-')}`;
+        const dtStr = `${ds} ${ts}`;
+        header += padR(bNo, width - dtStr.length) + dtStr + "\n";
 
-        const cName = `Cust: ${(bill.customerName || bill.customer?.name || 'Guest').substring(0, 12)}`;
-        const pMode = `Mode: ${bill.paymentMode || 'Cash'}`;
-        header += padR(cName, width - pMode.length) + pMode + "\n";
+        // Payment mode — show readable name, not numeric code
+        const customer = bill.customer || {};
+        const vip = isVIP(customer);
+        const rawMode = (bill.paymentMode || bill.paymentType || 'Cash');
+        const pModeName = rawMode.toLowerCase().includes('cash') ? 'Cash'
+            : rawMode.toLowerCase().includes('upi') ? 'UPI'
+                : rawMode.toLowerCase().includes('card') ? 'Card'
+                    : rawMode.toLowerCase().includes('credit') ? 'Credit'
+                        : rawMode;
+        const pMode = `Mode: ${pModeName}`;
+        header += padL(pMode, width) + "\n";
+
+        // Customer row — only if there's a real named customer (not walk-in/guest)
+        const customerName = bill.customerName || customer.name || customer.fullName || '';
+        const hasRealCustomer = customerName && customerName.trim().toLowerCase() !== 'guest';
+        if (hasRealCustomer) {
+            const cDisp = `Cust: ${customerName.substring(0, 20)}${vip ? ' (VIP)' : ''}`;
+            header += cDisp.substring(0, width) + "\n";
+        } else if (vip) {
+            header += center('VIP CUSTOMER');
+        }
+
         header += drawLine('-');
 
-        // 5. Items
-        const iCol = width - 18; // Item name column width
-        let receiptBody = padR("Sn", 3) + padR("Item", iCol) + padL("Rate", 7) + padL("Amt", 8) + "\n";
+        // Items — Sn | Item | Qty | Rate | Amt
+        const iCol = is80 ? 18 : 10;  // Item name width
+        const qCol = 5;               // Qty width
+        const rCol = 7;               // Rate width
+        const aCol = width - 3 - iCol - qCol - rCol; // Amt = remaining
+
+        let receiptBody = padR('Sn', 3) + padR('Item', iCol) + padL('Qty', qCol) + padL('Rate', rCol) + padL('Amt', aCol) + "\n";
         receiptBody += drawLine('-');
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            const name = (item.name || 'Item').substring(0, iCol + 2);
+            const name = (item.name || 'Item').substring(0, iCol);
+            const qty = parseFloat(item.quantity || 0);
+            const qtyStr = qty % 1 === 0 ? String(qty) : qty.toFixed(2);
             const rate = parseFloat(item.price || item.sellingPrice || 0).toFixed(2);
             const amt = parseFloat(item.total || 0).toFixed(2);
-            receiptBody += padR(`${i + 1}`, 3) + padR(name, iCol) + padL(rate, 7) + padL(amt, 8) + "\n";
+            receiptBody += padR(`${i + 1}`, 3) + padR(name, iCol) + padL(qtyStr, qCol) + padL(rate, rCol) + padL(amt, aCol) + "\n";
         }
 
         // 6. Totals & Payment Info
@@ -129,7 +315,7 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
         receiptBody += padR(paidAmt >= totalBill ? "Change:" : "Balance:", width - 12) + padL(`${cur}${Math.abs(totalBill - paidAmt).toFixed(2)}`, 12) + "\n";
 
         if (settings?.invoice?.showTaxBreakup !== false) {
-            receiptBody += "\n" + COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + center("GST SUMMARY") + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
+            receiptBody += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + center("GST SUMMARY") + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
 
             // Dynamic full-width column calculation
             const cW = is80
@@ -155,10 +341,34 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
             receiptBody += "NOTES: " + remarks.trim() + "\n";
             receiptBody += drawLine('-');
         }
-        receiptBody += COMMANDS.TEXT_FORMAT.TXT_ALIGN_CT + "Thank You! Visit Again\n\n\n\n";
 
-        // Final Print - Ensure all sections are joined to prevent reordering by printer driver
-        await BLEPrinter.printText(header + receiptBody, {});
+        // Terms & Conditions — controlled by showTerms toggle in settings
+        const showTerms = settings?.invoice?.showTerms !== false; // default ON
+        const termsText = (settings?.invoice?.termsAndConditions || '').trim();
+        const conditionsText = (settings?.invoice?.conditionsText || '').trim();
+        if (showTerms && (termsText || conditionsText)) {
+            receiptBody += drawLine('-');
+            receiptBody += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + "TERMS & CONDITIONS:\n" + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
+            // Word-wrap terms at width chars
+            const allText = [termsText, conditionsText].filter(Boolean).join(' ');
+            const words = allText.split(' ');
+            let line = '';
+            words.forEach(word => {
+                if ((line + word).length > width - 1) {
+                    receiptBody += line.trim() + "\n";
+                    line = word + ' ';
+                } else {
+                    line += word + ' ';
+                }
+            });
+            if (line.trim()) receiptBody += line.trim() + "\n";
+            receiptBody += drawLine('-');
+        }
+
+        receiptBody += "\n\n\n\n";
+
+        // Use Hybrid Printing for multi-language support
+        await printHybrid(header + receiptBody, { cut: true }, format);
         return true;
     } catch (e) {
         console.error('Print failed:', e);
@@ -166,7 +376,7 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
     }
 };
 
-export const printProfessionalBluetoothReceipt = async (bill, settings = {}, format = '80mm') => {
+export const printProfessionalBluetoothReceipt = async (bill, settings = {}, format = '80mm', mode = 'customer') => {
     try {
         const printerAddress = settings?.invoice?.selectedPrinter?.address;
         const store = settings?.store || {};
@@ -175,14 +385,16 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         const width = is80 ? 48 : 31;
         const cur = "Rs.";
         const lang = settings?.invoice?.billLanguage || 'en';
+        const customer = bill.customer || {};
+        const vip = isVIP(customer);
 
         const translations = {
-            en: { mid: 'MID', date: 'Date', receiptNo: 'Bill No', time: 'Time', item: 'Item', qty: 'Qty', price: 'Price', amt: 'Amount', totalItems: 'Total Items', totalQty: 'Qty', taxPct: 'TAX %', taxable: 'TAXABLE', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'Grand Total', total: 'Total', mobile: 'MOBILE NO', whatsapp: 'WHATSAPP' },
-            ta: { mid: 'MID', date: 'தேதி', receiptNo: 'ரசீது எண்', time: 'நேரம்', item: 'பொருள்', qty: 'அளவு', price: 'விலை', amt: 'தொகை', totalItems: 'மொத்த பொருட்கள்', totalQty: 'அளவு', taxPct: 'வரி %', taxable: 'வரிக்குரியது', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'மொத்தம்', total: 'மொத்தம்', mobile: 'மொபைல் எண்', whatsapp: 'வாட்ஸ்அப்' },
-            hi: { mid: 'MID', date: 'दिनांक', receiptNo: 'रसीद संख्या', time: 'समय', item: 'वस्तु', qty: 'मात्रा', price: 'मूल्य', amt: 'राशि', totalItems: 'कुल वस्तुएं', totalQty: 'मात्रा', taxPct: 'कर %', taxable: 'कर योग्य', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'कुल योग', total: 'कुल', mobile: 'मोबाइल नंबर', whatsapp: 'व्हाट्सएप' },
-            ml: { mid: 'MID', date: 'തീയതി', receiptNo: 'രസീത് നമ്പർ', time: 'സമയം', item: 'ഇനം', qty: 'അളവ്', price: 'വില', amt: 'തുക', totalItems: 'ആകെ ഇനങ്ങൾ', totalQty: 'അളവ്', taxPct: 'നികുതി %', taxable: 'നികുതി വിധേയം', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'ആകെ തുക', total: 'ആകെ', mobile: 'മൊബൈൽ നമ്പർ', whatsapp: 'വാട്ട്‌സ്ആപ്പ്' },
-            te: { mid: 'MID', date: 'తేదీ', receiptNo: 'రశీదు సంఖ్య', time: 'సమయం', item: 'వస్తువు', qty: 'పరిమాణం', price: 'ధర', amt: 'మొత్తం', totalItems: 'మొత్తం వస్తువులు', totalQty: 'అమౌంట్', taxPct: 'పన్ను %', taxable: 'పన్ను విధించదగినది', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'మొత్తం', total: 'మొత్తం', mobile: 'మొబైల్ నంబర్', whatsapp: 'వాట్సాప్' },
-            kn: { mid: 'MID', date: 'ದಿನಾಂಕ', receiptNo: 'ರಸೀದಿ ಸಂಖ್ಯೆ', time: 'ಸಮಯ', item: 'ವಸ್ತು', qty: 'ಪ್ರಮಾಣ', price: 'ಬೆಲೆ', amt: 'ಮೊತ್ತ', totalItems: 'ಒಟ್ಟು ವಸ್ತುಗಳು', totalQty: 'ಪ್ರಮಾಣ', taxPct: 'ತೆರಿಗೆ %', taxable: 'ತೆರಿಗೆಯ ಮೌಲ್ಯ', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'ಒಟ್ಟು', total: 'ಒಟ್ಟು', mobile: 'ಮೊಬೈಲ್ ಸಂಖ್ಯೆ', whatsapp: 'ವಾಟ್ಸಾಪ್' }
+            en: { mid: 'M.O.P', date: 'Date', receiptNo: 'Bill No', time: 'Time', item: 'Item', qty: 'Qty', price: 'Price', amt: 'Amount', totalItems: 'Total Items', totalQty: 'Qty', taxPct: 'TAX %', taxable: 'TAXABLE', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'Grand Total', total: 'Total', mobile: 'MOBILE NO', whatsapp: 'WHATSAPP' },
+            ta: { mid: 'M.O.P', date: 'தேதி', receiptNo: 'ரசீது எண்', time: 'நேரம்', item: 'பொருள்', qty: 'அளவு', price: 'விலை', amt: 'தொகை', totalItems: 'மொத்த பொருட்கள்', totalQty: 'அளவு', taxPct: 'வரி %', taxable: 'வரிக்குரியது', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'மொத்தம்', total: 'மொத்தம்', mobile: 'மொபைல் எண்', whatsapp: 'வாட்ஸ்அப்' },
+            hi: { mid: 'M.O.P', date: 'दिनांक', receiptNo: 'रसीद संख्या', time: 'समय', item: 'वस्तु', qty: 'मात्रा', price: 'मूल्य', amt: 'राशि', totalItems: 'कुल वस्तुएं', totalQty: 'मात्रा', taxPct: 'कर %', taxable: 'कर योग्य', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'कुल योग', total: 'कुल', mobile: 'मोबाइल नंबर', whatsapp: 'व्हाट्सएप' },
+            ml: { mid: 'M.O.P', date: 'തീയതി', receiptNo: 'രസീത് നമ്പർ', time: 'സമയം', item: 'ഇനം', qty: 'അളവ്', price: 'വില', amt: 'തുക', totalItems: 'ആകെ ഇനങ്ങൾ', totalQty: 'അളവ്', taxPct: 'നികുതി %', taxable: 'നികുതി വിധേയം', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'ആകെ തുക', total: 'ആകെ', mobile: 'മൊബൈൽ നമ്പർ', whatsapp: 'വാട്ട്‌സ്ആപ്പ്' },
+            te: { mid: 'M.O.P', date: 'తేదీ', receiptNo: 'రశీదు సంఖ్య', time: 'సమయం', item: 'వస్తువు', qty: 'పరిమాణం', price: 'ధర', amt: 'మొత్తం', totalItems: 'మొత్తం వస్తువులు', totalQty: 'అమౌంట్', taxPct: 'పన్ను %', taxable: 'పన్ను విధించదగినది', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'మొత్తం', total: 'మొత్తం', mobile: 'మొబైల్ నంబర్', whatsapp: 'వాట్సాప్' },
+            kn: { mid: 'M.O.P', date: 'ದಿನಾಂಕ', receiptNo: 'ರಸೀದಿ ಸಂಖ್ಯೆ', time: 'ಸಮಯ', item: 'ವಸ್ತು', qty: 'ಪ್ರಮಾಣ', price: 'ಬೆಲೆ', amt: 'ಮೊತ್ತ', totalItems: 'ಒಟ್ಟು ವಸ್ತುಗಳು', totalQty: 'ಪ್ರಮಾಣ', taxPct: 'ತೆರಿಗೆ %', taxable: 'ತೆರಿಗೆಯ ಮೌಲ್ಯ', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'ಒಟ್ಟು', total: 'ಒಟ್ಟು', mobile: 'ಮೊಬೈಲ್ ಸಂಖ್ಯೆ', whatsapp: 'ವಾಟ್ಸಾಪ್' }
         };
         const t = translations[lang] || translations.en;
 
@@ -191,47 +403,75 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         const padL = (s, l) => (" ".repeat(l) + String(s)).slice(-l);
         const drawLine = (char = '-') => char.repeat(width) + "\n";
         const center = (s) => {
-            const spaces = Math.max(0, Math.floor((width - String(s).length) / 2));
-            return " ".repeat(spaces) + String(s) + "\n";
+            if (!s) return "";
+            return String(s).split('\n').map(line => {
+                const spaces = Math.max(0, Math.floor((width - line.length) / 2));
+                return " ".repeat(spaces) + line;
+            }).join('\n') + "\n";
         };
 
-        // 1. Connect
-        if (printerAddress) {
-            try {
-                await BLEPrinter.connectPrinter(printerAddress);
-                await new Promise(r => setTimeout(r, 500));
-            } catch (e) { console.warn('BT Conn Error:', e); }
+        // 1. Ensure Connection
+        if (printerAddress && !(await ensurePrinterConnected(printerAddress))) {
+            throw new Error("Printer not connected.");
         }
 
-        let printData = COMMANDS.TEXT_FORMAT.TXT_ALIGN_CT + COMMANDS.TEXT_FORMAT.TXT_BOLD_ON;
+        // ── HEADER ──────────────────────────────────────────────────────────
+        // Store name: large + centered (matches in-app preview)
+        let printData = COMMANDS.TEXT_FORMAT.TXT_ALIGN_CT;
+        printData += COMMANDS.TEXT_FORMAT.TXT_4SQUARE;
         printData += (store.name || 'Store Name').toUpperCase() + "\n";
-        printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
+        printData += COMMANDS.TEXT_FORMAT.TXT_NORMAL;
 
-        if (store.contact || store.phone) printData += center("Ph: " + (store.contact || store.phone));
-        if (store.legalName) printData += center(store.legalName);
-
-        const storeAddr = typeof store.address === 'object' ? `${store.address.street || ''}\n${store.address.city || ''}` : (store.address || '');
+        const storeAddr = typeof store.address === 'object'
+            ? [store.address.street, store.address.city].filter(Boolean).join(', ')
+            : (store.address || '');
         if (storeAddr.trim()) printData += center(storeAddr.trim());
+        if (store.contact || store.phone) printData += center("Ph: " + (store.contact || store.phone));
+        if (store.gstin) printData += center("GSTIN: " + store.gstin);
 
-        if (store.whatsapp) {
-            printData += "\n" + center(t.whatsapp.toUpperCase());
-            printData += center(store.whatsapp);
+        // Header type: TAX INVOICE for invoices, clean line only for customer bills
+        printData += drawLine('=');
+        if (mode === 'invoice') {
+            printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON;
+            printData += center("TAX INVOICE");
+            printData += center("(Original for Recipient)");
+            printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
+            printData += drawLine('-');
         }
+        printData += COMMANDS.TEXT_FORMAT.TXT_ALIGN_LT;
 
-        printData += "\n" + COMMANDS.TEXT_FORMAT.TXT_ALIGN_LT;
 
+
+        // ── BILL META ────────────────────────────────────────────────────────
         const now = new Date(bill.date || Date.now());
         const ds = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear().toString().slice(-2)}`;
-        const ts = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+        // Manual AM/PM -- toLocaleTimeString on Android outputs U+202F (narrow no-break space) before
+        // AM/PM which ESC/POS printers render as garbage like 'c>'. Build the string manually.
+        const rawH = now.getHours();
+        const rawM = now.getMinutes();
+        const ampm = rawH >= 12 ? 'PM' : 'AM';
+        const h12 = rawH % 12 || 12;
+        const ts = h12 + ':' + rawM.toString().padStart(2, '0') + ' ' + ampm;
 
-        const midStr = `MID: ${bill.mid || '1'}`;
+        // Payment mode — readable name, not numeric codes
+        const rawMode = (bill.paymentMode || bill.paymentType || 'Cash');
+        const pModeName = rawMode.toLowerCase().includes('cash') ? 'Cash'
+            : rawMode.toLowerCase().includes('upi') ? 'UPI'
+                : rawMode.toLowerCase().includes('card') ? 'Card'
+                    : rawMode.toLowerCase().includes('credit') ? 'Credit'
+                        : rawMode;
+        const midStr = `${t.mid || 'Mode'}: ${pModeName}`;
         const dateStr = `${t.date}: ${ds}`;
         printData += padR(midStr, width - dateStr.length) + dateStr + "\n";
 
-        const billNo = `${t.receiptNo}: ${bill.weekly_sequence || bill.id || '6440'}`;
+        const billNo = `${t.receiptNo}: ${bill.weekly_sequence || String(bill.id || '').slice(-6).toUpperCase() || '-'}`;
         const timeStr = `${t.time}: ${ts}`;
         printData += padR(billNo, width - timeStr.length) + timeStr + "\n";
-        printData += "RE-WS-VIP 1\n";
+
+        if (vip) {
+            const custName = bill.customerName || customer.fullName || customer.name || '';
+            printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + "RE-WS-VIP " + custName + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF + "\n";
+        }
 
         printData += drawLine('-');
 
@@ -262,7 +502,6 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         printData += padR(summary, width - totalAmt.length) + totalAmt + "\n";
         printData += drawLine('-');
 
-        // Tax Table
         if (settings?.invoice?.showTaxBreakup !== false) {
             const isInter = bill.taxType === 'inter';
             const tW = isInter ? Math.floor(width / 4) : Math.floor(width / 5);
@@ -291,12 +530,52 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
         printData += drawLine('-');
 
-        const footerMob = store.contact || store.phone || store.whatsapp || 'N/A';
-        printData += center(t.mobile + " " + footerMob);
-        printData += center("THANK YOU! VISIT AGAIN");
+        printData += center("MOBILE NO: " + (store.contact || store.phone || store.whatsapp || 'N/A'));
+
+        // Formal Footer Section (Only for Invoices)
+        if (mode === 'invoice') {
+            const bank = settings?.bankDetails || {};
+            if (bank.bankName) {
+                printData += drawLine('-');
+                printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + "BANK DETAILS:\n" + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
+                printData += `Bank: ${bank.bankName}\n`;
+                printData += `A/C: ${bank.accountNumber || ''}\n`;
+                printData += `IFSC: ${bank.ifsc || ''}\n`;
+            }
+        }
+
+        // Terms & Conditions — controlled by showTerms toggle in settings
+        const showTermsProf = settings?.invoice?.showTerms !== false; // default ON
+        const termsTextProf = (settings?.invoice?.termsAndConditions || '').trim();
+        const conditionsTextProf = (settings?.invoice?.conditionsText || '').trim();
+        if (showTermsProf && (termsTextProf || conditionsTextProf)) {
+            printData += drawLine('-');
+            printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + "TERMS & CONDITIONS:\n" + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
+            const allText = [termsTextProf, conditionsTextProf].filter(Boolean).join(' ');
+            const words = allText.split(' ');
+            let line = '';
+            words.forEach(word => {
+                if ((line + word).length > width - 1) {
+                    printData += line.trim() + "\n";
+                    line = word + ' ';
+                } else {
+                    line += word + ' ';
+                }
+            });
+            if (line.trim()) printData += line.trim() + "\n";
+        }
+
+        // Signatory (Only for Invoices)
+        if (mode === 'invoice') {
+            printData += drawLine('-');
+            printData += "\n" + center("_______________________");
+            printData += center("Authorized Signatory\n");
+        }
+
         printData += "\n\n\n\n";
 
-        await BLEPrinter.printText(printData, {});
+        // Use Hybrid Printing for multi-language support
+        await printHybrid(printData, { cut: true }, format);
         return true;
     } catch (e) {
         console.error('Professional Print failed:', e);
@@ -344,12 +623,13 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
 
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
+    const vip = isVIP(customer);
     const customerName = bill.customerName || customer.fullName || customer.name || '';
 
     // Date formatting
     const date = new Date(bill.date || Date.now());
     const dateStr = date.toLocaleDateString('en-GB');
-    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
     const totalQty = items.reduce((acc, item) => acc + (parseFloat(item.quantity) || 0), 0);
     const subtotal = bill.totals?.subtotal || bill.subtotal || 0;
@@ -426,12 +706,12 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
     if (billTemplate === 'Professional') {
         const lang = settings?.invoice?.billLanguage || 'en';
         const translations = {
-            en: { mid: 'MID', date: 'Date', receiptNo: 'Bill No', time: 'Time', item: 'Item', qty: 'Qty', price: 'Price', amt: 'Amount', totalItems: 'Total Items', totalQty: 'Qty', taxPct: 'TAX %', taxable: 'TAXABLE', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'Grand Total', total: 'Total', mobile: 'MOBILE NO', whatsapp: 'WHATSAPP' },
-            ta: { mid: 'MID', date: 'தேதி', receiptNo: 'ரசீது எண்', time: 'நேரம்', item: 'பொருள்', qty: 'அளவு', price: 'விலை', amt: 'தொகை', totalItems: 'மொத்த பொருட்கள்', totalQty: 'அளவு', taxPct: 'வரி %', taxable: 'வரிக்குரியது', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'மொத்தம்', total: 'மொத்தம்', mobile: 'மொபைல் எண்', whatsapp: 'வாட்ஸ்அப்' },
-            hi: { mid: 'MID', date: 'दिनांक', receiptNo: 'रसीद संख्या', time: 'समय', item: 'वस्तु', qty: 'मात्रा', price: 'मूल्य', amt: 'राशि', totalItems: 'कुल वस्तुएं', totalQty: 'मात्रा', taxPct: 'कर %', taxable: 'कर योग्य', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'कुल योग', total: 'कुल', mobile: 'मोबाइल नंबर', whatsapp: 'व्हाट्सएप' },
-            ml: { mid: 'MID', date: 'തീയതി', receiptNo: 'രസീത് നമ്പർ', time: 'സമയം', item: 'ഇനം', qty: 'അളവ്', price: 'വില', amt: 'തുക', totalItems: 'ആകെ ഇനങ്ങൾ', totalQty: 'അളവ്', taxPct: 'നികുതി %', taxable: 'നികുതി വിധേയം', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'ആകെ തുക', total: 'ആകെ', mobile: 'മൊബൈൽ നമ്പർ', whatsapp: 'വാട്ട്‌സ്ആപ്പ്' },
-            te: { mid: 'MID', date: 'తేదీ', receiptNo: 'రశీదు సంఖ్య', time: 'సమయం', item: 'వస్తువు', qty: 'పరిమాణం', price: 'ధర', amt: 'మొత్తం', totalItems: 'మొత్తం వస్తువులు', totalQty: 'అమౌంట్', taxPct: 'పన్ను %', taxable: 'పన్ను విధించదగినది', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'మొత్తం', total: 'మొత్తం', mobile: 'మొబైల్ నంబర్', whatsapp: 'వాట్సాప్' },
-            kn: { mid: 'MID', date: 'ದಿನಾಂಕ', receiptNo: 'ರಸೀದಿ ಸಂಖ್ಯೆ', time: 'ಸಮಯ', item: 'ವಸ್ತು', qty: 'ಪ್ರಮಾಣ', price: 'ಬೆಲೆ', amt: 'ಮೊತ್ತ', totalItems: 'ಒಟ್ಟು ವಸ್ತುಗಳು', totalQty: 'ಪ್ರಮಾಣ', taxPct: 'ತೆರಿಗೆ %', taxable: 'ತೆರಿಗೆಯ ಮೌಲ್ಯ', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'ಒಟ್ಟು', total: 'ಒಟ್ಟು', mobile: 'ಮೊಬೈಲ್ ಸಂಖ್ಯೆ', whatsapp: 'ವಾಟ್ಸಾಪ್' }
+            en: { mid: 'M.O.P', date: 'Date', receiptNo: 'Bill No', time: 'Time', item: 'Item', qty: 'Qty', price: 'Price', amt: 'Amount', totalItems: 'Total Items', totalQty: 'Qty', taxPct: 'TAX %', taxable: 'TAXABLE', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'Grand Total', total: 'Total', mobile: 'MOBILE NO', whatsapp: 'WHATSAPP' },
+            ta: { mid: 'M.O.P', date: 'தேதி', receiptNo: 'ரசீது எண்', time: 'நேரம்', item: 'பொருள்', qty: 'அளவு', price: 'விலை', amt: 'தொகை', totalItems: 'மொத்த பொருட்கள்', totalQty: 'அளவு', taxPct: 'வரி %', taxable: 'வரிக்குரியது', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'மொத்தம்', total: 'மொத்தம்', mobile: 'மொபைல் எண்', whatsapp: 'வாட்ஸ்அப்' },
+            hi: { mid: 'M.O.P', date: 'दिनांक', receiptNo: 'रसीद संख्या', time: 'समय', item: 'वस्तु', qty: 'मात्रा', price: 'मूल्य', amt: 'राशि', totalItems: 'कुल वस्तुएं', totalQty: 'मात्रा', taxPct: 'कर %', taxable: 'कर योग्य', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'कुल योग', total: 'कुल', mobile: 'मोबाइल नंबर', whatsapp: 'व्हाट्सएप' },
+            ml: { mid: 'M.O.P', date: 'തീയതി', receiptNo: 'രസീത് നമ്പർ', time: 'സമയം', item: 'ഇനം', qty: 'അളവ്', price: 'വില', amt: 'തുക', totalItems: 'ആകെ ഇനങ്ങൾ', totalQty: 'അളവ്', taxPct: 'നികുതി %', taxable: 'നികുതി വിധേയം', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'ആകെ തുക', total: 'ആകെ', mobile: 'മൊബൈൽ നമ്പർ', whatsapp: 'വാട്ട്‌സ്ആപ്പ്' },
+            te: { mid: 'M.O.P', date: 'తేదీ', receiptNo: 'రశీదు సంఖ్య', time: 'సమయం', item: 'వస్తువు', qty: 'పరిమాణం', price: 'ధర', amt: 'మొత్తం', totalItems: 'మొత్తం వస్తువులు', totalQty: 'అమౌంట్', taxPct: 'పన్ను %', taxable: 'పన్ను విధించదగినది', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'మొత్తం', total: 'మొత్తం', mobile: 'మొబైల్ నంబర్', whatsapp: 'వాట్సాప్' },
+            kn: { mid: 'M.O.P', date: 'ದಿನಾಂಕ', receiptNo: 'ರಸೀದಿ ಸಂಖ್ಯೆ', time: 'ಸಮಯ', item: 'ವಸ್ತು', qty: 'ಪ್ರಮಾಣ', price: 'ಬೆಲೆ', amt: 'ಮೊತ್ತ', totalItems: 'ಒಟ್ಟು ವಸ್ತುಗಳು', totalQty: 'ಪ್ರಮಾಣ', taxPct: 'ತೆರಿಗೆ %', taxable: 'ತೆರಿಗೆಯ ಮೌಲ್ಯ', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', grandTotal: 'ಒಟ್ಟು', total: 'ಒಟ್ಟು', mobile: 'ಮೊಬೈಲ್ ಸಂಖ್ಯೆ', whatsapp: 'ವಾಟ್ಸಾಪ್' }
         };
         const t = translations[lang] || translations.en;
         const storeLegalName = settings?.store?.legalName || '';
@@ -457,26 +737,25 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
             <body>
                 <div class="text-center">
                     <div class="store-name">${storeName}</div>
-                    <div>Ph: ${storePhone}</div>
-                    <div class="bold" style="margin-top: 2px;">${storeLegalName}</div>
-                    <div>${storeAddress}</div>
-                    ${storeWhatsapp ? `
-                    <div style="margin-top: 8px;">
-                        <div class="bold">${t.whatsapp.toUpperCase()} NO</div>
-                        <div>${storeWhatsapp}</div>
+                    <div class="bold" style="font-size: 13px; margin: 5px 0; border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 2px 0;">
+                        ${mode === 'invoice' ? 'TAX INVOICE' : 'RETAIL BILL'}
                     </div>
-                    ` : ''}
+                    <div>WHATSAPP NO: ${storeWhatsapp || storePhone || 'N/A'}</div>
+                    <div style="font-size: 10px;">${storeAddress}</div>
                 </div>
 
                 <div class="row" style="margin-top: 10px;">
-                    <span>MID: ${bill.mid || '1'}</span>
+                    <span>${t.mid || 'M.O.P'}: ${(bill.paymentMode || 'Cash').toLowerCase().includes('cash') ? '1' :
+                (bill.paymentMode || 'Cash').toLowerCase().includes('upi') ? '2' :
+                    (bill.paymentMode || 'Cash').toLowerCase().includes('card') ? '3' : '1'
+            }</span>
                     <span>${t.date} : ${dateStr}</span>
                 </div>
                 <div class="row">
                     <span>${t.receiptNo} : ${bill.id ? bill.id.slice(-6).toUpperCase() : '-'}</span>
                     <span>${t.time} : ${timeStr}</span>
                 </div>
-                <div>RE-WS-VIP 1</div>
+                ${vip ? `<div>RE-WS-VIP ${customerName}</div>` : ''}
 
                 <div class="dashed"></div>
 
@@ -553,8 +832,15 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
 
                 <div class="dashed"></div>
                 <div class="text-center" style="margin-top: 10px;">
-                    <div class="bold">${t.mobile}: ${storePhone || storeWhatsapp || 'N/A'}</div>
-                    <div class="bold" style="letter-spacing: 1px; margin-top: 5px;">THANK YOU! VISIT AGAIN</div>
+                    <div class="bold">MOBILE NO: ${storeWhatsapp || storePhone || 'N/A'}</div>
+                    <div class="bold" style="letter-spacing: 1px; margin-top: 5px;">
+                        THANK YOU! VISIT AGAIN
+                    </div>
+                    ${vip ? `
+                    <div class="bold" style="letter-spacing: 1px; font-size: 11px; color: #000;">
+                        THANKYOU FOR YOUR BUSINESS WITH US !
+                    </div>
+                    ` : ''}
                 </div>
             </body>
         </html>
@@ -575,18 +861,22 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 ${storeGstin ? `<div style="font-size: 10px;">GSTIN: ${storeGstin}</div>` : ''}
             </div>
 
-            <div class="text-center header-title">BILL RECEIPT</div>
+            <div class="text-center header-title">${mode === 'invoice' ? 'TAX INVOICE' : 'RETAIL BILL'}</div>
 
             <div class="row">
                 <span>Bill No: <span class="bold">${bill.id ? bill.id.slice(-6).toUpperCase() : '-'}</span></span>
                 <span>Date: ${dateStr}</span>
             </div>
+            ${customer.address && typeof customer.address === 'string' && customer.address.trim() ? `<div style="font-size: 10px;">Addr: ${customer.address.trim()}</div>` : ''}
             <div class="row">
-                <span>Cust: ${customerName}</span>
+                <span>Cust: ${customerName}${vip ? ' (VIP)' : ''}</span>
                 <span>Time: ${timeStr}</span>
             </div>
             <div class="row">
-                <span>Mode: ${paymentMode}</span>
+                <span>M.O.P: <span class="bold">${(paymentMode || 'Cash').toLowerCase().includes('cash') ? '1' :
+            (paymentMode || 'Cash').toLowerCase().includes('upi') ? '2' :
+                (paymentMode || 'Cash').toLowerCase().includes('card') ? '3' : '1'
+        }</span></span>
             </div>
 
             <table class="table">
@@ -729,7 +1019,9 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                     <div>IFSC: ${settings.bankDetails.ifsc}</div>
                     <div class="dashed"></div>
                 ` : ''}
-                Thank You! Visit Again.
+                <div style="${vip ? 'font-weight: 900; font-size: 11px;' : ''}">
+                    ${vip ? 'Thankyou for your Buisiness with us !' : 'Thank You! Visit Again.'}
+                </div>
             </div>
         </body>
     </html>
@@ -826,7 +1118,7 @@ const generateDetailedHTML = (bill, settings, colors) => {
                     <div style="padding: 2px;">Extra Copy <span class="checkbox"></span></div>
                 </div>
             </div>
-            <div class="row bg-gray" style="justify-content: center; padding: 2px;"><span class="bold">TAX INVOICE</span></div>
+            <div class="row bg-gray" style="justify-content: center; padding: 2px;"><span class="bold">${mode === 'invoice' ? 'TAX INVOICE' : 'RETAIL BILL'}</span></div>
             <div class="row" style="justify-content: center; padding: 2px; font-style: italic;">(See rule 7, for a tax invoice referred to in section 31)</div>
             <div class="row">
                 <div class="col">
@@ -849,14 +1141,14 @@ const generateDetailedHTML = (bill, settings, colors) => {
             <div class="row" style="min-height: 60px;">
                 <div class="col">
                     <div><span class="bold">Name:</span> ${customerName}</div>
-                    <div><span class="bold">Address:</span> ${customer.address || '-'}</div>
-                    <div><span class="bold">GSTIN:</span> ${customer.gstin || '-'}</div>
-                    <div><span class="bold">Phone:</span> ${customer.mobile || '-'}</div>
+                    <div><span class="bold">Address:</span> ${typeof customer.address === 'string' && customer.address.trim() ? customer.address.trim() : '-'}</div>
+                    <div><span class="bold">GSTIN:</span> ${customer.gstin && typeof customer.gstin === 'string' ? customer.gstin : '-'}</div>
+                    <div><span class="bold">Phone:</span> ${customer.phone || customer.mobile || '-'}</div>
                 </div>
                 <div class="col">
                     <div><span class="bold">Name:</span> ${customerName}</div>
-                    <div><span class="bold">Address:</span> ${customer.address || '-'}</div>
-                    <div><span class="bold">GSTIN:</span> ${customer.gstin || '-'}</div>
+                    <div><span class="bold">Address:</span> ${typeof customer.address === 'string' && customer.address.trim() ? customer.address.trim() : '-'}</div>
+                    <div><span class="bold">GSTIN:</span> ${customer.gstin && typeof customer.gstin === 'string' ? customer.gstin : '-'}</div>
                     <div><span class="bold">State:</span> ${customer.state || '-'}</div>
                 </div>
             </div>
@@ -1497,13 +1789,22 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
         return generateThermalReceiptHTML(bill, settings, mode);
     }
 
-    // For invoice mode, use thermal template ONLY if paper size is thermal-sized AND no other template is specified
-    // or if the template itself is set to 'Thermal'
     const isThermalSize = paperSize === '80mm' || paperSize === '58mm';
-    const isThermalTemplate = settings?.invoice?.template === 'Thermal';
+    let isThermalTemplate = settings?.invoice?.template === 'Thermal';
 
-    if (isThermalTemplate || (isThermalSize && mode !== 'invoice')) {
-        return generateThermalReceiptHTML(bill, settings, mode);
+    // If printing an invoice, explicitly prevent the plain Thermal Bill layout
+    // We want a shrunk-down version of the actual Invoice Template instead.
+    if (mode === 'invoice') {
+        if (isThermalTemplate) {
+
+            isThermalTemplate = false;
+            settings = { ...settings, invoice: { ...settings.invoice, template: 'Classic' } };
+        }
+    } else {
+        // Only return the plain receipt bill template if we are NOT in 'invoice' mode
+        if (isThermalTemplate || isThermalSize) {
+            return generateThermalReceiptHTML(bill, settings, mode);
+        }
     }
 
     const isBW = mode === 'customer' || mode === 'bw';
@@ -1526,6 +1827,11 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
         template === 'Detailed' ? { primary: '#334155' } :
             template === 'Compact' ? { primary: '#8B5E3C' } :
                 template === 'Minimal' ? { primary: '#137A6E' } : { primary: '#003594' };
+
+    // When forcing an invoice template on an 80mm/58mm thermal printer size, scale it properly.
+    if (mode === 'invoice' && isThermalSize && settings !== null) {
+        settings = { ...settings, invoice: { ...settings.invoice, isThermalOverride: true } };
+    }
 
     if (template === 'Detailed' || template === 'GST') return generateDetailedHTML(bill, settings, colors);
     if (template === 'Classic') return generateClassicHTML(bill, settings, colors);
@@ -1753,9 +2059,81 @@ export const printBarcode = async (productName, barcodeValue, settings = {}) => 
     }
 };
 
+export const testPrinter = async (settings = {}) => {
+    const printerAddress = settings?.invoice?.selectedPrinter?.address;
+    const storeName = settings?.store?.name || "KWIQ BILL";
+
+    if (!printerAddress) {
+        Alert.alert("No Printer Connected", "Please pair and connect a thermal printer in Settings first.");
+        return;
+    }
+
+    try {
+        // Use ensurePrinterConnected for robust connection management
+        const connected = await ensurePrinterConnected(printerAddress);
+        if (!connected) throw new Error("Connection failed");
+
+        // Small initial wait 
+        await new Promise(r => setTimeout(r, 200));
+
+        // 1. Print Header (Modern & Bold)
+        let header = COMMANDS.TEXT_FORMAT.TXT_ALIGN_CT + COMMANDS.TEXT_FORMAT.TXT_BOLD_ON;
+        header += COMMANDS.TEXT_FORMAT.TXT_4SQUARE + "\n" + storeName.toUpperCase() + "\n";
+        header += COMMANDS.TEXT_FORMAT.TXT_NORMAL + COMMANDS.TEXT_FORMAT.TXT_BOLD_ON;
+        header += "PRINTER TEST REPORT\n\n";
+        header += COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF + COMMANDS.TEXT_FORMAT.TXT_ALIGN_LT;
+        header += "Status: ONLINE & READY\n";
+        header += "Date  : " + new Date().toLocaleDateString() + "\n";
+        header += "Time  : " + new Date().toLocaleTimeString() + "\n";
+        header += "System: KWIQ BILL v1.0.0\n";
+        header += "--------------------------------\n\n";
+
+        await BLEPrinter.printText(header);
+        await new Promise(r => setTimeout(r, 100));
+
+        // Use individual Image-based QR rendering for maximum compatibility.
+        // Smaller chunks (one QR at a time) prevent "stuck" states on very low cost printers.
+        const paperSize = settings?.invoice?.billPaperSize || '80mm';
+        const pixelWidth = paperSize === '58mm' ? 360 : 540; // Slightly reduced for margin safety
+
+        try {
+            if (globalPrintRef.current) {
+                // Combined Support QR (WhatsApp + Call + Email) in a compact vCard format.
+                // This is the MOST efficient way to provide all links in one scan.
+                // Shortened fields to keep QR version low for cheaper printers.
+                const vCard = "BEGIN:VCARD\nVERSION:3.0\nN:Kwiq Bill;Support;;;\nTEL:+917558175156\nEMAIL:support@kwiqbill.com\nURL:https://wa.me/917558175156\nEND:VCARD";
+
+                const supportUri = await globalPrintRef.current.renderSingleQR("SCAN FOR ALL SUPPORT OPTIONS", vCard, pixelWidth);
+                if (supportUri) {
+                    await BLEPrinter.printPic(supportUri, { width: pixelWidth });
+                    await new Promise(r => setTimeout(r, 1000)); // Generous delay for hardware
+                }
+            } else {
+                throw new Error("Global Print Ref not available");
+            }
+        } catch (qrErr) {
+            console.warn('[testPrinter] Image QR failed:', qrErr);
+            await BLEPrinter.printText(COMMANDS.TEXT_FORMAT.TXT_ALIGN_CT + "(QRs Temporarily Unavailable)\n\n");
+        }
+
+        // 3. Footer
+        let footer = COMMANDS.TEXT_FORMAT.TXT_ALIGN_CT + "--------------------------------\n";
+        footer += "Your printer is set up and working\n";
+        footer += "perfectly with Kwiq Bill.\n\n";
+        footer += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + "Ready to take your business\nto the next level!" + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF + "\n";
+        footer += "\n\n\n\n";
+        await BLEPrinter.printText(footer);
+
+        Alert.alert("Success", "Test receipt sent successfully!");
+    } catch (error) {
+        console.error('Test print error:', error);
+        Alert.alert('Test Failed', 'Unable to communicate with the printer. Please check power and Bluetooth.');
+    }
+};
+
 export const printReceipt = async (bill, arg2, arg3, arg4) => {
     let settings = {};
-    let mode = 'invoice';
+    let mode = 'customer';
     let format = '80mm';
 
     // Handle flexible arguments: (bill, format, settings) or (bill, settings, mode)
@@ -1763,25 +2141,19 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
         // Called as (bill, format, settings, mode?)
         format = arg2;
         settings = arg3 || {};
-        mode = arg4 || 'invoice';
+        mode = arg4 || 'customer';
     } else {
         // Called as (bill, settings, mode)
         settings = arg2 || {};
-        mode = arg3 || 'invoice';
+        mode = arg3 || 'customer';
 
         // Choose format based on mode (Bill vs Invoice)
         // customer/bw = Bill Receipt (Thermal)
         // invoice = System Invoice (A4/A5)
         if (mode === 'customer' || mode === 'bw') {
-            format = '80mm';
+            format = settings?.invoice?.billPaperSize || '80mm';
         } else {
-            // Default to Invoice Size, unless template is explicitly 'Thermal' (legacy check)
-            const template = settings?.invoice?.template || 'Classic';
-            if (template === 'Thermal') {
-                format = '80mm';
-            } else {
-                format = settings?.invoice?.invoicePaperSize || 'A4';
-            }
+            format = settings?.invoice?.invoicePaperSize || 'A4';
         }
     }
 
@@ -1790,9 +2162,25 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
     settings.invoice.paperSize = format;
 
     try {
-        if ((format === '80mm' || format === '58mm') && settings?.invoice?.selectedPrinter?.address) {
-            // Using Bluetooth ESC/POS thermal printing natively
-            await printBluetoothReceipt(bill, settings, format);
+        if (format === '80mm' || format === '58mm') {
+            if (settings?.invoice?.selectedPrinter?.address) {
+                // Using Bluetooth ESC/POS thermal printing natively
+                if (mode === 'invoice') {
+                    // This creates a formal invoice look on thermal paper without a preview dialog
+                    // Force professional template for formal invoices as requested
+                    await printProfessionalBluetoothReceipt(bill, settings, format, mode);
+                } else {
+                    // Standard bill receipts respect the user's template setting (Standard/Professional)
+                    await printBluetoothReceipt(bill, settings, format, mode);
+                }
+            } else {
+                // Inform user why "bluetooth section" or printing is not working
+                Alert.alert(
+                    "Bluetooth Printer Error",
+                    "No Bluetooth Thermal Printer is connected. Please connect one in Settings -> Print & Hardware, or switch your Invoice Paper Size to A4/A5."
+                );
+                return;
+            }
         } else {
             // Using expo-print logic
             const html = generateReceiptHTML(bill, settings, mode);
@@ -1826,12 +2214,80 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
         // Auto backup after print
         try {
             const allData = await fetchAllTableData();
-            await exportToDeviceFolders(allData);
+            await exportToDeviceFolders(allData, null, { isAutoSave: true });
         } catch (e) {
             console.warn('Auto-backup failed:', e);
         }
     } catch (error) {
         console.error('Print error:', error);
+        Alert.alert('Printing Failed', String(error?.message || error || "Unknown Error from Bluetooth Printer"));
+    }
+};
+
+export const printMultipleReceipts = async (bills, arg2, arg3) => {
+    let settings = {};
+    let mode = 'customer';
+    let format = 'A4';
+
+    if (typeof arg2 === 'string') {
+        format = arg2;
+        settings = arg3 || {};
+    } else {
+        settings = arg2 || {};
+        mode = arg3 || 'customer';
+        if (mode === 'customer' || mode === 'bw') {
+            format = settings?.invoice?.billPaperSize || '80mm';
+        } else {
+            format = settings?.invoice?.invoicePaperSize || 'A4';
+        }
+    }
+
+    if (!settings.invoice) settings.invoice = {};
+    settings.invoice.paperSize = format;
+
+    try {
+        if (format === '80mm' || format === '58mm') {
+            if (settings?.invoice?.selectedPrinter?.address) {
+                for (const bill of bills) {
+                    if (mode === 'invoice') {
+                        await printProfessionalBluetoothReceipt(bill, settings, format, mode);
+                    } else {
+                        await printBluetoothReceipt(bill, settings, format, mode);
+                    }
+                }
+            } else {
+                Alert.alert(
+                    "Bluetooth Printer Error",
+                    "No Bluetooth Thermal Printer is connected. Please connect one in Settings -> Print & Hardware, or switch your Invoice Paper Size to A4/A5."
+                );
+                return;
+            }
+        } else {
+            const combinedHtml = bills.map((bill, index) => {
+                const rawHtml = generateReceiptHTML(bill, settings, mode);
+                const pageBreak = index < bills.length - 1 ? '<div style="page-break-after: always;"></div>' : '';
+                return `<div>${rawHtml}</div>${pageBreak}`;
+            }).join('');
+
+            let width = 302;
+            let height = undefined;
+            if (format === '58mm') {
+                width = 219;
+                height = 8000;
+            } else if (format === 'A4') width = 595;
+            else if (format === 'A5') width = 420;
+            else { width = 302; height = 8000; }
+
+            await Print.printAsync({
+                html: combinedHtml,
+                width,
+                height,
+                orientation: Print.Orientation.portrait,
+                printerUrl: settings?.invoice?.selectedPrinter?.url || settings?.invoice?.selectedPrinter?.id,
+            });
+        }
+    } catch (e) {
+        console.error('Multi Print error:', e);
     }
 };
 
@@ -1918,3 +2374,4 @@ export const shareBulkReceiptsPDF = async (bills, settings = {}) => {
         isSharingInProgress = false;
     }
 };
+// 

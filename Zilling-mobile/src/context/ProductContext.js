@@ -11,15 +11,19 @@ export const ProductProvider = ({ children }) => {
 
   // Normalization helper for variants
   const normalizeVariants = (variants) => {
-    return (variants || []).map(v => ({
-      ...v,
-      name: String(v.name || v.detail || ''),
-      sku: String(v.sku || ''),
-      cost_price: parseFloat((v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)) || 0,
-      price: (v.price !== null && v.price !== undefined && v.price !== '') ? parseFloat(v.price) : null,
-      stock: parseInt((v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock : ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty : ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))) || 0,
-      tax_rate: parseFloat(v.tax_rate || v.taxRate || 0) || 0,
-    }));
+    return (variants || []).map(v => {
+      const computedCost = parseFloat((v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)) || 0;
+      return {
+        ...v,
+        name: String(v.name || v.detail || ''),
+        sku: String(v.sku || ''),
+        cost_price: computedCost,
+        costPrice: computedCost,
+        price: (v.price !== null && v.price !== undefined && v.price !== '') ? parseFloat(v.price) : null,
+        stock: parseInt((v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock : ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty : ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))) || 0,
+        tax_rate: parseFloat(v.tax_rate || v.taxRate || 0) || 0,
+      };
+    });
   };
 
   // Initial load from SQLite

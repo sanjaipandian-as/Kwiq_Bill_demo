@@ -13,6 +13,7 @@ const ClassicInvoiceTemplate = ({ settings, data }) => {
     const invoice = data || {
         invoiceNo: '#INV-1001',
         date: '14/10/2026',
+        time: '11:56 AM',
         customer: { name: 'John Doe', address: '45, Anna Nagar, Madurai, TN' },
         items: [
             { name: 'Sample Product A', quantity: 1, price: 100, total: 100 },
@@ -58,6 +59,10 @@ const ClassicInvoiceTemplate = ({ settings, data }) => {
                     <View style={styles.a4MetaItem}>
                         <Text style={styles.a4MetaLabel}>DATE</Text>
                         <Text style={styles.a4MetaValue}>{invoice.date}</Text>
+                    </View>
+                    <View style={styles.a4MetaItem}>
+                        <Text style={styles.a4MetaLabel}>TIME</Text>
+                        <Text style={styles.a4MetaValue}>{invoice.time || '12:00 PM'}</Text>
                     </View>
                     <View style={styles.a4MetaItem}>
                         <Text style={styles.a4MetaLabel}>INVOICE NO.</Text>

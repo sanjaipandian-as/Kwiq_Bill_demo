@@ -12,6 +12,7 @@ const CompactInvoiceTemplate = ({ settings, data }) => {
     const invoice = data || {
         invoiceNo: '#INV-1001',
         date: '14/10/2026',
+        time: '11:56 AM',
         dueDate: '14/10/2026',
         customer: { name: 'John Doe', address: '45, Anna Nagar, Madurai, TN' },
         items: [
@@ -49,7 +50,10 @@ const CompactInvoiceTemplate = ({ settings, data }) => {
 
             {/* Meta Bar */}
             <View style={styles.compactMetaContainer}>
-                <Text style={styles.compactMetaText}><Text style={styles.compactMetaLabel}>INVOICE NO.:</Text> {invoice.invoiceNo}</Text>
+                <View>
+                    <Text style={styles.compactMetaText}><Text style={styles.compactMetaLabel}>INVOICE NO.:</Text> {invoice.invoiceNo}</Text>
+                    <Text style={styles.compactMetaText}><Text style={styles.compactMetaLabel}>TIME:</Text> {invoice.time || '12:00 PM'}</Text>
+                </View>
                 <View>
                     <Text style={[styles.compactMetaText, { textAlign: 'right' }]}><Text style={styles.compactMetaLabel}>Invoice Date:</Text> {invoice.date}</Text>
                     <Text style={[styles.compactMetaText, { textAlign: 'right' }]}><Text style={styles.compactMetaLabel}>Due Date:</Text> {invoice.dueDate || invoice.date}</Text>

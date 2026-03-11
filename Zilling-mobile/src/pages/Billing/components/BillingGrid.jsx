@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView, LayoutAnimation, UIManager } from 'react-native';
-import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X } from 'lucide-react-native';
+import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X, Barcode } from 'lucide-react-native';
 import { useProducts } from '../../../context/ProductContext';
 import BottomFunctionBar from './BottomFunctionBar';
 
@@ -147,7 +147,6 @@ const BillingGrid = ({
             >
                 <View style={styles.cardMain}>
                     <View style={styles.cardInfo}>
-                        <Text style={styles.itemSku}>{item.sku || 'ITEM'}-{index + 1}</Text>
                         <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
                         <View style={styles.priceRow}>
                             <NumberInput
@@ -187,7 +186,7 @@ const BillingGrid = ({
                             </TouchableOpacity>
                         </View>
                         <View style={styles.totalWrapper}>
-                            <Text style={styles.totalLabel}>Amount</Text>
+                            <Text style={styles.totalLabel}>Amount:</Text>
                             <Text style={styles.itemTotal}>₹{(item.total || 0).toFixed(0)}</Text>
                         </View>
                     </View>
@@ -212,8 +211,15 @@ const BillingGrid = ({
                                 <Text style={styles.actionPillText}>Discount</Text>
                             </TouchableOpacity>
                         )}
+
+                        <View style={[styles.barcodeTag, { marginTop: 0, marginLeft: 'auto', marginRight: 8 }]}>
+                            <Barcode size={12} color="#64748b" />
+                            <Text style={[styles.barcodeTagText, { fontSize: 10 }]}>{item.sku || item.barcode || item.id?.toString().slice(-6)}</Text>
+                        </View>
+
                         <TouchableOpacity onPress={() => removeItem(item.id)} style={[styles.actionPill, { backgroundColor: '#fee2e2' }]}>
                             <Trash2 size={14} color="#ef4444" />
+                            <View style={{ width: 4 }} />
                             <Text style={[styles.actionPillText, { color: '#ef4444' }]}>Remove</Text>
                         </TouchableOpacity>
                     </View>
@@ -228,7 +234,12 @@ const BillingGrid = ({
                 <View style={styles.cartSection}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>ITEMS ({cart.length})</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center', paddingRight: 10 }} style={{ flex: 1, marginLeft: 10 }}>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={{ gap: 6, alignItems: 'center' }}
+                            style={styles.adjRow}
+                        >
                             {Number(billDiscount) > 0 && (
                                 <View style={[styles.adjPill, { paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }]}>
                                     <Tag size={10} color="#000" />
@@ -287,7 +298,12 @@ const BillingGrid = ({
             )}
 
             <View
-                style={[styles.suggestionSection, (isKeyboardVisible || isSearchFocused) && { flex: 1, paddingTop: 10 }]}
+                style={[
+                    styles.suggestionSection,
+                    (isKeyboardVisible || isSearchFocused)
+                        ? { flex: 1, paddingTop: 10 }
+                        : (cart.length > 0 ? { flex: 0, height: '48%', minHeight: 330 } : { flex: 1 })
+                ]}
             >
                 {cart.length > 0 && !isSearchFocused && !isKeyboardVisible && (
                     <BottomFunctionBar onFunctionClick={onFunctionClick} variant="inline" />
@@ -336,9 +352,9 @@ const BillingGrid = ({
                     data={filteredSuggestions}
                     keyExtractor={(item) => item._dbId || item.id || Math.random().toString()}
                     numColumns={2}
-                    columnWrapperStyle={{ gap: 10 }}
+                    columnWrapperStyle={{ gap: 4 }}
                     contentContainerStyle={[
-                        { paddingBottom: isKeyboardVisible ? 60 : 220, paddingTop: 20 }
+                        { paddingBottom: isKeyboardVisible ? 60 : 220, paddingTop: 8 }
                     ]}
                     initialNumToRender={30}
                     windowSize={21}
@@ -371,21 +387,23 @@ const BillingGrid = ({
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                                     <Text style={[styles.suggestedName, { flex: 1, marginRight: 4 }]} numberOfLines={2}>{item.name}</Text>
                                     <View style={{ alignItems: 'flex-end' }}>
-                                        <Text style={{ fontSize: 11, fontWeight: '900', color: hasNoStock ? '#ef4444' : '#1e293b' }}>
+                                        <Text style={{ fontSize: 11, fontWeight: '900', color: hasNoStock ? '#94a3b8' : '#000' }}>
                                             Qty: {item.stock || 0}
                                         </Text>
-                                        {cartQty > 0 && (
-                                            <View style={styles.inCartBadge}>
-                                                <Text style={styles.inCartBadgeText}>{cartQty} in cart</Text>
-                                            </View>
-                                        )}
                                     </View>
                                 </View>
 
                                 <View style={styles.suggestedFooter}>
-                                    <Text style={styles.suggestedPrice}>₹{item.price}</Text>
-                                    <View style={[styles.addBtnSmall, hasNoStock && { backgroundColor: '#cbd5e1' }]}>
-                                        <Plus size={14} color="#fff" />
+                                    <View>
+                                        <Text style={styles.suggestedPrice}>₹{item.price}</Text>
+                                        {cartQty > 0 && (
+                                            <View style={styles.inCartPill}>
+                                                <Text style={styles.inCartPillText}>{cartQty} ADDED</Text>
+                                            </View>
+                                        )}
+                                    </View>
+                                    <View style={[styles.addBtnSmall, hasNoStock && { backgroundColor: '#e2e8f0' }]}>
+                                        <Plus size={14} color={hasNoStock ? "#94a3b8" : "#fff"} />
                                     </View>
                                 </View>
                             </TouchableOpacity>
@@ -401,15 +419,17 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
 
     // Cart Section
-    cartSection: { flexShrink: 1, maxHeight: '38%', marginBottom: 12 },
-    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    sectionTitle: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5 },
+    cartSection: { flex: 1, marginBottom: 2 },
+    sectionHeader: { alignItems: 'center', marginBottom: 4 },
+    sectionTitle: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 2, textAlign: 'center' },
+    adjRow: { marginTop: 4, width: '100%' },
 
     // Cart Card
     cartCard: {
         backgroundColor: '#fff',
         borderRadius: 18,
-        padding: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
         marginBottom: 8,
         borderWidth: 1.5,
         borderColor: '#f1f5f9',
@@ -431,9 +451,17 @@ const styles = StyleSheet.create({
     cardRight: { minWidth: 90, alignItems: 'flex-end', justifyContent: 'space-between', paddingVertical: 1 },
     qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#f8fafc', padding: 2, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' },
     qtyAction: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1, borderWidth: 1, borderColor: '#f1f5f9' },
-    totalWrapper: { alignItems: 'flex-end', marginTop: 2 },
-    totalLabel: { fontSize: 8, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: -3 },
-    itemTotal: { fontSize: 20, fontWeight: '900', color: '#000', letterSpacing: -1 },
+    totalWrapper: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        justifyContent: 'flex-end',
+        marginTop: 4,
+        gap: 6
+    },
+    totalLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 },
+    itemTotal: { fontSize: 20, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+    barcodeTag: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, marginTop: 4, borderWidth: 1, borderColor: '#e2e8f0' },
+    barcodeTagText: { fontSize: 9, fontWeight: '800', color: '#64748b', letterSpacing: 0.4 },
 
     inputWrapper: {
         flexDirection: 'row',
@@ -473,9 +501,25 @@ const styles = StyleSheet.create({
     priceDivider: { fontSize: 13, color: '#cbd5e1', fontWeight: '500', marginHorizontal: 4 },
     taxBadgeContainer: { justifyContent: 'center' },
 
-    cardActions: { flexDirection: 'row', gap: 6, marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
-    actionPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-    actionPillText: { fontSize: 10, fontWeight: '800', color: '#000' },
+    cardActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 6,
+        paddingTop: 8,
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9'
+    },
+    actionPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#f1f5f9',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 10
+    },
+    actionPillText: { fontSize: 11, fontWeight: '800', color: '#000' },
 
     emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 20 },
     emptyIconBox: { width: 50, height: 50, borderRadius: 15, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
@@ -490,14 +534,14 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         borderTopLeftRadius: 35,
         borderTopRightRadius: 35,
-        paddingTop: 15,
+        paddingTop: 12,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -6 },
         shadowOpacity: 0.1,
         shadowRadius: 15,
         elevation: 15
     },
-    searchBarContainer: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+    searchBarContainer: { flexDirection: 'row', gap: 10, marginBottom: 4 },
     searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 14, paddingHorizontal: 12, height: 44, borderWidth: 1, borderColor: '#f1f5f9' },
     searchInput: { flex: 1, fontSize: 13, color: '#000', fontWeight: '600', marginLeft: 8 },
     closeSearchBtn: { padding: 4 },
@@ -505,30 +549,30 @@ const styles = StyleSheet.create({
     filterText: { color: '#fff', fontWeight: '900', fontSize: 11 },
     scanIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
 
-    suggestionItem: { flex: 1, backgroundColor: '#fff', borderRadius: 18, padding: 12, borderWidth: 1.5, borderColor: '#e2e8f0', marginBottom: 8, minHeight: 90, justifyContent: 'space-between' },
+    suggestionItem: { flex: 1, backgroundColor: '#fff', borderRadius: 18, padding: 10, borderWidth: 1.5, borderColor: '#f1f5f9', marginBottom: 4, minHeight: 90, justifyContent: 'space-between' },
     suggestionItemInCart: { borderColor: '#000', backgroundColor: '#f8fafc', borderWidth: 2 },
     suggestedName: { fontSize: 13, fontWeight: '900', color: '#000', marginBottom: 2 },
     suggestedFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
     suggestedPrice: { fontSize: 15, fontWeight: '900', color: '#000' },
-    addBtnSmall: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center' },
-    discountBadgeText: { fontSize: 9, fontWeight: '900', color: '#ef4444' },
-    discountBadge: { position: 'absolute', top: -10, right: 10, backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' },
-    inCartBadge: { backgroundColor: '#000', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, margin: 2 },
-    inCartBadgeText: { fontSize: 8, color: '#fff', fontWeight: '900', textTransform: 'uppercase' },
+    addBtnSmall: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+    discountBadgeText: { fontSize: 9, fontWeight: '900', color: '#000' },
+    discountBadge: { position: 'absolute', top: -10, right: 10, backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1.5, borderColor: '#000' },
+    inCartPill: { backgroundColor: '#000', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, marginTop: 2, alignSelf: 'flex-start' },
+    inCartPillText: { fontSize: 8, color: '#fff', fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.3 },
 
     adjPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 12,
-        borderWidth: 1,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 14,
+        borderWidth: 1.5,
         borderColor: '#e2e8f0',
-        gap: 6,
+        gap: 8,
     },
     adjPillText: {
-        fontSize: 11,
-        fontWeight: '800',
+        fontSize: 12,
+        fontWeight: '900',
         color: '#475569',
     },
 });

@@ -8,7 +8,9 @@ import {
     ActivityIndicator,
     TouchableOpacity,
     StatusBar,
-    Platform
+    Platform,
+    Modal,
+    ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -18,12 +20,20 @@ import {
     Trash2,
     ChevronLeft,
     X,
-    History
+    History,
+    Filter,
+    Calendar,
+    Clock,
+    Globe,
+    ChevronRight,
+    ChevronLeft as ChevronLeftIcon,
+    ChevronRight as ChevronRightIcon
 } from 'lucide-react-native';
 import { Input } from '../../components/ui/Input';
 import { useTransactions } from '../../context/TransactionContext';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useToast } from '../../context/ToastContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function RecycleBinPage() {
     const navigation = useNavigation();
@@ -32,6 +42,13 @@ export default function RecycleBinPage() {
     const [deletedInvoices, setDeletedInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Date Filter State - GST Analytics Style
+    const [period, setPeriod] = useState('All Time');
+    const [selectedCustomDate, setSelectedCustomDate] = useState(null);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const [currentCalView, setCurrentCalView] = useState(new Date());
 
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
@@ -58,8 +75,8 @@ export default function RecycleBinPage() {
     useFocusEffect(
         useCallback(() => {
             loadDeleted();
-            StatusBar.setBarStyle('dark-content');
-            if (Platform.OS === 'android') StatusBar.setBackgroundColor('#ffffff');
+            StatusBar.setBarStyle('light-content');
+            if (Platform.OS === 'android') StatusBar.setBackgroundColor('#000000');
         }, [])
     );
 
@@ -145,13 +162,72 @@ export default function RecycleBinPage() {
         });
     };
 
+    // Date Filter Functions
+    const changePeriod = (p) => {
+        setPeriod(p);
+        setIsFilterOpen(false);
+    };
+
+    const handleCustomDateSelect = (date) => {
+        setSelectedCustomDate(date);
+        setPeriod('Custom');
+        setIsCalendarOpen(false);
+    };
+
+    // Calendar Helpers
+    const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+    const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
+
+    const calendarHeader = currentCalView.toLocaleString('default', { month: 'long', year: 'numeric' });
+    const daysArr = Array.from({ length: getDaysInMonth(currentCalView.getFullYear(), currentCalView.getMonth()) }, (_, i) => i + 1);
+    const startPadding = Array.from({ length: getFirstDayOfMonth(currentCalView.getFullYear(), currentCalView.getMonth()) });
+
+    const shiftMonth = (offset) => {
+        const newDate = new Date(currentCalView.getFullYear(), currentCalView.getMonth() + offset, 1);
+        setCurrentCalView(newDate);
+    };
+
     const filteredInvoices = deletedInvoices.filter(inv => {
         const invId = inv.id || '';
         const weeklyNo = inv.weekly_sequence?.toString() || '';
         const customer = inv.customer_name || inv.customerName || '';
-        return invId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        const matchesSearch = invId.toLowerCase().includes(searchTerm.toLowerCase()) ||
             weeklyNo.includes(searchTerm) ||
             customer.toLowerCase().includes(searchTerm.toLowerCase());
+
+        // Date filtering
+        let matchesDateFilter = true;
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const invDate = new Date(inv.date);
+
+        if (period === 'Today') {
+            matchesDateFilter = invDate >= startOfToday;
+        } else if (period === 'Yesterday') {
+            const yesterday = new Date(startOfToday);
+            yesterday.setDate(yesterday.getDate() - 1);
+            matchesDateFilter = invDate >= yesterday && invDate < startOfToday;
+        } else if (period === 'This Week') {
+            const startOfWeek = new Date(startOfToday);
+            startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay());
+            matchesDateFilter = invDate >= startOfWeek;
+        } else if (period === 'This Month') {
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            matchesDateFilter = invDate >= startOfMonth;
+        } else if (period === 'This Year') {
+            const startOfYear = new Date(now.getFullYear(), 0, 1);
+            matchesDateFilter = invDate >= startOfYear;
+        } else if (period === 'All Time') {
+            matchesDateFilter = true;
+        } else if (period === 'Custom' && selectedCustomDate) {
+            const targetDate = new Date(selectedCustomDate);
+            targetDate.setHours(0, 0, 0, 0);
+            const endDate = new Date(targetDate);
+            endDate.setDate(targetDate.getDate() + 1);
+            matchesDateFilter = invDate >= targetDate && invDate < endDate;
+        }
+
+        return matchesSearch && matchesDateFilter;
     });
 
     const renderInvoiceItem = ({ item }) => (
@@ -192,52 +268,75 @@ export default function RecycleBinPage() {
     );
 
     return (
-        <SafeAreaView style={styles.safeArea}>
-            <View style={styles.container}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                        <ChevronLeft size={32} color="#000" strokeWidth={2} />
-                    </TouchableOpacity>
-                    <View>
-                        <Text style={styles.title}>Recycle Bin</Text>
-                        <Text style={styles.subtitle}>{deletedInvoices.length} items in trash</Text>
-                    </View>
-                </View>
-
-                <View style={styles.actionHeader}>
-                    {deletedInvoices.length > 0 && (
-                        <>
-                            <TouchableOpacity onPress={handleRestoreAll} style={styles.pillBtn}>
-                                <RotateCcw size={14} color="#000" />
-                                <Text style={styles.pillText}>Restore All</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleEmptyBin} style={[styles.pillBtn, styles.pillDanger]}>
-                                <Trash2 size={14} color="#ef4444" />
-                                <Text style={[styles.pillText, { color: '#ef4444' }]}>Empty Bin</Text>
-                            </TouchableOpacity>
-                        </>
-                    )}
-                </View>
-
-                {/* Search */}
-                <View style={styles.searchWrapper}>
-                    <Search size={20} color="#000" strokeWidth={2} />
-                    <Input
-                        style={styles.searchInput}
-                        placeholder="Search deleted invoices..."
-                        placeholderTextColor="#666"
-                        value={searchTerm}
-                        onChangeText={setSearchTerm}
-                        selectionColor="#000"
-                    />
-                    {searchTerm.length > 0 && (
-                        <TouchableOpacity onPress={() => setSearchTerm('')}>
-                            <X size={18} color="#000" />
+        <View style={styles.safeArea}>
+            <LinearGradient colors={['#000', '#111']} style={styles.headerGradient}>
+                <SafeAreaView edges={['top']}>
+                    {/* Top Navigation */}
+                    <View style={styles.topNav}>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navIcon}>
+                            <ChevronLeft size={24} color="#fff" strokeWidth={2.5} />
                         </TouchableOpacity>
-                    )}
-                </View>
+                        <View style={styles.navTitleBox}>
+                            <Text style={styles.navTitle}>Recycle Bin</Text>
+                            <Text style={styles.navSubtitle}>{deletedInvoices.length} items found</Text>
+                        </View>
+                    </View>
 
+                    {/* Search Row */}
+                    <View style={styles.searchRow}>
+                        <View style={styles.searchBox}>
+                            <Search size={18} color="rgba(255,255,255,0.45)" strokeWidth={2.5} />
+                            <Input
+                                style={styles.searchInputPremium}
+                                placeholder="Search deleted invoices..."
+                                placeholderTextColor="rgba(255,255,255,0.35)"
+                                value={searchTerm}
+                                onChangeText={setSearchTerm}
+                                selectionColor="#fff"
+                            />
+                            {searchTerm.length > 0 && (
+                                <TouchableOpacity onPress={() => setSearchTerm('')} style={styles.clearIcon}>
+                                    <X size={18} color="#fff" />
+                                </TouchableOpacity>
+                            )}
+                            <TouchableOpacity
+                                style={styles.filterTrigger}
+                                onPress={() => setIsFilterOpen(true)}
+                            >
+                                <Filter size={24} color={period !== 'All Time' ? '#fff' : 'rgba(255,255,255,0.6)'} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* Bulk Action Strip - With Horizontal Scroll for better UX */}
+                    {deletedInvoices.length > 0 && (
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.actionHeaderPremium}
+                        >
+                            <TouchableOpacity onPress={handleRestoreAll} style={styles.premiumPill}>
+                                <RotateCcw size={14} color="#fff" strokeWidth={2.5} />
+                                <Text style={styles.premiumPillText}>Restore All</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity onPress={handleEmptyBin} style={[styles.premiumPill, styles.premiumPillDanger]}>
+                                <Trash2 size={14} color="#ef4444" strokeWidth={2.5} />
+                                <Text style={[styles.premiumPillText, { color: '#ef4444' }]}>Empty Trash</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={() => setIsCalendarOpen(true)}
+                                style={[styles.premiumPill, period === 'Custom' && { borderColor: '#fff' }]}
+                            >
+                                <Calendar size={20} color="#fff" strokeWidth={2.5} />
+                            </TouchableOpacity>
+                        </ScrollView>
+                    )}
+                </SafeAreaView>
+            </LinearGradient>
+
+            <View style={styles.container}>
                 {/* Content */}
                 {loading ? (
                     <View style={styles.center}>
@@ -271,102 +370,395 @@ export default function RecycleBinPage() {
                     cancelLabel={confirmModal.cancelLabel}
                     onConfirm={confirmModal.onConfirm}
                 />
+
+                {/* Filter Drawer - Theme Style */}
+                <Modal
+                    visible={isFilterOpen}
+                    transparent
+                    animationType="fade"
+                    statusBarTranslucent
+                    onRequestClose={() => setIsFilterOpen(false)}
+                >
+                    <Pressable style={styles.modalOverlay} onPress={() => setIsFilterOpen(false)}>
+                        <View style={styles.filterModal}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Filter Trash</Text>
+                                <Pressable onPress={() => setIsFilterOpen(false)} style={styles.modalCloseBtn}>
+                                    <X size={18} color="#64748b" />
+                                </Pressable>
+                            </View>
+
+                            <ScrollView style={styles.modalScroll}>
+                                {[
+                                    { id: 'Today', label: 'Today', icon: Clock },
+                                    { id: 'Yesterday', label: 'Yesterday', icon: Clock },
+                                    { id: 'This Week', label: 'This Week', icon: Calendar },
+                                    { id: 'This Month', label: 'This Month', icon: Calendar },
+                                    { id: 'This Year', label: 'This Year', icon: Calendar },
+                                    { id: 'All Time', label: 'All Time', icon: Globe },
+                                ].map(item => {
+                                    const IconComp = item.icon;
+                                    return (
+                                        <Pressable
+                                            key={item.id}
+                                            style={[styles.filterItem, period === item.id && styles.activeFilterItem]}
+                                            onPress={() => changePeriod(item.id)}
+                                        >
+                                            <View style={styles.filterItemLeft}>
+                                                <IconComp size={18} color={period === item.id ? '#000' : '#94a3b8'} />
+                                                <Text style={[styles.filterItemLabel, period === item.id && styles.activeFilterItemLabel]}>{item.label}</Text>
+                                            </View>
+                                            <ChevronRight size={16} color="#cbd5e1" />
+                                        </Pressable>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
+                    </Pressable>
+                </Modal>
+
+                {/* Premium Calendar Picker Modal */}
+                <Modal
+                    visible={isCalendarOpen}
+                    transparent
+                    animationType="fade"
+                    statusBarTranslucent
+                    onRequestClose={() => setIsCalendarOpen(false)}
+                >
+                    <Pressable style={styles.modalOverlay} onPress={() => setIsCalendarOpen(false)}>
+                        <View style={styles.calendarModalContainer}>
+                            <View style={styles.premiumCal}>
+                                <View style={styles.calTop}>
+                                    <View style={styles.calNav}>
+                                        <Pressable onPress={() => shiftMonth(-1)} style={styles.calNavBtn}>
+                                            <ChevronLeftIcon size={20} color="#000" />
+                                        </Pressable>
+                                        <Text style={styles.calMonthLabel}>{calendarHeader}</Text>
+                                        <Pressable onPress={() => shiftMonth(1)} style={styles.calNavBtn}>
+                                            <ChevronRightIcon size={20} color="#000" />
+                                        </Pressable>
+                                    </View>
+                                    <Pressable onPress={() => setIsCalendarOpen(false)} style={styles.calClose}>
+                                        <X size={20} color="#94a3b8" />
+                                    </Pressable>
+                                </View>
+
+                                <View style={styles.calWeekRow}>
+                                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                                        <Text key={i} style={styles.calWeekText}>{d}</Text>
+                                    ))}
+                                </View>
+
+                                <View style={styles.calGrid}>
+                                    {startPadding.map((_, i) => (
+                                        <View key={`p-${i}`} style={styles.calDayCell} />
+                                    ))}
+                                    {daysArr.map(day => {
+                                        const isSelected = selectedCustomDate &&
+                                            selectedCustomDate.getDate() === day &&
+                                            selectedCustomDate.getMonth() === currentCalView.getMonth() &&
+                                            selectedCustomDate.getFullYear() === currentCalView.getFullYear();
+                                        return (
+                                            <Pressable
+                                                key={day}
+                                                style={[styles.calDayCell, isSelected && styles.calDayActive]}
+                                                onPress={() => {
+                                                    const d = new Date(currentCalView.getFullYear(), currentCalView.getMonth(), day);
+                                                    handleCustomDateSelect(d);
+                                                }}
+                                            >
+                                                <Text style={[styles.calDayText, isSelected && styles.calDayTextActive]}>{day}</Text>
+                                            </Pressable>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+                        </View>
+                    </Pressable>
+                </Modal>
             </View>
-        </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: '#ffffff' },
-    container: { flex: 1, paddingHorizontal: 20 },
+    safeArea: { flex: 1, backgroundColor: '#f8fafc' },
+    container: { flex: 1, paddingHorizontal: 22 },
 
-    // Header
-    header: {
+    // Header Premium Design
+    headerGradient: {
+        backgroundColor: '#000',
+        paddingBottom: 24,
+        borderBottomLeftRadius: 32,
+        borderBottomRightRadius: 32,
+        paddingTop: Platform.OS === 'ios' ? 0 : 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.2,
+        shadowRadius: 20,
+        elevation: 10
+    },
+    topNav: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 10,
-        marginBottom: 24,
-        gap: 16
+        paddingHorizontal: 22,
+        paddingTop: 16,
+        paddingBottom: 12
     },
-    backBtn: {
-        padding: 0,
+    navIcon: {
+        width: 42,
+        height: 42,
+        borderRadius: 14,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)'
     },
-    title: {
-        fontSize: 28,
+    navTitleBox: {
+        flex: 1,
+        marginLeft: 16
+    },
+    navTitle: {
+        fontSize: 24,
         fontWeight: '900',
-        color: '#000',
-        letterSpacing: -1,
-        lineHeight: 32
+        color: '#fff',
+        letterSpacing: -0.5
     },
-    subtitle: {
-        fontSize: 13,
-        color: '#666',
+    navSubtitle: {
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.5)',
         fontWeight: '600',
         marginTop: 2
     },
-    actionHeader: {
-        flexDirection: 'row',
-        gap: 8,
-        marginBottom: 16,
+    searchRow: {
+        paddingHorizontal: 22,
+        marginTop: 12
     },
-    pillBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#f3f4f6',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20,
-        gap: 6,
-        borderWidth: 1,
-        borderColor: '#e5e7eb'
-    },
-    pillDanger: {
-        backgroundColor: '#fef2f2',
-        borderColor: '#fee2e2'
-    },
-    pillText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#000'
-    },
-
-    // Search
-    searchWrapper: {
+    searchBox: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f3f4f6',
-        borderRadius: 12,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 16,
         paddingHorizontal: 16,
         height: 52,
-        marginBottom: 24,
         borderWidth: 1,
-        borderColor: '#e5e7eb'
+        borderColor: 'rgba(255,255,255,0.08)'
     },
-    searchInput: {
+    searchInputPremium: {
         flex: 1,
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '600',
-        color: '#000',
+        color: '#fff',
         paddingHorizontal: 10,
         height: '100%',
-        borderWidth: 0,
-        backgroundColor: 'transparent'
+        backgroundColor: 'transparent',
+        borderWidth: 0
+    },
+    clearIcon: {
+        padding: 4
+    },
+    filterTrigger: {
+        marginLeft: 12,
+        padding: 4
+    },
+    actionHeaderPremium: {
+        flexDirection: 'row',
+        gap: 10,
+        paddingHorizontal: 22,
+        marginTop: 16,
+        paddingBottom: 4 // Space for horizontal scroll
+    },
+    premiumPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 14,
+        gap: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)'
+    },
+    premiumPillDanger: {
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderColor: 'rgba(239, 68, 68, 0.2)'
+    },
+    premiumPillText: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#fff'
+    },
+
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end'
+    },
+    filterModal: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 32,
+        borderTopRightRadius: 32,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+        maxHeight: '70%'
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 24,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9'
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#0f172a'
+    },
+    modalCloseBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        backgroundColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    modalScroll: {
+        padding: 16
+    },
+    filterItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+        borderRadius: 16,
+        marginBottom: 8
+    },
+    activeFilterItem: {
+        backgroundColor: '#f8fafc'
+    },
+    filterItemLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12
+    },
+    filterItemLabel: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#64748b'
+    },
+    activeFilterItemLabel: {
+        color: '#000',
+        fontWeight: '800'
+    },
+
+    // Premium Calendar Styles
+    calendarModalContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20
+    },
+    premiumCal: {
+        backgroundColor: '#fff',
+        borderRadius: 32,
+        padding: 24,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 20 },
+        shadowOpacity: 0.15,
+        shadowRadius: 30,
+        elevation: 10,
+        width: '100%',
+        maxWidth: 400
+    },
+    calTop: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 24
+    },
+    calNav: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16
+    },
+    calMonthLabel: {
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#000',
+        minWidth: 120,
+        textAlign: 'center'
+    },
+    calNavBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 12,
+        backgroundColor: '#f8fafc',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#f1f5f9'
+    },
+    calClose: {
+        width: 36,
+        height: 36,
+        borderRadius: 12,
+        backgroundColor: '#f8fafc',
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    calWeekRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        marginBottom: 12
+    },
+    calWeekText: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#94a3b8',
+        width: 40,
+        textAlign: 'center'
+    },
+    calGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'flex-start'
+    },
+    calDayCell: {
+        width: '14.28%',
+        aspectRatio: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginVertical: 2
+    },
+    calDayActive: {
+        backgroundColor: '#000',
+        borderRadius: 14
+    },
+    calDayText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#000'
+    },
+    calDayTextActive: {
+        color: '#fff',
+        fontWeight: '900'
     },
 
     // Lists
-    listPadding: { paddingBottom: 40 },
+    listPadding: { paddingTop: 24, paddingBottom: 40 },
     invoiceCard: {
         marginBottom: 16,
-        borderRadius: 16,
+        borderRadius: 24,
         backgroundColor: '#fff',
         borderWidth: 1,
-        borderColor: '#e5e7eb',
-        // Subtle shadow
+        borderColor: '#f1f5f9',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.05,
-        shadowRadius: 8,
-        elevation: 2,
+        shadowRadius: 12,
+        elevation: 3,
     },
     cardContent: {
         padding: 20,

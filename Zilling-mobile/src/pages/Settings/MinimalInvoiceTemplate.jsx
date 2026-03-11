@@ -15,6 +15,7 @@ const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra' }) => {
     const invoiceData = data || {
         invoiceNo: '#6981e46389ed8bc3c8a24d4f',
         date: '2/3/2026',
+        time: '11:56 AM',
         dueDate: '2/3/2026',
         billTo: 'N. Rajakumari Marimuthu',
         items: [
@@ -55,6 +56,10 @@ const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra' }) => {
                         <View style={styles.dateRow}>
                             <Text style={styles.label}>INVOICE DATE</Text>
                             <Text style={styles.dateValue}>{invoiceData.date}</Text>
+                        </View>
+                        <View style={styles.dateRow}>
+                            <Text style={styles.label}>TIME</Text>
+                            <Text style={styles.dateValue}>{invoiceData.time || '12:00 PM'}</Text>
                         </View>
                         <View style={styles.dateRow}>
                             <Text style={styles.label}>DUE DATE</Text>

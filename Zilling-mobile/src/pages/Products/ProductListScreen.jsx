@@ -990,24 +990,24 @@ const ProductsListScreen = ({ navigation }) => {
                 <CategoryFilter categories={categories} selectedCategory={selectedCategory} onCategoryChange={setSelectedCategory} />
               </View>
             )}
+
+            {/* Sort & Count Bar - Integrated into Header */}
+            <View style={styles.sortBar}>
+              <View style={styles.sortLeft}>
+                <ArrowUpDown size={14} color="rgba(255,255,255,0.4)" />
+                <Text style={styles.sortBarLabel}>Sort by</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortChipsRow}>
+                <SortChip label="Name" active={sortBy === 'name'} onPress={() => setSortBy('name')} />
+                <SortChip label="Price" active={sortBy === 'price'} onPress={() => setSortBy('price')} />
+                <SortChip label="Stock" active={sortBy === 'stock'} onPress={() => setSortBy('stock')} />
+                <TouchableOpacity style={styles.sortOrderBtn} onPress={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>
+                  <Text style={styles.sortOrderText}>{sortOrder === 'asc' ? '↑ A-Z' : '↓ Z-A'}</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
           </SafeAreaView>
         </LinearGradient>
-      </View>
-
-      {/* Sort & Count Bar */}
-      <View style={styles.sortBar}>
-        <View style={styles.sortLeft}>
-          <ArrowUpDown size={16} color="#000" />
-          <Text style={styles.sortBarLabel}>Sort by</Text>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortChipsRow}>
-          <SortChip label="Name" active={sortBy === 'name'} onPress={() => setSortBy('name')} />
-          <SortChip label="Price" active={sortBy === 'price'} onPress={() => setSortBy('price')} />
-          <SortChip label="Stock" active={sortBy === 'stock'} onPress={() => setSortBy('stock')} />
-          <TouchableOpacity style={styles.sortOrderBtn} onPress={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>
-            <Text style={styles.sortOrderText}>{sortOrder === 'asc' ? '↑ A-Z' : '↓ Z-A'}</Text>
-          </TouchableOpacity>
-        </ScrollView>
       </View>
 
       {/* List */}
@@ -1122,7 +1122,16 @@ const styles = StyleSheet.create({
 
   // ─── HEADER ────────────────────────
   headerWrapper: {},
-  headerGradient: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: 8 },
+  headerGradient: { 
+    borderBottomLeftRadius: 32, 
+    borderBottomRightRadius: 32, 
+    paddingBottom: 22, // Reduced for tighter integration
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8
+  },
   mainHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 22, paddingTop: 10, paddingBottom: 4 },
   mainTitle: { fontSize: 30, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
   subTitle: { fontSize: 14, color: 'rgba(255,255,255,0.45)', fontWeight: '600', marginTop: 2 },
@@ -1137,7 +1146,7 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: '600', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.3 },
 
   // ─── SEARCH ────────────────────────
-  searchRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingBottom: 14 },
+  searchRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 22, paddingBottom: 8 },
   searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', height: 50, borderRadius: 14, paddingHorizontal: 14, gap: 10 },
   searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: '#fff' },
   filterBtn: { width: 50, height: 50, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
@@ -1146,16 +1155,46 @@ const styles = StyleSheet.create({
   filterSectionLabel: { fontSize: 12, fontWeight: '800', color: 'rgba(255,255,255,0.35)', letterSpacing: 1, paddingHorizontal: 24, marginBottom: 8, textTransform: 'uppercase' },
 
   // ─── SORT BAR ──────────────────────
-  sortBar: { flexDirection: 'row', alignItems: 'center', paddingLeft: 20, paddingRight: 16, paddingVertical: 12, backgroundColor: '#fff', borderBottomWidth: 1.5, borderBottomColor: '#eee' },
-  sortLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 12 },
-  sortBarLabel: { fontSize: 14, color: '#000', fontWeight: '700' },
-  sortChipsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sortChip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: '#f0f0f0', borderWidth: 1.5, borderColor: '#eee' },
-  sortChipActive: { backgroundColor: '#000', borderColor: '#000' },
-  sortChipText: { fontSize: 14, fontWeight: '700', color: '#666' },
-  sortChipTextActive: { color: '#fff' },
-  sortOrderBtn: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, backgroundColor: '#f0f0f0', borderWidth: 1.5, borderColor: '#eee' },
-  sortOrderText: { fontSize: 13, fontWeight: '800', color: '#000' },
+  sortBar: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingLeft: 24, 
+    paddingRight: 12, 
+    paddingVertical: 8, 
+    backgroundColor: 'transparent', 
+    borderBottomWidth: 0
+  },
+  sortLeft: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 6, 
+    marginRight: 10 
+  },
+  sortBarLabel: { fontSize: 13, color: 'rgba(255,255,255,0.3)', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  sortChipsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 20 },
+  sortChip: { 
+    paddingHorizontal: 12, 
+    paddingVertical: 7, 
+    borderRadius: 8, 
+    backgroundColor: 'rgba(255,255,255,0.08)', 
+    borderWidth: 1.5, 
+    borderColor: 'rgba(255,255,255,0.05)' 
+  },
+  sortChipActive: { backgroundColor: '#fff', borderColor: '#fff' },
+  sortChipText: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.6)' },
+  sortChipTextActive: { color: '#000' },
+  sortOrderBtn: { 
+    paddingHorizontal: 10, 
+    paddingVertical: 7, 
+    borderRadius: 8, 
+    backgroundColor: 'rgba(255,255,255,0.1)', 
+    borderWidth: 1.5, 
+    borderColor: 'rgba(255,255,255,0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4
+  },
+  sortOrderText: { fontSize: 12, fontWeight: '900', color: '#fff' },
 
 
   // ─── LIST ──────────────────────────
@@ -1242,7 +1281,23 @@ const styles = StyleSheet.create({
   checkboxActive: { backgroundColor: '#000', borderColor: '#000' },
 
   // ─── SELECTION BAR ─────────────────
-  selectionBar: { position: 'absolute', bottom: 28, left: 20, right: 20, height: 66, backgroundColor: '#000', borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, elevation: 10 },
+  selectionBar: { 
+    position: 'absolute', 
+    bottom: 92, // Increased from 28 to clear bottom nav
+    left: 20, 
+    right: 20, 
+    height: 70, 
+    backgroundColor: '#000', 
+    borderRadius: 20, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 18, 
+    shadowColor: '#000', 
+    shadowOpacity: 0.4, 
+    shadowRadius: 20, 
+    elevation: 15 
+  },
   selectionLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   selCountBox: { width: 30, height: 30, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   selCountText: { fontSize: 15, fontWeight: '800', color: '#000' },
