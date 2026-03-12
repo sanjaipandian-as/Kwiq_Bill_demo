@@ -231,6 +231,21 @@ export const TransactionProvider = ({ children }) => {
                 }
             }
 
+            // [Sync Invoice]
+            try {
+                const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                const syncInvoice = {
+                    ...newTx,
+                    items: data.items || [],
+                    payments: data.payments || [],
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                SyncService.createAndUploadEvent(EventTypes.INVOICE_CREATED, syncInvoice);
+            } catch (syncError) {
+                console.log('[TransactionContext] Sync Invoice Error:', syncError);
+            }
+
             // [Stock Update] - Decrement stock for sold items
             if (data.items && Array.isArray(data.items)) {
                 data.items.forEach(item => {
