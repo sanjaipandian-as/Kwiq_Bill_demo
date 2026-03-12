@@ -50,7 +50,8 @@ import {
   Bluetooth,
   Zap,
   Clock,
-  ShieldCheck
+  ShieldCheck,
+  CheckCircle
 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
@@ -67,7 +68,7 @@ import { testPrinter, resetPrinterConnection } from '../../utils/printUtils';
 const SettingsPage = ({ navigation, route }) => {
   // Trigger clear cache
   const { user, logout, refreshUser } = useAuth();
-  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, repairSync, deepRepair, lastEventSyncTime, syncStatus, loading, queueLength, isUploading, isLogoUploading, estimatedUploadTime, isConnected, checkQueueStatus } = useSettings();
+  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, backupDataToCloud, forceResync, repairSync, deepRepair, lastEventSyncTime, syncStatus, loading, queueLength, isUploading, isLogoUploading, estimatedUploadTime, isConnected, checkQueueStatus } = useSettings();
   const { fetchCustomers } = useCustomers();
   const { fetchProducts } = useProducts();
   const { fetchTransactions } = useTransactions();
@@ -95,6 +96,22 @@ const SettingsPage = ({ navigation, route }) => {
   const [guideLang, setGuideLang] = useState('en');
   const [isPreviewIGST, setIsPreviewIGST] = useState(false);
   const [isTestingPrinter, setIsTestingPrinter] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [backupLogs, setBackupLogs] = useState([]); // { msg, status }
+  const [backupDone, setBackupDone] = useState(false);
+  const [animDots, setAnimDots] = useState('');
+  const backupLogsRef = React.useRef(null);
+  const backupLogsBufferRef = React.useRef([]);
+  const [showTerminal, setShowTerminal] = useState(false);
+
+  // Animate dots while backing up: '' -> '.' -> '..' -> '...'
+  useEffect(() => {
+    if (!isBackingUp) { setAnimDots(''); return; }
+    const interval = setInterval(() => {
+      setAnimDots(d => d.length >= 3 ? '' : d + '.');
+    }, 400);
+    return () => clearInterval(interval);
+  }, [isBackingUp]);
 
   useEffect(() => {
     if (settings && !isEditing) {
@@ -2163,22 +2180,103 @@ return (
           Your data is automatically synced with Google Drive. Access your information across multiple devices and never lose a single invoice.
         </Text>
 
-        <TouchableOpacity
-          onPress={async () => {
-            showToast("Initiating cloud synchronization protocol.", "info", 3000, null, "Cloud Backup");
-            const success = await syncToCloud();
-            if (success) {
-              showToast("Your data has been safely backed up to the cloud.", "success", 3500, null, "Backup Successful");
-            } else {
-              showToast("Unable to reach cloud servers. Please check your internet connection.", "error", 4000, null, "Backup Failed");
-            }
-          }}
-          activeOpacity={0.8}
-          style={[styles.actionButton, { borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 4 }]}
-        >
-          <Cloud size={18} color="#fff" />
-          <Text style={[styles.actionButtonText, { fontSize: 15, fontWeight: '800' }]}>Instant Cloud Backup</Text>
-        </TouchableOpacity>
+          {/* ── INSTANT CLOUD BACKUP with Live Terminal Logs ── */}
+          <View style={{
+            backgroundColor: '#fff',
+            borderRadius: 20,
+            borderWidth: 1.5,
+            borderColor: isBackingUp ? '#6366f1' : (backupDone ? '#10b981' : '#000'),
+            overflow: 'hidden',
+            marginBottom: 4,
+          }}>
+            {/* Tappable Header */}
+            <TouchableOpacity
+              onPress={async () => {
+                if (isBackingUp) return;
+                backupLogsBufferRef.current = [{ msg: 'Initializing backup engine...', status: 'working' }];
+                setBackupLogs([...backupLogsBufferRef.current]);
+                setIsBackingUp(true);
+                setBackupDone(false);
+                setShowTerminal(true); // open terminal as soon as backup starts
+                const addLog = (msg, status) => {
+                  backupLogsBufferRef.current = [...backupLogsBufferRef.current, { msg, status }];
+                  setBackupLogs([...backupLogsBufferRef.current]);
+                  setTimeout(() => backupLogsRef.current?.scrollToEnd?.({ animated: true }), 80);
+                };
+                const success = await backupDataToCloud(addLog);
+                setIsBackingUp(false);
+                setBackupDone(!!success);
+                // Auto-close terminal 2.5 seconds after completion
+                setTimeout(() => setShowTerminal(false), 2500);
+              }}
+              style={[styles.actionButton, {
+                borderRadius: 0,
+                margin: 0,
+                shadowOpacity: 0,
+                elevation: 0,
+                backgroundColor: isBackingUp ? '#6366f1' : (backupDone ? '#10b981' : '#000'),
+                paddingVertical: 18,
+              }]}
+              activeOpacity={isBackingUp ? 1 : 0.8}
+            >
+              {isBackingUp
+                ? <ActivityIndicator size={18} color="#fff" />
+                : backupDone
+                  ? <CheckCircle size={18} color="#fff" />
+                  : <Cloud size={18} color="#fff" />
+              }
+              <Text style={[styles.actionButtonText, { fontSize: 15, fontWeight: '800' }]}>
+                {isBackingUp
+                  ? `Backing up data${animDots}`
+                  : backupDone ? 'Backup Complete!' : 'Instant Cloud Backup'
+                }
+              </Text>
+            </TouchableOpacity>
+
+            {/* Live Terminal Log Panel — shows while running, auto-closes after done */}
+            {showTerminal && backupLogs.length > 0 && (
+              <View style={{ backgroundColor: '#000', padding: 14, borderTopWidth: 1, borderTopColor: '#1e293b' }}>
+                {/* macOS traffic light dots (keep colors) + monochrome title */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#ef4444' }} />
+                  <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#f59e0b' }} />
+                  <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#10b981' }} />
+                  <Text style={{ fontSize: 10, color: '#6b7280', marginLeft: 8, fontWeight: '700', letterSpacing: 0.8 }}>KWIQBILL — BACKUP TERMINAL</Text>
+                  {/* Close hint when done */}
+                  {backupDone && !isBackingUp && (
+                    <Text style={{ fontSize: 9, color: '#4b5563', marginLeft: 'auto', fontWeight: '600' }}>Closing...</Text>
+                  )}
+                </View>
+                <ScrollView
+                  ref={backupLogsRef}
+                  style={{ maxHeight: 200 }}
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={false}
+                  onContentSizeChange={() => backupLogsRef.current?.scrollToEnd?.({ animated: true })}
+                >
+                  {backupLogs.map((entry, idx) => {
+                    const isLast = idx === backupLogs.length - 1;
+                    // Black & white palette — only the prefix symbol tints slightly
+                    const prefixColor = entry.status === 'success' ? '#e5e7eb'
+                      : entry.status === 'error' ? '#9ca3af'
+                      : '#d1d5db';
+                    const textColor = entry.status === 'error' ? '#9ca3af' : '#e5e7eb';
+                    const prefix = entry.status === 'success' ? '✓'
+                      : entry.status === 'error' ? '✗'
+                      : entry.status === 'working' ? '›'
+                      : '·';
+                    return (
+                      <View key={idx} style={{ flexDirection: 'row', gap: 8, marginBottom: 5 }}>
+                        <Text style={{ color: prefixColor, fontSize: 13, fontWeight: '900', minWidth: 14 }}>{prefix}</Text>
+                        <Text style={{ color: textColor, fontSize: 11.5, flex: 1, lineHeight: 18 }}>{entry.msg}</Text>
+                        {isLast && isBackingUp && <ActivityIndicator size={10} color="#6b7280" />}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
         {/* --- Cloud Sync Engine Heartbeat --- */}
         <View style={{ marginTop: 32 }}>
@@ -2332,6 +2430,8 @@ return (
                 <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>Sync Now</Text>
               </TouchableOpacity>
             </View>
+
+
 
             <View style={{ backgroundColor: '#fff', padding: 20, borderRadius: 24, borderWidth: 1.5, borderColor: '#000' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>

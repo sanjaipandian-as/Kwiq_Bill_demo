@@ -186,16 +186,25 @@ export const AuthProvider = ({ children }) => {
         }
 
         if (needsFullRestore) {
-          if (onProgress) onProgress('Clearing previous data...', 0.3);
+          if (onProgress) onProgress('Locating baseline snapshot...', 0.2);
           
-          // Use the more thorough resetSyncState
           const { SyncService } = require('../services/OneWaySyncService');
-          await SyncService.resetSyncState(); 
-          // (Note: resetSyncState already calls clearDatabase internally)
-
-          await restoreUserDataFromDrive(userData, (msg, prog, stats) => {
-            if (onProgress) onProgress(msg, prog, stats);
+          
+          // 1. Try Rapid Snapshot Hardware Restore
+          const snapshotSuccess = await SyncService.restoreFromLatestSnapshot((msg, prog) => {
+            if (onProgress) onProgress(msg, 0.2 + (prog * 0.3));
           });
+
+          if (!snapshotSuccess) {
+            console.log('[Auth] No snapshots found, falling back to full Drive restoration.');
+            if (onProgress) onProgress('Searching for legacy backups...', 0.3);
+            
+            // 2. Fallback to Legacy/Desktop Restoration Logic
+            await SyncService.resetSyncState(); 
+            await restoreUserDataFromDrive(userData, (msg, prog, stats) => {
+              if (onProgress) onProgress(msg, prog, stats);
+            });
+          }
         } else {
           console.log('[Auth] Skipped Drive restore. Local data belongs to ' + userData.email);
           if (onProgress) onProgress('Loading local storage...', 0.5);

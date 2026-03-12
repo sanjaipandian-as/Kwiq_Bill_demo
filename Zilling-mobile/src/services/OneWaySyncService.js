@@ -8,6 +8,8 @@ const PROCESSED_EVENTS_KEY = 'processed_events_ids';
 const PENDING_UPLOAD_QUEUE_KEY = 'pending_upload_queue';
 const LAST_SYNCED_KEY = 'last_synced_timestamp';
 const DEVICE_ID_KEY = 'device_unique_id';
+const LAST_SNAPSHOT_TIME_KEY = 'last_snapshot_timestamp';
+const SNAPSHOT_THRESHOLD = 50; // Every 50 events, trigger a snapshot
 
 // Event Types
 export const EventTypes = {
@@ -324,6 +326,8 @@ function ensureCustomerExists(customerId, customerName) {
 // In-memory cache: folder lookup costs 2 Drive API calls (3-5s) on every upload.
 // We cache it once per app session to avoid repeated latency.
 let _cachedEventsFolderId = null;
+let _cachedSnapshotsFolderId = null;
+let _cachedBackupsFolderId = null;
 let _cachedSyncKey = null;
 
 export const SyncService = {
@@ -333,20 +337,39 @@ export const SyncService = {
      */
     logout() {
         _cachedEventsFolderId = null;
+        _cachedSnapshotsFolderId = null;
+        _cachedBackupsFolderId = null;
         _cachedSyncKey = null;
     },
 
     /**
-     * Initialize or verify folder structure
+     * Get or Create Root 'Kwiqbill' Folder
+     */
+    async getRootFolderId(accessToken) {
+        return getOrCreateFolder(accessToken, 'Kwiqbill');
+    },
+
+    /**
+     * Get or Create the official 'kwiq bill backup' folder
+     * (Inside the Kwiqbill root folder)
+     */
+    async getBackupFolderId(accessToken) {
+        if (_cachedBackupsFolderId) return _cachedBackupsFolderId;
+        const rootId = await this.getRootFolderId(accessToken);
+        const backupId = await getOrCreateFolder(accessToken, 'kwiq bill backup', rootId);
+        _cachedBackupsFolderId = backupId;
+        return backupId;
+    },
+
+    /**
+     * Get or Create Subfolders (Inside the 'kwiq bill backup' folder)
      */
     async getEventsFolderId(accessToken) {
-        if (_cachedEventsFolderId) {
-            return _cachedEventsFolderId;
-        }
-        const rootId = await getOrCreateFolder(accessToken, 'Kwiqbill');
-        const eventsId = await getOrCreateFolder(accessToken, 'events', rootId);
-        _cachedEventsFolderId = eventsId; // cache for session
-        return eventsId;
+        return this.getBackupFolderId(accessToken);
+    },
+
+    async getSnapshotsFolderId(accessToken) {
+        return this.getBackupFolderId(accessToken);
     },
 
     /**
@@ -430,6 +453,19 @@ export const SyncService = {
 
                 await this.removeFromQueue(eventId);
                 console.log(`[Sync] ✓ Event uploaded: ${type}`);
+ 
+                // TRACK FOR SNAPSHOT (Every X events, suggest a snapshot)
+                const countKey = await this.getUserSyncKey('local_event_count');
+                const currentCount = parseInt(await AsyncStorage.getItem(countKey)) || 0;
+                const newCount = currentCount + 1;
+                await AsyncStorage.setItem(countKey, String(newCount));
+ 
+                if (newCount >= SNAPSHOT_THRESHOLD) {
+                    console.log('[Sync] Threshold reached. Creating Global Snapshot in background...');
+                    this.createGlobalSnapshot().catch(e => console.log('Auto-Snapshot failed:', e));
+                    await AsyncStorage.setItem(countKey, '0');
+                }
+ 
                 return true;
             })();
 
@@ -442,6 +478,207 @@ export const SyncService = {
         } catch (error) {
             // Event is already in the local queue — retryQueue() will upload it next time
             console.log(`[Sync] Upload queued for retry: ${error.message}`);
+            return false;
+        }
+    },
+ 
+    /**
+     * Create a Full Baseline Snapshot of the Database
+     * PRODUCTION GRADE: Bundles all tables into a single encrypted file.
+     */
+    async createGlobalSnapshot(onProgress = () => { }) {
+        try {
+            console.log('[Snapshot] Generating Global Snapshot...');
+            onProgress('Gathering local data...', 0.1);
+ 
+            const { fetchAllTableData } = require('./database');
+            const [accessToken, allData, userStr] = await Promise.all([
+                getAccessToken(),
+                fetchAllTableData(),
+                AsyncStorage.getItem('user'),
+            ]);
+ 
+            if (!accessToken) throw new Error('Not logged in');
+            const user = userStr ? JSON.parse(userStr) : null;
+            if (!user?.email) throw new Error('User email missing');
+ 
+            onProgress('Encrypting baseline...', 0.4);
+            // Add metadata to the snapshot
+            const snapshot = {
+                v: 3, // Version 3: Added Integrity Signing
+                timestamp: new Date().toISOString(),
+                deviceId: await this.getDeviceId(),
+                data: allData,
+                hash: '' // Placeholder
+            };
+ 
+            // ═══════════════════════════════════════════════════════════════
+            // GOLDEN RULE #5: Integrity Signing (SHA-256)
+            // Signs the snapshot payload so we can detect tampering on restore.
+            // ═══════════════════════════════════════════════════════════════
+            const signable = JSON.stringify(snapshot.data);
+            snapshot.hash = CryptoJS.SHA256(signable).toString();
+
+            let content = JSON.stringify(snapshot);
+            content = CryptoJS.AES.encrypt(content, user.email).toString();
+ 
+            onProgress('Uploading to cloud...', 0.7);
+            const folderId = await this.getSnapshotsFolderId(accessToken);
+            const fileName = `global_snapshot_${new Date().toISOString().split('T')[0]}_${generateUUID().slice(0, 8)}.json`;
+            
+            await uploadFileToFolder(accessToken, folderId, fileName, content);
+            
+            // Update last snapshot time tracker
+            const snapTimeKey = await this.getUserSyncKey(LAST_SNAPSHOT_TIME_KEY);
+            await AsyncStorage.setItem(snapTimeKey, new Date().toISOString());
+
+            console.log('[Snapshot] ✓ Global Snapshot created successfully.');
+            onProgress('Snapshot complete!', 1.0);
+            return true;
+        } catch (e) {
+            console.error('[Snapshot] Failed:', e.message);
+            return false;
+        }
+    },
+ 
+    /**
+     * Restore from the Latest Baseline Snapshot
+     * PRODUCTION GRADE: Rapid recovery for new devices.
+     */
+    async restoreFromLatestSnapshot(onProgress = () => { }) {
+        try {
+            console.log('[Restore] Checking for cloud snapshots...');
+            onProgress('Checking for snapshots...', 0.1);
+
+            const accessToken = await getAccessToken();
+            if (!accessToken) throw new Error('Not logged in');
+
+            const snapshotsFolderId = await this.getSnapshotsFolderId(accessToken);
+            // Search for anything containing 'snapshot_' to be robust across minor naming variations
+            // Fetch all files that might be snapshots, then filter and sort in JS
+            const query = `'${snapshotsFolderId}' in parents and (name contains 'snapshot_' or name contains 'global_snapshot_') and trashed=false`;
+            const res = await fetchWithTimeout(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=createdTime desc&fields=files(id,name,createdTime)`, // Removed pageSize=1
+                { headers: { Authorization: `Bearer ${accessToken}` } }
+            );
+            const data = await res.json();
+
+            // Sort and filter in JS to be 100% sure we get the right one
+            let files = data.files || [];
+            files = files.filter(f => f.name.startsWith('global_snapshot_') || f.name.startsWith('snapshot_'));
+            files.sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime));
+
+            if (files.length === 0) {
+                console.log('[Restore] No valid snapshot files found in folder.');
+                return false;
+            }
+            
+            const latest = files[0];
+            console.log(`[Restore] Found latest snapshot: ${latest.name} (${latest.createdTime})`);
+            onProgress('Downloading baseline...', 0.3);
+
+            const fileRes = await fetchWithTimeout(
+                `https://www.googleapis.com/drive/v3/files/${latest.id}?alt=media`,
+                { headers: { Authorization: `Bearer ${accessToken}` } }
+            );
+            const encryptedContent = await fileRes.text();
+            
+            const userStr = await AsyncStorage.getItem('user');
+            const user = userStr ? JSON.parse(userStr) : null;
+            if (!user?.email) throw new Error('User email missing for decryption');
+
+            onProgress('Decrypting...', 0.5);
+            let decrypted;
+            try {
+                const bytes = CryptoJS.AES.decrypt(encryptedContent, user.email);
+                decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                if (!decrypted) throw new Error('Decryption resulted in empty string. Wrong key or corrupted data.');
+            } catch (decryptError) {
+                console.error('[Restore] Decryption failed:', decryptError.message);
+                throw new Error('Failed to decrypt snapshot. Possible wrong encryption key or corrupted file.');
+            }
+
+            let snapshot;
+            try {
+                snapshot = JSON.parse(decrypted);
+            } catch (parseError) {
+                console.error('[Restore] Failed to parse decrypted content as JSON:', parseError.message);
+                throw new Error('Failed to parse snapshot content. File might be corrupted.');
+            }
+
+            if (snapshot.v < 2) throw new Error('Unsupported snapshot version');
+
+            // ═══════════════════════════════════════════════════════════════
+            // INTEGRITY CHECK: Verify hash if present (Version 3+)
+            // ═══════════════════════════════════════════════════════════════
+            if (snapshot.v >= 3 && snapshot.hash) {
+                console.log('[Restore] Verifying snapshot integrity...');
+                const currentHash = CryptoJS.SHA256(JSON.stringify(snapshot.data)).toString();
+                if (currentHash !== snapshot.hash) {
+                    throw new Error('CORRUPTION DETECTED: Snapshot signature mismatch. Data may be tampered.');
+                }
+                console.log('[Restore] ✓ Integrity verified.');
+            }
+
+            onProgress('Applying snapshot to local DB...', 0.7);
+            // Nuclear wipe and re-insert
+            await clearDatabase();
+            
+            const { customers, products, invoices, expenses } = snapshot.data;
+            
+            // Re-insert logic (simplified for batch)
+            db.withTransactionSync(() => {
+                if (Array.isArray(customers)) {
+                  for (const c of customers) {
+                    const nc = normalizeCustomerPayload(c);
+                    db.runSync(
+                      `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, amountPaid, whatsappOptIn, smsOptIn, outstanding)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      [nc.id, nc.name, nc.phone, nc.email, nc.type, nc.gstin, nc.address, nc.source, nc.tags, nc.loyaltyPoints, nc.notes, nc.created_at, nc.updated_at, nc.amountPaid, nc.whatsappOptIn, nc.smsOptIn, nc.outstanding]
+                    );
+                  }
+                }
+                if (Array.isArray(products)) {
+                  for (const p of products) {
+                    const np = normalizeProductPayload(p);
+                    db.runSync(
+                      `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      [np.id, np.name, np.sku, np.category, np.price, np.cost_price, np.stock, np.min_stock, np.unit, np.tax_rate, np.variants, np.variant, np.created_at, np.updated_at]
+                    );
+                  }
+                }
+                if (Array.isArray(invoices)) {
+                  for (const inv of invoices) {
+                    const ni = normalizeInvoicePayload(inv);
+                    db.runSync(
+                      `INSERT OR REPLACE INTO invoices (id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, taxType, created_at, updated_at, is_deleted)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      [ni.id, ni.customer_id, ni.customer_name, ni.date, ni.type, ni.itemsStr, ni.subtotal, ni.tax, ni.discount, ni.total, ni.status, ni.paymentsStr, ni.grossTotal, ni.itemDiscount, ni.additionalCharges, ni.roundOff, ni.amountReceived, ni.internalNotes, ni.taxType, ni.created_at, ni.updated_at, ni.is_deleted]
+                    );
+                  }
+                }
+                if (Array.isArray(expenses)) {
+                  for (const e of expenses) {
+                    const ne = normalizeExpensePayload(e);
+                    db.runSync(
+                      `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      [ne.id, ne.title, ne.amount, ne.category, ne.date, ne.payment_method, ne.receipt_url, ne.tags, ne.created_at, ne.updated_at]
+                    );
+                  }
+                }
+            });
+
+            // Update last sync time to the snapshot time
+            const userLastSyncedKey = await this.getUserSyncKey(LAST_SYNCED_KEY);
+            await AsyncStorage.setItem(userLastSyncedKey, snapshot.timestamp);
+
+            console.log('[Restore] ✓ Snapshot restored successfully.');
+            onProgress('Snapshot restored!', 1.0);
+            return true;
+        } catch (e) {
+            console.error('[Restore] Snapshot restoration failed:', e.message);
             return false;
         }
     },
@@ -477,11 +714,24 @@ export const SyncService = {
             // 1. List all files in events folder
             updateStatus('Fetching cloud updates...', 0.66);
 
-            // OPTIMIZATION: Use User-Specific Incremental Sync
             const userLastSyncedKey = await this.getUserSyncKey(LAST_SYNCED_KEY);
             const userProcessedEventsKey = await this.getUserSyncKey(PROCESSED_EVENTS_KEY);
 
-            const lastSyncTime = await AsyncStorage.getItem(userLastSyncedKey);
+            let lastSyncTime = await AsyncStorage.getItem(userLastSyncedKey);
+
+            // RAPID RECOVERY: If this is a new device (no lastSyncTime), check for snapshots first
+            if (!lastSyncTime) {
+                updateStatus('New device detected. Looking for cloud snapshots...', 0.1);
+                const restored = await this.restoreFromLatestSnapshot((msg, prog) => {
+                    updateStatus(`[Restore] ${msg}`, 0.1 + (prog * 0.5));
+                });
+                if (restored) {
+                    updateStatus('Snapshot restored! Re-checking for recent events...', 0.6);
+                    lastSyncTime = await AsyncStorage.getItem(userLastSyncedKey);
+                } else {
+                    updateStatus('No snapshots found. Starting fresh sync...', 0.2);
+                }
+            }
             let timeFilter = "";
             if (lastSyncTime) {
                 // Formatting for Google Drive RFC 3339
@@ -530,6 +780,10 @@ export const SyncService = {
 
             // 3. Download and Apply Events
             const filesToProcess = allFiles.filter(f => {
+                // IMPORTANT: Since all files (snapshots, settings, events) now live in the same folder,
+                // we must only process files prefixed with 'event_'.
+                if (!f.name.startsWith('event_')) return false;
+
                 const parts = f.name.replace('.json', '').split('_');
                 // Pattern: event_TIMESTAMP_TYPE_EVENTID
                 const probableEventId = parts[parts.length - 1];
@@ -814,8 +1068,22 @@ export const SyncService = {
                 );
                 const sData = await sRes.json();
                 if (sData.files && sData.files.length > 0) {
-                    folderId = sData.files[0].id;
-                    console.log(`[Restore] Found snapshot root: ${fName}`);
+                    const rootId = sData.files[0].id;
+                    // Check for 'kwiq bill backup' inside root
+                    const subQuery = `name='kwiq bill backup' and '${rootId}' in parents and trashed=false`;
+                    const subRes = await fetchWithTimeout(
+                        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(subQuery)}`,
+                        { headers: { Authorization: `Bearer ${accessToken}` } }
+                    );
+                    const subData = await subRes.json();
+                    
+                    if (subData.files && subData.files.length > 0) {
+                        folderId = subData.files[0].id;
+                    } else {
+                        // FALLBACK: If no subfolder, use the root folder itself (Legacy Desktop behavior)
+                        folderId = rootId;
+                    }
+                    console.log(`[ForceRestore] Found folder: ${fName} -> ${folderId}`);
                 }
             }
 
@@ -830,7 +1098,7 @@ export const SyncService = {
             const listQuery = `(${namesQuery}) and '${folderId}' in parents and trashed=false`;
 
             const listRes = await fetchWithTimeout(
-                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQuery)}&fields=files(id,name,modifiedTime)&pageSize=100`,
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQuery)}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&pageSize=100`,
                 { headers: { Authorization: `Bearer ${accessToken}` } }
             );
             const listData = await listRes.json();
@@ -839,8 +1107,12 @@ export const SyncService = {
 
             if (listData.files) {
                 listData.files.forEach(f => {
-                    filesMap[f.name] = f.id;
-                    // Track the latest modification time for sync reset
+                    // Only keep the NEWEST version of each file in the map
+                    if (!filesMap[f.name]) {
+                        filesMap[f.name] = f.id;
+                    }
+                    
+                    // Track the overall latest modification time
                     if (!latestModifiedTime || new Date(f.modifiedTime) > new Date(latestModifiedTime)) {
                         latestModifiedTime = f.modifiedTime;
                     }

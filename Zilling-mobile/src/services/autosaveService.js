@@ -33,12 +33,24 @@ export const triggerAutoSave = async () => {
     if (userStr) {
       try {
         const user = JSON.parse(userStr);
-        const { syncUserDataToDrive } = require('./googleDriveservices');
-        console.log("[AutoSave] Syncing snapshots to Google Drive...");
-        // Non-blocking call to ensure UI fluidity
-        syncUserDataToDrive(user, allData).catch(err => console.log('Drive Snap-Sync Error:', err.message));
+        const { SyncService } = require('./OneWaySyncService');
+        
+        // 4. Intelligent Background Snapshotting
+        // Only trigger a full snapshot if 15 mins have passed since the last one
+        // to avoid excessive Drive API usage while maintaining high security.
+        const lastSnapTimeKey = await SyncService.getUserSyncKey('last_snapshot_timestamp');
+        const lastSnapStr = await AsyncStorage.getItem(lastSnapTimeKey);
+        const now = Date.now();
+        const diff = lastSnapStr ? (now - new Date(lastSnapStr).getTime()) : (16 * 60 * 1000); // Default to trigger if none found
+
+        if (diff > 15 * 60 * 1000) {
+            console.log("[AutoSave] Triggering 15-min interval Cloud Snapshot...");
+            SyncService.createGlobalSnapshot().catch(err => console.log('Auto-Snapshot Error:', err.message));
+        } else {
+            console.log("[AutoSave] Recent snapshot exists, skipping cloud update.");
+        }
       } catch (e) {
-        console.log('User parse error in AutoSave:', e.message);
+        console.log('User parse/snapshot error in AutoSave:', e.message);
       }
     }
 

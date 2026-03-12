@@ -117,17 +117,28 @@ export const checkStoreBrandingStatus = async (user) => {
   if (!user || !user.id) return { error: 'No user ID' };
   try {
     const accessToken = await getAccessToken();
-    const folderName = 'Kwiqbill'; // Standardized folder name for cross-platform sync
+    const rootName = 'Kwiqbill';
+    const backupName = 'kwiq bill backup';
 
-    // 1. Find folder
-    const folderQuery = `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    // 1. Find root folder
+    const rootQuery = `name='${rootName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const rootRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(rootQuery)}&fields=files(id)`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const rootData = await rootRes.json();
+    const rootId = rootData.files?.[0]?.id;
+
+    if (!rootId) return { folderExists: false, logoExists: false };
+
+    // 2. Find backup folder
+    const folderQuery = `name='${backupName}' and '${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     const folderRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(folderQuery)}&fields=files(id)`, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     const folderData = await folderRes.json();
     const folderId = folderData.files?.[0]?.id;
 
-    if (!folderId) return { folderExists: false, logoExists: false };
+    if (!folderId) return { folderExists: true, backupFolderExists: false, logoExists: false };
 
     // 2. Find logo
     const logoQuery = `name='store_logo.jpg' and '${folderId}' in parents and trashed=false`;
@@ -147,6 +158,7 @@ export const checkStoreBrandingStatus = async (user) => {
     return {
       folderExists: true,
       folderId,
+      backupFolderExists: true,
       logoExists: !!logoFile,
       logoId: logoFile?.id,
       logoModified: logoFile?.modifiedTime,
@@ -360,11 +372,15 @@ export const syncUserDataToDrive = async (user, allData) => {
 
   try {
     const accessToken = await getAccessToken();
-    const folderName = 'Kwiqbill';
+    const rootName = 'Kwiqbill';
+    const backupName = 'kwiq bill backup';
 
-    // 1. Ensure Folder Exists
-    const folderId = await getOrCreateFolder(accessToken, folderName);
-    console.log(`Syncing to Drive Folder: ${folderName} (${folderId})`);
+    // 1. Ensure Root Folder Exists
+    const rootId = await getOrCreateFolder(accessToken, rootName);
+    // 2. Ensure Backup Folder Exists inside Root
+    const folderId = await getOrCreateFolder(accessToken, backupName, rootId);
+
+    console.log(`Syncing to Drive: ${rootName}/${backupName} (${folderId})`);
 
     // 2. Upload each data category as a separate file
     const tables = Object.keys(allData); // ['products', 'customers', 'settings', etc.]
@@ -483,12 +499,11 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       return;
     }
 
-    // Standardized search: Primary is 'Kwiqbill', fallback is legacy 'KwiqBilling-{id}'
-    let folderId = null;
+    // Standardized search: Primary is 'Kwiqbill/kwiq bill backup'
+    let folderIds = [];
     const foldersToTry = ['Kwiqbill', `KwiqBilling-${user.id}`];
 
     for (const fName of foldersToTry) {
-      if (folderId) break;
       const query = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
       const sRes = await fetchWithTimeout(
         `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
@@ -496,37 +511,52 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       );
       const sData = await sRes.json();
       if (sData.files && sData.files.length > 0) {
-        folderId = sData.files[0].id;
-        console.log(`[Restore] Found snapshot folder: ${fName} (${folderId})`);
+        const rootId = sData.files[0].id;
+        folderIds.push(rootId); // Search in root
+
+        // Also check for 'kwiq bill backup' inside this root
+        const subQuery = `name='kwiq bill backup' and '${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+        const subRes = await fetchWithTimeout(
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(subQuery)}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const subData = await subRes.json();
+        if (subData.files && subData.files.length > 0) {
+          folderIds.push(subData.files[0].id); // Search in subfolder
+        }
       }
     }
 
-    if (!folderId) {
-      console.log('[Restore] No backup folder found on Drive (checked Kwiqbill and Legacy).');
+    if (folderIds.length === 0) {
+      console.log('[Restore] No backup folders found on Drive.');
       return;
     }
-    console.log('[Restore] Found backup folder ID:', folderId);
+    console.log('[Restore] Searching in folders:', folderIds);
 
     // 1. Search for specific snapshot files we need to restore
     // Optimization: query for specific filenames to avoid pagination issues when there are many event files.
     if (onProgress) onProgress('Connecting to backup engine...', 0.42);
     const targetFiles = ['settings.json', 'products.json', 'customers.json', 'expenses.json', 'invoices.json', 'user details.json', 'store_logo.jpg'];
     const namesQuery = targetFiles.map(name => `name='${name}'`).join(' or ');
-    const listQuery = `(${namesQuery}) and '${folderId}' in parents and trashed=false`;
+    const parentsQuery = folderIds.map(id => `'${id}' in parents`).join(' or ');
+    const listQuery = `(${namesQuery}) and (${parentsQuery}) and trashed=false`;
 
     console.log('[Restore] Querying for snapshots:', listQuery);
 
     const listRes = await fetchWithTimeout(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQuery)}&fields=files(id,name)&pageSize=100`,
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(listQuery)}&fields=files(id,name,modifiedTime)&pageSize=100&orderBy=modifiedTime desc`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     const listData = await listRes.json();
     const filesMap = {};
     if (listData.files) {
       listData.files.forEach(f => {
-        filesMap[f.name] = f.id;
+        // Since we orderBy modifiedTime desc, the first occurrence is the latest
+        if (!filesMap[f.name]) {
+          filesMap[f.name] = f.id;
+        }
       });
-      console.log('[Restore] Files found in cloud:', Object.keys(filesMap).join(', '));
+      console.log('[Restore] Latest files found in cloud:', Object.keys(filesMap).join(', '));
     }
 
     // Helper to download JSON file using the map
@@ -820,10 +850,12 @@ export const syncSettingsToDrive = async (user, settings) => {
 
   try {
     const accessToken = await getAccessToken();
-    const folderName = 'Kwiqbill';
+    const rootName = 'Kwiqbill';
+    const backupName = 'kwiq bill backup';
 
-    // 1. Ensure Folder Exists
-    const folderId = await getOrCreateFolder(accessToken, folderName);
+    // 1. Ensure Folder Structure Exists
+    const rootId = await getOrCreateFolder(accessToken, rootName);
+    const folderId = await getOrCreateFolder(accessToken, backupName, rootId);
 
     // 2. Wrap settings in array for backwards compat
     // CLONE settings to avoid mutating state passed in
@@ -922,8 +954,7 @@ export const saveUserDetailsToDrive = async (userDetails) => {
     // "inside the folder seperate files need to be saved... and also the in the google drve also it should get saved in addition to the user details"
     // I will modify this to ALSO save to the user folder if possible, but the 'syncUserDataToDrive' handles the bulk.
     // Let's keep this simple and isolated as requested: "functionality or structure nothing should not be disturbed unless needed"
-    // So I leave this function mostly alone but use the helper I wrote to clean it up? 
-    // Actually, I'll just leave existing logic mostly as is but refactored to use `uploadFileToFolder` if I wanted, 
+    // So I leave this function mostly alone but refactored to use `uploadFileToFolder` if I wanted, 
     // but better to blindly paste the old logic back + my new helpers to ensure 100% no regression.
 
     // ... (Pasting original logic back in slightly cleaned form to coexist with new exports)
@@ -991,9 +1022,7 @@ export const fetchSettingsFromDrive = async (user) => {
     if (!accessToken) {
       console.log('[DriveSettings] No access token, skipping.');
       return null;
-    }
-
-    // Search for the Drive folder
+    }    // Search for the Drive folder
     let folderId = null;
     const foldersToTry = ['Kwiqbill', `KwiqBilling-${user.id}`];
 
@@ -1006,9 +1035,18 @@ export const fetchSettingsFromDrive = async (user) => {
       );
       const sData = await sRes.json();
       if (sData.files && sData.files.length > 0) {
-        folderId = sData.files[0].id;
+        const rootId = sData.files[0].id;
+        // Check for subfolder
+        const subQuery = `name='kwiq bill backup' and '${rootId}' in parents and trashed=false`;
+        const subRes = await fetchWithTimeout(
+              `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(subQuery)}`,
+              { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const subData = await subRes.json();
+        folderId = (subData.files && subData.files.length > 0) ? subData.files[0].id : rootId;
       }
     }
+ 
 
     if (!folderId) {
       console.log('[DriveSettings] No Drive folder found.');

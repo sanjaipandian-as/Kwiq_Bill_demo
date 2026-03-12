@@ -666,17 +666,27 @@ export const SettingsProvider = ({ children, user }) => {
             const { SyncService } = require('../services/OneWaySyncService');
             console.log('[SettingsContext] Running Deep Repair (Snapshots + Events)...');
             
-            // 1. Restore from Snapshots (Nuclear option that keeps drive intact)
-            const restoreResult = await SyncService.forceRestoreFromDrive(user, (msg, progress) => {
-                setSyncStatus(msg);
+            // 1. Try Modern Snapshot Restore first (Rapid & Encrypted)
+            setSyncStatus('Locating baseline snapshot...');
+            let restoreResult = await SyncService.restoreFromLatestSnapshot((msg, progress) => {
+                setSyncStatus(`[Snapshot] ${msg}`);
             });
             
-            if (!restoreResult.success) {
-                console.warn('[SettingsContext] Snapshot restore failed, falling back to full event sync:', restoreResult.error);
+            if (!restoreResult) {
+                console.log('[SettingsContext] Modern snapshot not found, falling back to legacy data fetch...');
+                setSyncStatus('Searching for legacy backups...');
+                
+                // 2. Fallback to Legacy/Desktop files (products.json, etc)
+                const legacyResult = await SyncService.forceRestoreFromDrive(user, (msg, progress) => {
+                    setSyncStatus(`[Legacy] ${msg}`);
+                });
+                if (!legacyResult.success) {
+                    console.warn('[SettingsContext] Legacy restore also failed:', legacyResult.error);
+                }
             }
 
-            // 2. Clear event cache and re-sync any missing events on top
-            await SyncService.resetProcessedEvents();
+            // 3. Re-sync any events created after the snapshot
+            setSyncStatus('Applying recent updates...');
             await SyncService.syncDown((msg, progress) => {
                 setSyncStatus(msg);
             });
@@ -719,12 +729,100 @@ export const SettingsProvider = ({ children, user }) => {
             allData.settings = [settings];
 
             const success = await syncUserDataToDrive(user, allData);
+
+            if (success) {
+                // Also create a Modern Snapshot for Rapid Recovery
+                const { SyncService } = require('../services/OneWaySyncService');
+                SyncService.createGlobalSnapshot().catch(e => console.log('Background Snapshot failed:', e.message));
+            }
+
             return success;
         } catch (error) {
             console.error('Cloud Backup Error:', error);
             return false;
         } finally {
             setIsUploading(false);
+        }
+    };
+
+    /**
+     * Manual "Backup Data" trigger (User requested)
+     * Resends pending events and pushes a fresh high-security snapshot.
+     * @param {function} onLog - optional callback (message, status: 'info'|'success'|'error'|'working') => void
+     */
+    const backupDataToCloud = async (onLog) => {
+        if (!user || !user.id) {
+            Alert.alert("Authentication Required", "Please sign in with your Google account to perform a secure backup.");
+            return false;
+        }
+
+        const log = (msg, status = 'info') => {
+            setSyncStatus(msg);
+            if (typeof onLog === 'function') onLog(msg, status);
+            console.log(`[Backup] ${msg}`);
+        };
+
+        setIsUploading(true);
+        log('Starting secure backup...', 'working');
+
+        try {
+            const { SyncService } = require('../services/OneWaySyncService');
+            const { fetchAllTableData } = require('../services/database');
+
+            // 1. Check pending upload queue
+            log('Checking for unsynced items...', 'working');
+            const pendingLength = await SyncService.getPendingQueueLength();
+
+            if (pendingLength > 0) {
+                log(`Found ${pendingLength} pending item(s). Uploading now...`, 'working');
+                await SyncService.retryQueue();
+                log(`\u2713 ${pendingLength} pending item(s) synced to cloud.`, 'success');
+            } else {
+                log('\u2713 All items are already synced. No pending uploads.', 'success');
+            }
+
+            // 2. Fetch current local data snapshot summary
+            log('Reading local database...', 'working');
+            const allData = await fetchAllTableData();
+            const counts = {
+                products: allData.products?.length || 0,
+                customers: allData.customers?.length || 0,
+                invoices: allData.invoices?.length || 0,
+                expenses: allData.expenses?.length || 0,
+            };
+            log(`\u2713 Found: ${counts.invoices} invoices, ${counts.products} products, ${counts.customers} customers, ${counts.expenses} expenses.`, 'success');
+
+            // 3. Encrypt and upload snapshot
+            log('Encrypting data with AES-256...', 'working');
+            const snapSuccess = await SyncService.createGlobalSnapshot((msg, progress) => {
+                const pct = Math.round(progress * 100);
+                if (progress < 0.5) {
+                    log(`Encrypting & signing data... ${pct}%`, 'working');
+                } else if (progress < 0.9) {
+                    log(`Uploading to Google Drive... ${pct}%`, 'working');
+                } else {
+                    log(`Finalizing backup... ${pct}%`, 'working');
+                }
+            });
+
+            if (snapSuccess) {
+                log('\u2713 Secure encrypted snapshot saved to Google Drive!', 'success');
+                log('\u2713 Backup complete. Your data is protected.', 'success');
+                setSyncStatus('Ready');
+                showToast("Data securely backed up to your Google Drive.", "success", 4000, null, "Backup Complete \u2713");
+                return true;
+            } else {
+                throw new Error("Failed to create cloud snapshot. Check your internet connection.");
+            }
+        } catch (error) {
+            console.error('Manual Backup Error:', error);
+            log(`\u2717 Backup failed: ${error.message}`, 'error');
+            showToast("Backup encountered an issue. Check your connection.", "error");
+            setSyncStatus('Backup Failed');
+            return false;
+        } finally {
+            setIsUploading(false);
+            checkQueueStatus();
         }
     };
 
@@ -736,6 +834,7 @@ export const SettingsProvider = ({ children, user }) => {
             resetOnboarding,
             syncAllData,
             syncToCloud,
+            backupDataToCloud,
             forceResync,
             repairSync,
             deepRepair,
