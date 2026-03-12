@@ -1056,14 +1056,14 @@ export default function InvoicesPage() {
                         <TouchableOpacity
                           key={status}
                           style={[
-                            styles.statusOption,
-                            editingInvoice.status === status && styles.statusOptionActive
+                            styles.statusToggleOption,
+                            editingInvoice.status === status && styles.statusToggleOptionActive
                           ]}
                           onPress={() => setEditingInvoice({ ...editingInvoice, status })}
                         >
                           <Text style={[
-                            styles.statusOptionText,
-                            editingInvoice.status === status && styles.statusOptionTextActive
+                            styles.statusToggleText,
+                            editingInvoice.status === status && styles.statusToggleTextActive
                           ]}>
                             {status === 'PAID' ? 'PAID' : 'DUE / UNPAID'}
                           </Text>
@@ -1251,17 +1251,17 @@ export default function InvoicesPage() {
 
             <View style={{ gap: 16, marginTop: 10 }}>
               <TouchableOpacity style={styles.statusOption} onPress={() => executePrint(settings?.invoice?.billPaperSize || '80mm')}>
-                <Printer size={20} color="#000" style={{ marginBottom: 4 }} />
+                <Printer size={20} color="#000" />
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>Thermal Invoice</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.statusOption} onPress={() => executePrint('A4')}>
-                <FileText size={20} color="#000" style={{ marginBottom: 4 }} />
+                <FileText size={20} color="#000" />
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>A4 Invoice (Full Page)</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.statusOption} onPress={() => executePrint('A5')}>
-                <FileText size={20} color="#000" style={{ marginBottom: 4 }} />
+                <FileText size={20} color="#000" />
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>A5 Invoice (Half Page)</Text>
               </TouchableOpacity>
             </View>
@@ -1285,12 +1285,12 @@ export default function InvoicesPage() {
 
             <View style={{ gap: 16, marginTop: 10 }}>
               <TouchableOpacity style={styles.statusOption} onPress={() => executePreview(settings?.invoice?.billPaperSize || '80mm')}>
-                <Printer size={20} color="#000" style={{ marginBottom: 4 }} />
+                <Printer size={20} color="#000" />
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>Thermal Bill Format</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.statusOption} onPress={() => executePreview('A4')}>
-                <FileText size={20} color="#000" style={{ marginBottom: 4 }} />
+                <FileText size={20} color="#000" />
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>A4 Invoice Format</Text>
               </TouchableOpacity>
             </View>
@@ -1825,6 +1825,7 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingHorizontal: 0,
     paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    maxHeight: '80%',
   },
   statusOption: {
     flexDirection: 'row',
@@ -1892,10 +1893,10 @@ const styles = StyleSheet.create({
   actionIconContainer: { width: 60, height: 60, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' },
   modernActionText: { fontSize: 12, fontWeight: '800', color: '#000' },
   statusSelector: { flexDirection: 'row', gap: 12, marginTop: 10 },
-  statusOption: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center', borderWidth: 1.5, borderColor: '#e2e8f0' },
-  statusOptionActive: { backgroundColor: '#000', borderColor: '#000' },
-  statusOptionText: { fontSize: 14, fontWeight: '800', color: '#64748b' },
-  statusOptionTextActive: { color: '#fff' },
+  statusToggleOption: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center', borderWidth: 1.5, borderColor: '#e2e8f0' },
+  statusToggleOptionActive: { backgroundColor: '#000', borderColor: '#000' },
+  statusToggleText: { fontSize: 14, fontWeight: '800', color: '#64748b' },
+  statusToggleTextActive: { color: '#fff' },
   editForm: { padding: 24 },
   modalFooter: { padding: 24, borderTopWidth: 1, borderTopColor: '#f1f5f9', flexDirection: 'row', gap: 16 },
   cancelBtn: { flex: 1, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#f1f5f9' },
@@ -1903,9 +1904,9 @@ const styles = StyleSheet.create({
   savetxt: { color: '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 0.5 },
 
   // Filter Modal
-  filterModal: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, maxHeight: '80%' },
+
   modalCloseBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
-  modalScroll: { marginBottom: 10 },
+  modalScroll: { marginBottom: 10, paddingHorizontal: 24 },
   filterItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderColor: '#f8fafc' },
   activeFilterItem: { backgroundColor: '#f8fafc', paddingHorizontal: 12, borderRadius: 16, borderColor: 'transparent' },
   filterItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },

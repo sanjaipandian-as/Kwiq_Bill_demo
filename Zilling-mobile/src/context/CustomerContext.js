@@ -10,11 +10,17 @@ export const CustomerProvider = ({ children }) => {
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // 1. Initial load from the device SQLite file
+    const { user } = require('./AuthContext').useAuth();
+
+    // 1. Initial load from the device SQLite file - reload when user changes
     useEffect(() => {
-        refreshCustomers();
+        if (user) {
+            refreshCustomers();
+        } else {
+            setCustomers([]);
+        }
         setLoading(false);
-    }, []);
+    }, [user?.id]);
 
     const addCustomer = async (data) => {
         try {

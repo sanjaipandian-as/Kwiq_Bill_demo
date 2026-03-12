@@ -302,7 +302,7 @@ const BillingGrid = ({
                     styles.suggestionSection,
                     (isKeyboardVisible || isSearchFocused)
                         ? { flex: 1, paddingTop: 10 }
-                        : (cart.length > 0 ? { flex: 0, height: '48%', minHeight: 330 } : { flex: 1 })
+                        : (cart.length > 0 ? { flex: 0, height: '50%', minHeight: 330 } : { flex: 1 })
                 ]}
             >
                 {cart.length > 0 && !isSearchFocused && !isKeyboardVisible && (

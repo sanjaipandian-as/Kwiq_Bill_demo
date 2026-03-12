@@ -19,9 +19,16 @@ export const ExpenseProvider = ({ children }) => {
         paymentMethod: row.payment_method || row.paymentMethod || 'Cash',
     });
 
-    // Initial load from SQLite
+    const { user } = require('./AuthContext').useAuth();
+
+    // Initial load from SQLite - reload when user changes
     useEffect(() => {
         const loadExpenses = async () => {
+            if (!user) {
+                setExpenses([]);
+                setLoading(false);
+                return;
+            }
             try {
                 const data = db.getAllSync('SELECT * FROM expenses ORDER BY date DESC');
                 setExpenses((data || []).map(normalizeExpense));
@@ -33,7 +40,7 @@ export const ExpenseProvider = ({ children }) => {
             }
         };
         loadExpenses();
-    }, []);
+    }, [user?.id]);
 
     const fetchExpenses = async () => {
         setLoading(true);

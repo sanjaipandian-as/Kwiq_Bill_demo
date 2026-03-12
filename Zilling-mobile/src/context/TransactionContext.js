@@ -11,9 +11,16 @@ export const TransactionProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Initial load from SQLite
+    const { user } = require('./AuthContext').useAuth();
+
+    // Initial load from SQLite - reload when user changes
     useEffect(() => {
         const loadTransactions = async () => {
+            if (!user) {
+                setTransactions([]);
+                setLoading(false);
+                return;
+            }
             try {
                 const data = db.getAllSync(`
                     SELECT i.*, c.name as c_name 
@@ -47,7 +54,7 @@ export const TransactionProvider = ({ children }) => {
             }
         };
         loadTransactions();
-    }, []);
+    }, [user?.id]);
 
     const fetchTransactions = async () => {
         setLoading(true);

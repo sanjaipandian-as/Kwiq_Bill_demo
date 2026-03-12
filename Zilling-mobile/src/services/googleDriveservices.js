@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { db } from './database';
 import { generateUUID } from '../utils/crypto';
+import { getUserSpecificKey, SETTINGS_KEY } from '../utils/storageKeys';
 const CryptoJS = require('crypto-js');
 
 /**
@@ -453,12 +454,12 @@ export const syncUserDataToDrive = async (user, allData) => {
       }
     }
 
-    // Also save User Details in the same folder for reference
+    // Also save User Details in the same folder for reference (Standardized for Restore)
     let profileContent = JSON.stringify(user, null, 2);
     if (user.email) {
       profileContent = encryptContent(profileContent, user.email);
     }
-    await uploadFileToFolder(accessToken, folderId, 'user_profile.json', profileContent);
+    await uploadFileToFolder(accessToken, folderId, 'user details.json', profileContent);
 
     return true;
   } catch (error) {
@@ -545,37 +546,41 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
           if (!text || text.trim() === "") return null;
 
           try {
-            // DECRYPTION SUPPORT: Handle encrypted snapshots from Desktop/Web
             let cleanText = text.trim();
+            
+            // Attempt 1: Direct JSON parse (Case for Desktop Backups)
+            try {
+              if (cleanText.startsWith('{') || cleanText.startsWith('[')) {
+                return JSON.parse(cleanText);
+              }
+            } catch (e) { /* Not plain JSON */ }
+
+            // Attempt 2: Decryption (Case for Mobile Backups)
             if (cleanText.startsWith('U2FsdGVkX1')) {
               try {
-                // Use email as key - common across desktop/mobile for the same user
                 const bytes = CryptoJS.AES.decrypt(cleanText, user.email);
                 const decryptedData = bytes.toString(CryptoJS.enc.Utf8);
                 if (decryptedData) cleanText = decryptedData;
-              } catch (decErr) {
+              } catch (err) {
                 console.warn(`[Restore] Decryption failed for ${baseName}. Key mismatch or corrupted.`);
               }
             }
 
-            // Standard cleaning if still has MIME headers (failsafe)
+            // Failsafe: Standard cleaning if still has MIME headers leaking from Drive
             if (cleanText.toLowerCase().includes('content-type:')) {
               const parts = cleanText.split(/\r?\n\r?\n/);
-              if (parts.length > 1) {
-                for (let part of parts) {
-                  const trimmed = part.trim();
-                  if (trimmed.toLowerCase().includes('content-type:')) continue;
-                  if (trimmed.length > 0) {
-                    cleanText = trimmed;
-                    break;
-                  }
+              for (let part of parts) {
+                const trimmed = part.trim();
+                if (trimmed.toLowerCase().includes('content-type:')) continue;
+                if (trimmed.length > 0 && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+                  try { return JSON.parse(trimmed); } catch(e) {}
                 }
               }
             }
 
             return JSON.parse(cleanText);
           } catch (e) {
-            console.error(`[Restore] JSON Parse Error for ${baseName}:`, e.message);
+            console.error(`[Restore] Fatal Parse Error for ${baseName}:`, e.message);
             return null;
           }
         }
@@ -641,7 +646,8 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
     if ((settings && Array.isArray(settings) && settings.length > 0) || userDetailsFile) {
       updateRestoreProgress('Syncing store preferences...', 0.48);
       try {
-        const localSaved = await AsyncStorage.getItem('app_settings');
+        const settingsKey = getUserSpecificKey(SETTINGS_KEY, user.email);
+        const localSaved = await AsyncStorage.getItem(settingsKey);
         const localSettings = localSaved ? JSON.parse(localSaved) : {};
 
         // Settings from settings.json take priority, fallback to user details.json
@@ -673,13 +679,14 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
           }
         };
 
-        await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
+        await AsyncStorage.setItem(settingsKey, JSON.stringify(merged));
         console.log('[Restore] Settings merged from Drive (logo excluded — fetched from DB).');
       } catch (e) {
         console.warn('[Restore] Settings merge failed, fixing state:', e.message);
         // Minimum viable settings restore
+        const settingsKey = getUserSpecificKey(SETTINGS_KEY, user.email);
         const fallback = (settings && settings[0]) || userDetailsFile || {};
-        await AsyncStorage.setItem('app_settings', JSON.stringify(fallback));
+        await AsyncStorage.setItem(settingsKey, JSON.stringify(fallback));
       }
     }
 
@@ -1070,16 +1077,15 @@ export const fetchSettingsFromDrive = async (user) => {
     if (!driveSettings) {
       console.log('[DriveSettings] No settings found on Drive.');
       return null;
-    }
-
-    // Deep extraction of bank details
+    }    // Deep extraction of bank details
     const driveBank = driveSettings.bankDetails || userDetailsData?.bankDetails || {};
-
+ 
     // Merge with local, preserving logo from DB
-    const localSaved = await AsyncStorage.getItem('app_settings');
+    const settingsKey = getUserSpecificKey(SETTINGS_KEY, user.email);
+    const localSaved = await AsyncStorage.getItem(settingsKey);
     const localSettings = localSaved ? JSON.parse(localSaved) : {};
     const existingLogo = localSettings.store?.logo || null;
-
+ 
     const merged = {
       ...localSettings,
       ...driveSettings,
@@ -1097,8 +1103,8 @@ export const fetchSettingsFromDrive = async (user) => {
         ...driveBank,
       },
     };
-
-    await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
+ 
+    await AsyncStorage.setItem(settingsKey, JSON.stringify(merged));
     console.log('[DriveSettings] ✅ Settings fetched from Drive and merged.');
     console.log('[DriveSettings] Store:', merged.store?.name, '| Bank:', merged.bankDetails?.bankName || 'none');
 

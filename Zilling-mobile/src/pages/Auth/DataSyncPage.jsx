@@ -73,7 +73,7 @@ const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
                         <View style={styles.titleSection}>
                             <Text style={styles.mainHeading}>Data Synchronization</Text>
                             <Text style={styles.subHeading}>
-                                Securely retrieving your store settings and inventory records from the cloud.
+                                We are carefully retrieving your records from the cloud. This process ensures your data remains safe and error-free.
                             </Text>
                         </View>
 
@@ -168,7 +168,7 @@ const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
                                 <Info size={18} color="#000000" />
                             </View>
                             <Text style={styles.infoNoteTextMono}>
-                                Don't worry, our system will perfectly sync your data safely. Your data integrity is our priority.
+                                This page may take a moment to load as we are safely fetching your files from your Drive to prevent any errors. Thank you for your patience!
                             </Text>
                         </View>
                     </View>
