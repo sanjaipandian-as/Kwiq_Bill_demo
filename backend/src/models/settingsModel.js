@@ -127,7 +127,8 @@ const settingsSchema = mongoose.Schema(
             // Text Content
             headerTitle: { type: String, default: 'Tax Invoice' },
             footerNote: { type: String, default: 'Thank you for your business!' },
-            termsAndConditions: { type: String, default: '1. Goods once sold will not be taken back.\n2. Interest @18% pa will be charged if not paid within due date.' },
+            termsAndConditions: { type: String, default: 'Goods once sold will not be taken back.' },
+            conditionsText: { type: String, default: 'All disputes are subject to local jurisdiction only.' },
 
             // Logic
             roundingType: { type: String, default: 'Nearest' }, // Nearest, Up, Down, None

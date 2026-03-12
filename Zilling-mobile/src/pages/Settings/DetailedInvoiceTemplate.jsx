@@ -256,7 +256,17 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
                 </View>
             </View>
 
-            {/* Row 10: Reverse Charge Note */}
+            {/* Row 10: Footer Note */}
+            <View style={[styles.detailedRow, { borderBottomWidth: 1, justifyContent: 'center', paddingVertical: 8, flexDirection: 'column', alignItems: 'center' }]}>
+                <Text style={[styles.detailedBold, { fontSize: 11, fontStyle: 'italic', color: '#1e293b' }]}>
+                    {settings?.invoice?.footerNote || 'Thank you for your business!'}
+                </Text>
+                {isVIP(invoice.customer) && (
+                    <Text style={[styles.detailedBold, { fontSize: 10, fontStyle: 'italic', color: '#000', marginTop: 4 }]}>
+                        Thank you for your business with us!
+                    </Text>
+                )}
+            </View>
             <View style={[styles.detailedRow, { borderBottomWidth: 1, justifyContent: 'center', padding: 2 }]}>
                 <Text style={styles.detailedText}>GST on Reverse Charge: No</Text>
             </View>
@@ -275,7 +285,12 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
 
                     <View style={{ height: 6 }} />
                     <Text style={styles.detailedBold}>Terms & Conditions:</Text>
-                    <Text style={[styles.detailedText, { fontSize: 7, marginTop: 2 }]}>{settings?.invoice?.termsAndConditions || '1. Goods once sold will not be taken back. 2. Interest @18% pa will be charged if not paid within due date.'}</Text>
+                    {settings?.invoice?.termsAndConditions ? (
+                        <Text style={[styles.detailedText, { fontSize: 7, marginTop: 2 }]}>{settings.invoice.termsAndConditions}</Text>
+                    ) : null}
+                    {settings?.invoice?.conditionsText ? (
+                        <Text style={[styles.detailedText, { fontSize: 7, marginTop: 1 }]}>{settings.invoice.conditionsText}</Text>
+                    ) : null}
                 </View>
                 {/* Right: Signature */}
                 <View style={[styles.detailedCol, { width: 140, borderRightWidth: 0, alignItems: 'center', justifyContent: 'space-between', padding: 4 }]}>
@@ -330,5 +345,11 @@ const styles = StyleSheet.create({
         alignItems: 'center'
     }
 });
+
+const isVIP = (cust) => {
+    if (!cust) return false;
+    const tags = cust.tags || '';
+    return typeof tags === 'string' ? tags.includes('VIP') : (Array.isArray(tags) && tags.includes('VIP'));
+};
 
 export default DetailedInvoiceTemplate;

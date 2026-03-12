@@ -923,6 +923,8 @@ export const syncSettingsToDrive = async (user, settings) => {
       store: settings.store,
       user: settings.user,
       bankDetails: settings.bankDetails,
+      tax: settings.tax,
+      invoice: settings.invoice,
       onboardingCompletedAt: settings.onboardingCompletedAt
     };
     let detailsContent = JSON.stringify(userDetails, null, 2);

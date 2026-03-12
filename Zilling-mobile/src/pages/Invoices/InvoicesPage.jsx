@@ -566,14 +566,23 @@ export default function InvoicesPage() {
 
           {/* Info Area */}
           <View style={styles.infoContainer}>
-            <View style={styles.nameHeader}>
+            <View style={[styles.nameHeader, { alignItems: 'flex-start' }]}>
               <Text style={styles.modernCustomerName} numberOfLines={1}>{item.customerName || 'Guest Customer'}</Text>
-              <Text style={styles.modernAmount}>₹{(item.total || 0).toLocaleString()}</Text>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.modernAmount}>₹{(item.total || 0).toLocaleString()}</Text>
+                <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: '700', marginTop: 2 }}>
+                  {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
             </View>
 
             <View style={styles.metaRow}>
               <View style={styles.idTag}>
                 <Text style={styles.idTagText}>#{item.invoiceNumber || item.id?.toString().slice(-6).toUpperCase()}</Text>
+              </View>
+              <View style={[styles.idTag, { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                <FileText size={10} color="#64748b" />
+                <Text style={styles.idTagText}>{settings?.invoice?.billTemplate || 'Professional'}</Text>
               </View>
               <View style={styles.dateMeta}>
                 <Clock size={10} color="#94a3b8" />
