@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveUserDetailsToDrive, syncUserDataToDrive, restoreUserDataFromDrive } from '../services/googleDriveservices';
-import { fetchAllTableData, clearDatabase, db } from '../services/database';
+import { fetchAllTableData, clearDatabase, db, switchUserDatabase } from '../services/database';
 import services from '../services/api';
 
 const AuthContext = createContext(null);
@@ -32,6 +32,12 @@ export const AuthProvider = ({ children }) => {
       await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user');
       await AsyncStorage.removeItem('just_logged_in');
+
+      // Clear sync in-memory cache
+      const { SyncService } = require('../services/OneWaySyncService');
+      const { logoutDB } = require('../services/database');
+      SyncService.logout();
+      logoutDB();
 
       // We NO LONGER wipe the database or sync state on logout.
       // This preserves the data for instant loading if the same user logs back in.
@@ -84,6 +90,8 @@ export const AuthProvider = ({ children }) => {
         // Only restore session if both local user exists AND Google session is active
         if (savedUserDataStr && currentUser) {
           const userData = JSON.parse(savedUserDataStr);
+          // PRODUCTION GRADE: Immediately switch to the correct user database file
+          await switchUserDatabase(userData.email);
           setUser(userData);
           // Auto-refresh from backend
           await refreshUser();
@@ -141,16 +149,21 @@ export const AuthProvider = ({ children }) => {
         if (authResponse.user.planExpiresAt) userData.planExpiresAt = authResponse.user.planExpiresAt;
         if (authResponse.user.isBlocked !== undefined) userData.isBlocked = authResponse.user.isBlocked;
       }
-      console.log('Successfully exchanged Google token for backend JWT');
-
-      // 3. Save locally - ONLY TOKEN for now, we save USER after sync
+      // 3. Save secure token
       if (backendToken && backendToken !== idToken) {
         await AsyncStorage.setItem('token', backendToken);
       } else {
         await AsyncStorage.removeItem('token');
       }
 
-      // 4. RESTORE: Fetch Snapshot & Settings from Drive (Before setting user state)
+      // Critical: Save user to storage BEFORE sync so SyncService uses the correct user-specific keys.
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+
+      // PRODUCTION GRADE: Physically isolate this user's data into their own .db file.
+      // This ensures User B can NEVER see User A's data even if sync fails.
+      await switchUserDatabase(userData.email);
+
+      // 4. RESTORE: Fetch Snapshot & Settings from Drive
       try {
         const lastEmail = await AsyncStorage.getItem('last_logged_in_email');
         const isSameUser = lastEmail === userData.email;
@@ -160,8 +173,10 @@ export const AuthProvider = ({ children }) => {
         if (isSameUser) {
           try {
             const result = db.getFirstSync('SELECT COUNT(*) as count FROM products');
-            const savedSettings = await AsyncStorage.getItem('app_settings');
-
+            const { getUserSpecificKey, SETTINGS_KEY } = require('../utils/storageKeys');
+            const settingsKey = getUserSpecificKey(SETTINGS_KEY, userData.email);
+            const savedSettings = await AsyncStorage.getItem(settingsKey);
+ 
             if (savedSettings || (result && result.count > 0)) {
               needsFullRestore = false;
             }
@@ -172,10 +187,11 @@ export const AuthProvider = ({ children }) => {
 
         if (needsFullRestore) {
           if (onProgress) onProgress('Clearing previous data...', 0.3);
-          await clearDatabase();
+          
+          // Use the more thorough resetSyncState
           const { SyncService } = require('../services/OneWaySyncService');
-          await SyncService.resetSyncState();
-          await AsyncStorage.multiRemove(['app_settings', 'last_synced_timestamp', 'processed_events_ids', 'pending_upload_queue']);
+          await SyncService.resetSyncState(); 
+          // (Note: resetSyncState already calls clearDatabase internally)
 
           await restoreUserDataFromDrive(userData, (msg, prog, stats) => {
             if (onProgress) onProgress(msg, prog, stats);
@@ -185,7 +201,7 @@ export const AuthProvider = ({ children }) => {
           if (onProgress) onProgress('Loading local storage...', 0.5);
         }
       } catch (restoreErr) {
-        console.log('Restore failed:', restoreErr);
+        console.error('Restore failed:', restoreErr);
       }
 
       // 6. AUTO-SYNC: Sync Down Events (Apply deltas)
@@ -195,7 +211,7 @@ export const AuthProvider = ({ children }) => {
 
         const { SyncService } = require('../services/OneWaySyncService');
 
-        // Custom progress handler for the sync service - pass through granular progress
+        // Custom progress handler for the sync service 
         const syncProgressHandler = (msg, progress, stats) => {
           if (onProgress) onProgress(msg, progress || 0.75, stats);
         };
@@ -205,15 +221,13 @@ export const AuthProvider = ({ children }) => {
         if (onProgress) onProgress('Updating cloud backup...', 0.95);
         await saveUserDetailsToDrive(userData);
       } catch (syncError) {
-        console.log('Initial Sync Down failed:', syncError);
+        console.error('Initial Sync Down failed:', syncError);
       }
 
-      // 5. Update State & Persist ONLY after 100% completion
+      // 5. Update State & Persist
       if (onProgress) onProgress('Finishing up...', 1.0);
-      await new Promise(r => setTimeout(r, 800)); // Delay for UX
+      await new Promise(r => setTimeout(r, 800)); 
 
-      // Critical: Don't set user in storage or state until sync is complete
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
 
       // Prevent SettingsContext from running a duplicate sync instantly
       await AsyncStorage.setItem('just_logged_in', 'true');

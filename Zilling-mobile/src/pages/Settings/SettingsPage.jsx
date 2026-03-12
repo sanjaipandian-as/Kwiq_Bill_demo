@@ -67,7 +67,7 @@ import { testPrinter, resetPrinterConnection } from '../../utils/printUtils';
 const SettingsPage = ({ navigation, route }) => {
   // Trigger clear cache
   const { user, logout, refreshUser } = useAuth();
-  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, lastEventSyncTime, syncStatus, loading, queueLength, isUploading, isLogoUploading, estimatedUploadTime, isConnected, checkQueueStatus } = useSettings();
+  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, repairSync, deepRepair, lastEventSyncTime, syncStatus, loading, queueLength, isUploading, isLogoUploading, estimatedUploadTime, isConnected, checkQueueStatus } = useSettings();
   const { fetchCustomers } = useCustomers();
   const { fetchProducts } = useProducts();
   const { fetchTransactions } = useTransactions();
@@ -83,6 +83,8 @@ const SettingsPage = ({ navigation, route }) => {
   const logoutFadeAnim = React.useRef(new Animated.Value(0)).current;
   const [isResyncModalVisible, setIsResyncModalVisible] = useState(false);
   const resyncFadeAnim = React.useRef(new Animated.Value(0)).current;
+  const [isRepairModalVisible, setIsRepairModalVisible] = useState(false);
+  const repairFadeAnim = React.useRef(new Animated.Value(0)).current;
 
   // Bluetooth Printer States
   const [pairedDevices, setPairedDevices] = useState([]);
@@ -272,6 +274,62 @@ const SettingsPage = ({ navigation, route }) => {
     Animated.timing(resyncFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
       setIsResyncModalVisible(false);
     });
+  };
+
+  const openRepairModal = () => {
+    setIsRepairModalVisible(true);
+    Animated.timing(repairFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  };
+
+  const closeRepairModal = () => {
+    Animated.timing(repairFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setIsRepairModalVisible(false);
+    });
+  };
+
+  const [isDeepRepairModalVisible, setIsDeepRepairModalVisible] = useState(false);
+  const deepRepairFadeAnim = React.useRef(new Animated.Value(0)).current;
+
+  // ... (keeping existing handlers) ...
+  const openDeepRepairModal = () => {
+    setIsDeepRepairModalVisible(true);
+    Animated.timing(deepRepairFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  };
+
+  const closeDeepRepairModal = () => {
+    Animated.timing(deepRepairFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setIsDeepRepairModalVisible(false);
+    });
+  };
+
+  const confirmDeepRepair = async () => {
+    closeDeepRepairModal();
+    await new Promise(r => setTimeout(r, 200));
+    showToast("Recovering legacy data and syncing events...", "info", 5000, null, "Running Deep Repair");
+    const success = await deepRepair();
+    if (success) {
+      showToast("Deep repair successful. All data restored.", "success", 4000, null, "Success");
+      fetchCustomers();
+      fetchProducts();
+      fetchTransactions();
+    } else {
+      showToast("Deep repair failed. Please check your Drive connection.", "error", 5000, null, "Failed");
+    }
+  };
+
+  const confirmRepair = async () => {
+    closeRepairModal();
+    await new Promise(r => setTimeout(r, 200));
+    showToast("Finding and re-syncing blocked events...", "info", 4000, null, "Repairing Sync");
+    const success = await repairSync();
+    if (success) {
+      showToast("Sync repair complete. All cloud data restored.", "success", 4000, null, "Repair Successful");
+      fetchCustomers();
+      fetchProducts();
+      fetchTransactions();
+    } else {
+      showToast("Repair process failed. Please check your connection.", "error", 5000, null, "Repair Failed");
+    }
   };
 
   const confirmResync = async () => {
@@ -500,7 +558,7 @@ const SettingsPage = ({ navigation, route }) => {
                   Manage your business identity and branding.
                 </Text>
               </View>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={refreshUser}
                 style={{ padding: 12, backgroundColor: '#f1f5f9', borderRadius: 12, marginTop: 4 }}
               >
@@ -565,7 +623,7 @@ const SettingsPage = ({ navigation, route }) => {
                 {(() => {
                   const expiry = user?.plan === 'free' ? new Date(user?.trialExpiresAt) : new Date(user?.planExpiresAt);
                   if (!expiry || isNaN(expiry.getTime())) return null;
-                  
+
                   const diff = expiry.getTime() - Date.now();
                   const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
                   if (days <= 15 && days > 0) {
@@ -1601,6 +1659,16 @@ const SettingsPage = ({ navigation, route }) => {
               'Tap "Connect" to link the printer with Kwiq Bill.'
             ]
           },
+          hi: {
+            title: 'कैसे कनेक्ट करें?',
+            steps: [
+              'थर्मल प्रिंटर चालू करें और फोन का ब्लूटूथ ऑन करें।',
+              'फोन ब्लूटूथ सेटिंग्स में जाएं और अपने प्रिंटर को पेयर (Pair) करें।',
+              'इस पेज पर वापस आएं और नीचे "Scan" पर टैप करें।',
+              'सूची में अपने प्रिंटर का नाम ढूंढें।',
+              'कनेक्ट करने के लिए "Connect" पर टैप करें।'
+            ]
+          },
           ta: {
             title: 'இணைப்பது எப்படி?',
             steps: [
@@ -1609,16 +1677,6 @@ const SettingsPage = ({ navigation, route }) => {
               'மீண்டும் இந்த பக்கத்திற்கு வந்து கீழே உள்ள "Scan" பட்டனை அழுத்தவும்.',
               'பட்டியலில் உங்கள் பிரிண்டர் பெயரை கண்டறியவும்.',
               'இணைப்பு தர "Connect" பட்டனை அழுத்தவும்.'
-            ]
-          },
-          hi: {
-            title: 'कैसे कनेक्ट करें?',
-            steps: [
-              'थर्मल प्रिंटर चालू करें और फोन का ब्लूटूथ ऑन करें।',
-              'फोन ब्लूटूथ सेटिंग्स में जाएं और अपने प्रिंटर को पेयर (Pair) करें।',
-              'इस पेज पर वापस आएं और नीचे "Scan" पर टैप करें।',
-              'सूची में अपने प्रिंटर का नाम ढूंढें।',
-              'कनेક્ટ करने के लिए "Connect" पर टैप करें।'
             ]
           },
           te: {
@@ -1636,9 +1694,9 @@ const SettingsPage = ({ navigation, route }) => {
             steps: [
               'ಥರ್ಮಲ್ ಪ್ರಿಂಟರ್ ಆನ್ ಮಾಡಿ ಮತ್ತು ಫೋನ್ ಬ್ಲೂಟೂತ್ ಆನ್ ಮಾಡಿ.',
               'ಫೋನ್ ಬ್ಲೂಟೂತ್ ಸೆಟ್ಟಿಂಗ್‌ಗೆ ಹೋಗಿ ಪ್ರಿಂಟರ್ ಅನ್ನು ಪೇರ್ (Pair) ಮಾಡಿ.',
-              'ಮರಳಿ ಈ ಪುಟಕ್ಕೆ ಬಂದು ಕೆಳಗಿರುವ "Scan" ಬటನ್ ಒತ್ತಿರಿ.',
+              'ಮರಳಿ ಈ ಪುಟಕ್ಕೆ ಬಂದು ಕೆಳಗಿರುವ "Scan" ಬಟನ್ ಒತ್ತಿರಿ.',
               'ಪಟ್ಟಿಯಲ್ಲಿ ನಿಮ್ಮ ಪ್ರಿಂಟರ್ ಹೆಸರನ್ನು ಗುರುತಿಸಿ.',
-              'ಸಂಪರ್ಕಿಸಲು "Connect" ಬటನ್ ಒತ್ತಿರಿ.'
+              'ಸಂಪರ್ಕಿಸಲು "Connect" ಬಟನ್ ಒತ್ತಿರಿ.'
             ]
           },
           ml: {
@@ -1650,1112 +1708,1330 @@ const SettingsPage = ({ navigation, route }) => {
               'ലിസ്റ്റിൽ നിങ്ങളുടെ പ്രിന്ററുടെ പേര് കണ്ടെത്തുക.',
               'കണക്ട് ചെയ്യുന്നതിന് "Connect" ബട്ടൺ അമർത്തുക.'
             ]
+          },
+          mr: {
+            title: 'कसे कनेक्ट करायचे?',
+            steps: [
+              'तुमचा थर्मल प्रिंटर चालू करा आणि तुमच्या फोनवर ब्लूटूथ सक्षम करा.',
+              'फोन ब्लूटूथ सेटिंग्जमध्ये जा आणि तुमचे प्रिंटर डिव्हाइस पेअर (Pair) करा.',
+              'या पृष्ठावर परत या आणि खाली "Scan" वर टॅप करा.',
+              ' "पॅअर्ड डिव्हाइसेस" (Paired Devices) सूचीमध्ये तुमच्या प्रिंटरचे नाव शोधा.',
+              'प्रिंटरला Kwiq Bill सह लिंक करण्यासाठी "Connect" वर टॅप करा.'
+            ]
+          },
+          bn: {
+            title: 'কিভাবে কানেক্ট করবেন?',
+            steps: [
+              'আপনার থার্মাল প্রিন্টার অন করুন এবং ফোনে ব্লুটুথ চালু করুন।',
+              'ফোনের ব্লুটুথ সেটিংসে গিয়ে আপনার প্রিন্টারটিকে পেয়ার (Pair) করুন।',
+              'এই পেজে ফিরে আসুন এবং নিচে "Scan" এ ট্যাপ করুন।',
+              ' "পেয়ারড ডিভাইস" (Paired Devices) তালিকায় আপনার প্রিন্টারের নাম খুঁজুন।',
+              'Kwiq Bill-এর সাথে প্রিন্টারটি লিঙ্ক করতে "Connect" এ ট্যাপ করুন।'
+            ]
+          },
+          gu: {
+            title: 'કેવી રીતે કનેક્ટ કરવું?',
+            steps: [
+              'તમારું થર્મલ પ્રિન્ટર ચાલુ કરો અને તમારા ફોન પર બ્લૂટૂથ સક્ષમ કરો.',
+              'ફોન બ્લૂટૂથ સેટિંગ્સમાં જાઓ અને તમારા પ્રિન્ટર ઉપકરણને પેર (Pair) કરો.',
+              'આ પૃષ્ઠ પર પાછા ફરો અને નીચે "Scan" પર ટેપ કરો.',
+              ' "પેર્ડ ડિવાઇસીસ" (Paired Devices) સૂચિમાં તમારા પ્રિન્ટરનું નામ શોધો.',
+              'પ્રિન્ટરને Kwiq Bill સાથે લિંક કરવા માટે "Connect" પર ટેપ કરો.'
+            ]
+          },
+          pa: {
+            title: 'ਕਿਵੇਂ ਕਨੈਕਟ ਕਰੀਏ?',
+            steps: [
+              'ਆਪਣਾ ਥਰਮਲ ਪ੍ਰਿੰਟਰ ਚਾਲੂ ਕਰੋ ਅਤੇ ਆਪਣੇ ਫੋਨ \'ਤੇ ਬਲੂਟੁੱਥ ਨੂੰ ਚਾਲੂ ਕਰੋ।',
+              'ਫੋਨ ਦੀ ਬਲੂਟੁੱਥ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਜਾਓ ਅਤੇ ਆਪਣੇ ਪ੍ਰਿੰਟਰ ਡਿਵਾਈਸ ਨੂੰ ਪੇਅਰ (Pair) ਕਰੋ।',
+              'ਇਸ ਪੰਨੇ \'ਤੇ ਵਾਪਸ ਆਓ ਅਤੇ ਹੇਠਾਂ "Scan" \'ਤੇ ਟੈਪ ਕਰੋ।',
+              ' "ਪੇਅਰਡ ਡਿਵਾਈਸਾਂ" (Paired Devices) ਸੂਚੀ ਵਿੱਚ ਆਪਣੇ ਪ੍ਰਿੰਟਰ ਦਾ ਨਾਮ ਲੱਭੋ।',
+              'ਪ੍ਰਿੰਟਰ ਨੂੰ Kwiq Bill ਨਾਲ ਲਿੰਕ ਕਰਨ ਲਈ "Connect" \'ਤੇ ਟੈਪ ਕਰੋ।'
+            ]
           }
         };
 
-        const currentGuide = printerGuide[guideLang] || printerGuide.en;
 
-        return (
-          <View style={styles.tabContent}>
-            {/* Print Tab Header */}
-            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                  <Printer size={24} color="#fff" />
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    initBluetooth();
-                    requestBluetoothPermissions(true);
-                    showToast("Printer list refreshed", "info");
-                  }}
-                  activeOpacity={0.7}
-                  style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}
-                >
-                  <RefreshCw size={20} color="#000" />
-                </TouchableOpacity>
-              </View>
-              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Print & Hardware</Text>
-              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
-                Connect thermal printers and configure paper size.
-              </Text>
-            </View>
 
-            {/* Upcoming Feature Card */}
-            <View style={{
-              backgroundColor: '#f8fafc',
-              padding: 16,
-              borderRadius: 24,
-              marginBottom: 24,
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const currentGuide = printerGuide[guideLang] || printerGuide.en;
+
+return (
+  <View style={styles.tabContent}>
+    {/* Print Tab Header */}
+    <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+          <Printer size={24} color="#fff" />
+        </View>
+        <TouchableOpacity
+          onPress={() => {
+            initBluetooth();
+            requestBluetoothPermissions(true);
+            showToast("Printer list refreshed", "info");
+          }}
+          activeOpacity={0.7}
+          style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}
+        >
+          <RefreshCw size={20} color="#000" />
+        </TouchableOpacity>
+      </View>
+      <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Print & Hardware</Text>
+      <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+        Connect thermal printers and configure paper size.
+      </Text>
+    </View>
+
+    {/* Language Switcher Section */}
+    <View style={{ marginBottom: 24, paddingHorizontal: 4 }}>
+      <Text style={{ fontSize: 13, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
+        Instruction Language / നിർദ്ദേശ ഭാഷ
+      </Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
+        {[
+          { id: 'en', label: 'English' },
+          { id: 'ta', label: 'தமிழ்' },
+          { id: 'hi', label: 'हिन्दी' },
+
+          { id: 'te', label: 'తెలుగు' },
+          { id: 'kn', label: 'ಕನ್ನಡ' },
+          { id: 'ml', label: 'മലയാളം' },
+          { id: 'mr', label: 'मराठी' },
+          { id: 'bn', label: 'বাংলা' },
+          { id: 'gu', label: 'ગુજરાતી' },
+          { id: 'pa', label: 'ਪੰਜਾਬੀ' },
+        ].map(l => (
+          <TouchableOpacity
+            key={l.id}
+            onPress={() => setGuideLang(l.id)}
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              borderRadius: 12,
+              backgroundColor: guideLang === l.id ? '#000' : '#fff',
               borderWidth: 1.5,
-              borderColor: '#e2e8f0',
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 14,
-              borderStyle: 'dashed'
+              borderColor: guideLang === l.id ? '#000' : '#e2e8f0',
+            }}
+          >
+            <Text style={{
+              fontSize: 14,
+              fontWeight: '800',
+              color: guideLang === l.id ? '#fff' : '#475569'
             }}>
-              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' }}>
-                <Globe size={22} color="#64748b" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: 1 }}>Coming Soon</Text>
-                  <View style={{ backgroundColor: '#000', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                    <Text style={{ fontSize: 8, fontWeight: '900', color: '#fff' }}>v1.1.0</Text>
-                  </View>
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b', marginTop: 3, lineHeight: 18 }}>
-                  Support for Tamil, Hindi, Malayalam, Telugu, and Kannada will be implemented in the next update.
-                </Text>
-              </View>
+              {l.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+
+    {/* Guide Card - WHITE THEME */}
+    <View style={{
+      backgroundColor: '#ffffff',
+      marginBottom: 24,
+      borderRadius: 24,
+      borderWidth: 2,
+      borderColor: '#000000',
+      padding: 24
+    }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <HelpCircle size={22} color="#000000" />
+        <Text style={{ fontSize: 18, fontWeight: '900', color: '#000000', textTransform: 'uppercase', letterSpacing: 1 }}>
+          {currentGuide.title}
+        </Text>
+      </View>
+
+
+
+      {/* Steps Section */}
+      <View style={{ gap: 16 }}>
+        {currentGuide.steps.map((step, idx) => (
+          <View key={idx} style={{ flexDirection: 'row', gap: 16, alignItems: 'flex-start' }}>
+            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, fontWeight: '900', color: '#ffffff' }}>{idx + 1}</Text>
             </View>
+            <Text style={{ flex: 1, fontSize: 15, color: '#000000', lineHeight: 22, fontWeight: '700' }}>
+              {step}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
 
-            {/* Guide Card - WHITE THEME */}
-            <View style={{
-              backgroundColor: '#ffffff',
-              marginBottom: 24,
-              borderRadius: 24,
-              borderWidth: 2,
-              borderColor: '#000000',
-              padding: 24
-            }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-                <HelpCircle size={22} color="#000000" />
-                <Text style={{ fontSize: 18, fontWeight: '900', color: '#000000', textTransform: 'uppercase', letterSpacing: 1 }}>
-                  {currentGuide.title}
+    <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
+      <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+        <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+          <Printer size={18} color="#fff" />
+        </View>
+        <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Printing Setup</Text>
+      </View>
+      <View style={styles.cardPadding}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Invoice Paper Size (PDF)</Text>
+          <View style={styles.pickerContainer}>
+            {['A4', 'A5'].map(size => (
+              <TouchableOpacity
+                key={size}
+                onPress={() => handleChange('invoice', 'invoicePaperSize', size)}
+                style={[
+                  styles.pickerItem,
+                  (localSettings.invoice.invoicePaperSize || 'A4') === size && styles.pickerActive
+                ]}
+              >
+                <Text style={[styles.pickerText, (localSettings.invoice.invoicePaperSize || 'A4') === size && styles.pickerTextActive]}>
+                  {size}
                 </Text>
-              </View>
-
-              {/* Language Switcher Removed - Only English Supported for Now */}
-
-              {/* Steps Section */}
-              <View style={{ gap: 16 }}>
-                {currentGuide.steps.map((step, idx) => (
-                  <View key={idx} style={{ flexDirection: 'row', gap: 16, alignItems: 'flex-start' }}>
-                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 13, fontWeight: '900', color: '#ffffff' }}>{idx + 1}</Text>
-                    </View>
-                    <Text style={{ flex: 1, fontSize: 15, color: '#000000', lineHeight: 22, fontWeight: '700' }}>
-                      {step}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
-              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
-                  <Printer size={18} color="#fff" />
-                </View>
-                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Printing Setup</Text>
-              </View>
-              <View style={styles.cardPadding}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Invoice Paper Size (PDF)</Text>
-                  <View style={styles.pickerContainer}>
-                    {['A4', 'A5'].map(size => (
-                      <TouchableOpacity
-                        key={size}
-                        onPress={() => handleChange('invoice', 'invoicePaperSize', size)}
-                        style={[
-                          styles.pickerItem,
-                          (localSettings.invoice.invoicePaperSize || 'A4') === size && styles.pickerActive
-                        ]}
-                      >
-                        <Text style={[styles.pickerText, (localSettings.invoice.invoicePaperSize || 'A4') === size && styles.pickerTextActive]}>
-                          {size}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Bill Receipt Size (Thermal)</Text>
-                  <View style={styles.pickerContainer}>
-                    {['80mm', '58mm'].map(size => (
-                      <TouchableOpacity
-                        key={size}
-                        onPress={() => handleChange('invoice', 'billPaperSize', size)}
-                        style={[
-                          styles.pickerItem,
-                          (localSettings.invoice.billPaperSize || '80mm') === size && styles.pickerActive
-                        ]}
-                      >
-                        <Text style={[styles.pickerText, (localSettings.invoice.billPaperSize || '80mm') === size && styles.pickerTextActive]}>
-                          {size}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Currency Symbol</Text>
-                  {isEditing ? (
-                    <Input
-                      value={localSettings.defaults.currency}
-                      onChangeText={(v) => handleChange('defaults', 'currency', v)}
-                    />
-                  ) : (
-                    <TouchableOpacity onPress={() => setIsEditing(true)}>
-                      <View style={styles.readOnlyBadge}>
-                        <Text style={styles.readOnlyBadgeText}>{settings.defaults.currency || '₹'}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            </Card>
-
-            <Card style={[styles.card, { marginTop: 16 }]}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
-                  <Bluetooth size={20} color="#fff" />
-                </View>
-                <Text style={styles.cardTitle}>Bluetooth Thermal POS</Text>
-              </View>
-              <View style={styles.cardPadding}>
-                <Text style={[styles.sectionSubtitle, { marginBottom: 12 }]}>
-                  Connect to a 58mm or 80mm ESC/POS thermal printer natively.
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Bill Receipt Size (Thermal)</Text>
+          <View style={styles.pickerContainer}>
+            {['80mm', '58mm'].map(size => (
+              <TouchableOpacity
+                key={size}
+                onPress={() => handleChange('invoice', 'billPaperSize', size)}
+                style={[
+                  styles.pickerItem,
+                  (localSettings.invoice.billPaperSize || '80mm') === size && styles.pickerActive
+                ]}
+              >
+                <Text style={[styles.pickerText, (localSettings.invoice.billPaperSize || '80mm') === size && styles.pickerTextActive]}>
+                  {size}
                 </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Currency Symbol</Text>
+          {isEditing ? (
+            <Input
+              value={localSettings.defaults.currency}
+              onChangeText={(v) => handleChange('defaults', 'currency', v)}
+            />
+          ) : (
+            <TouchableOpacity onPress={() => setIsEditing(true)}>
+              <View style={styles.readOnlyBadge}>
+                <Text style={styles.readOnlyBadgeText}>{settings.defaults.currency || '₹'}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Card>
 
-                {localSettings?.invoice?.selectedPrinter && (
-                  <>
-                    <View style={{ marginBottom: 16, padding: 12, backgroundColor: '#f0fdf4', borderRadius: 12, borderWidth: 1, borderColor: '#16a34a' }}>
-                      <Text style={{ fontSize: 12, color: '#166534', fontWeight: '800', marginBottom: 4 }}>
-                        CURRENTLY CONNECTED
-                      </Text>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <View>
-                          <Text style={{ fontSize: 16, fontWeight: '700', color: '#14532d' }}>
-                            {localSettings.invoice.selectedPrinter.name}
-                          </Text>
-                          <Text style={{ fontSize: 12, color: '#166534' }}>
-                            {localSettings.invoice.selectedPrinter.address}
-                          </Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                          {/* Reset & Retry — clears cached connection so next print reconnects cleanly */}
-                          <TouchableOpacity
-                            onPress={() => {
-                              resetPrinterConnection();
-                              showToast(
-                                'Printer link reset. The next bill print will reconnect automatically.',
-                                'info',
-                                3500,
-                                null,
-                                'Reset Done'
-                              );
-                            }}
-                            style={{ padding: 8, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#16a34a' }}
-                          >
-                            <Text style={{ color: '#166534', fontWeight: 'bold', fontSize: 11 }}>Reset</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={unpairPrinter}
-                            style={{ padding: 8, backgroundColor: '#dcfce7', borderRadius: 8 }}
-                          >
-                            <Text style={{ color: '#166534', fontWeight: 'bold', fontSize: 12 }}>Unpair</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </View>
+    <Card style={[styles.card, { marginTop: 16 }]}>
+      <View style={styles.cardHeader}>
+        <View style={[styles.headerIconContainer, { backgroundColor: '#000' }]}>
+          <Bluetooth size={20} color="#fff" />
+        </View>
+        <Text style={styles.cardTitle}>Bluetooth Thermal POS</Text>
+      </View>
+      <View style={styles.cardPadding}>
+        <Text style={[styles.sectionSubtitle, { marginBottom: 12 }]}>
+          Connect to a 58mm or 80mm ESC/POS thermal printer natively.
+        </Text>
 
-                    <TouchableOpacity
-                      onPress={async () => {
-                        setIsTestingPrinter(true);
-                        try {
-                          await testPrinter(localSettings);
-                        } finally {
-                          setIsTestingPrinter(false);
-                        }
-                      }}
-                      disabled={isTestingPrinter}
-                      style={{
-                        backgroundColor: isTestingPrinter ? '#64748b' : '#000',
-                        paddingVertical: 14,
-                        borderRadius: 16,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 10,
-                        marginBottom: 24,
-                        borderWidth: 1,
-                        borderColor: isTestingPrinter ? '#64748b' : '#000'
-                      }}
-                    >
-                      {isTestingPrinter ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Printer size={18} color="#fff" />
-                      )}
-                      <Text style={{ color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 }}>
-                        {isTestingPrinter ? 'SENDING TEST PRINT...' : 'TEST PRINTER CONNECTION'}
-                      </Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#334155' }}>Paired Devices</Text>
+        {localSettings?.invoice?.selectedPrinter && (
+          <>
+            <View style={{ marginBottom: 16, padding: 12, backgroundColor: '#f0fdf4', borderRadius: 12, borderWidth: 1, borderColor: '#16a34a' }}>
+              <Text style={{ fontSize: 12, color: '#166534', fontWeight: '800', marginBottom: 4 }}>
+                CURRENTLY CONNECTED
+              </Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#14532d' }}>
+                    {localSettings.invoice.selectedPrinter.name}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#166534' }}>
+                    {localSettings.invoice.selectedPrinter.address}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  {/* Reset & Retry — clears cached connection so next print reconnects cleanly */}
                   <TouchableOpacity
-                    onPress={initBluetooth}
-                    disabled={isScanning}
-                    style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#f1f5f9', borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                  >
-                    {isScanning ? <ActivityIndicator size="small" color="#000" /> : <RefreshCw size={14} color="#000" />}
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#000' }}>{isScanning ? 'Scanning...' : 'Scan'}</Text>
-                  </TouchableOpacity>
-                </View>
-                {/* Note: this list shows all Bluetooth devices that are OS-paired on this phone.
-                    A device will appear here even if it is currently powered off. Tap 'Connect'
-                    only when the printer is physically ON and in range. */}
-                <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginBottom: 12, fontStyle: 'italic' }}>
-                  Shows all OS-paired Bluetooth devices. Turn the printer ON before tapping Connect.
-                </Text>
-
-                <View style={{ marginBottom: 12 }}>
-                  <TouchableOpacity
-                    onPress={() => requestBluetoothPermissions(true)}
-                    style={{
-                      padding: 12,
-                      backgroundColor: '#fff',
-                      borderRadius: 12,
-                      borderWidth: 1.5,
-                      borderColor: '#000',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      borderStyle: 'dashed'
+                    onPress={() => {
+                      resetPrinterConnection();
+                      showToast(
+                        'Printer link reset. The next bill print will reconnect automatically.',
+                        'info',
+                        3500,
+                        null,
+                        'Reset Done'
+                      );
                     }}
+                    style={{ padding: 8, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#16a34a' }}
                   >
-                    <Shield size={16} color="#000" />
-                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#000' }}>Allow Bluetooth Permissions</Text>
+                    <Text style={{ color: '#166534', fontWeight: 'bold', fontSize: 11 }}>Reset</Text>
                   </TouchableOpacity>
-                  <Text style={{ fontSize: 10, color: '#64748b', textAlign: 'center', marginTop: 6 }}>
-                    Required for Android 12+ to find nearby printers.
-                  </Text>
-                </View>
-
-                <View style={{ gap: 8, minHeight: 40 }}>
-                  {!bleOpend && (
-                    <Text style={{ color: '#ef4444', fontSize: 12, marginBottom: 8, fontWeight: '600' }}>
-                      Bluetooth is turned off. Please enable Bluetooth on your device.
-                    </Text>
-                  )}
-                  {bleOpend && pairedDevices.length === 0 && !isScanning && (
-                    <Text style={{ color: '#64748b', fontSize: 12, marginBottom: 8, fontStyle: 'italic' }}>
-                      No paired devices found. Pair the printer in Settings first.
-                    </Text>
-                  )}
-                  {pairedDevices.map((device, i) => (
-                    <TouchableOpacity
-                      key={i}
-                      onPress={() => connectToPrinter(device)}
-                      style={{
-                        padding: 12,
-                        backgroundColor: '#f8fafc',
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: '#e2e8f0',
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <View>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#0f172a' }}>
-                          {device.name || 'Unknown Device'}
-                        </Text>
-                        <Text style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                          {device.address}
-                        </Text>
-                      </View>
-
-                      {isConnectingMac === device.address ? (
-                        <ActivityIndicator size="small" color="#000" />
-                      ) : (
-                        localSettings?.invoice?.selectedPrinter?.address !== device.address && (
-                          <View style={{ backgroundColor: '#000', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}>
-                            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Connect</Text>
-                          </View>
-                        )
-                      )}
-                    </TouchableOpacity>
-                  ))}
+                  <TouchableOpacity
+                    onPress={unpairPrinter}
+                    style={{ padding: 8, backgroundColor: '#dcfce7', borderRadius: 8 }}
+                  >
+                    <Text style={{ color: '#166534', fontWeight: 'bold', fontSize: 12 }}>Unpair</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-            </Card>
-          </View>
-        );
-      case 'backup':
-        return (
-          <View style={styles.tabContent}>
-            {/* Backup Tab Header */}
-            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                  <Cloud size={24} color="#fff" />
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    checkQueueStatus();
-                    showToast("Checking cloud synchronization heartbeat.", "info", 3000, null, "Sync Engine");
-                  }}
-                  activeOpacity={0.7}
-                  style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}
-                >
-                  <RotateCcw size={20} color="#000" />
-                </TouchableOpacity>
-              </View>
-              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Cloud & Backup</Text>
-              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
-                Manage data sync, backup, and device protection.
-              </Text>
-            </View>
-
-            {/* Cloud Sync Section */}
-            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
-              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
-                  <Cloud size={18} color="#fff" />
-                </View>
-                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Cloud Backup & Sync</Text>
-              </View>
-              <View style={styles.cardPadding}>
-                <Text style={styles.sectionDesc}>
-                  Your data is automatically synced with Google Drive. Access your information across multiple devices and never lose a single invoice.
-                </Text>
-
-                <TouchableOpacity
-                  onPress={async () => {
-                    showToast("Initiating cloud synchronization protocol.", "info", 3000, null, "Cloud Backup");
-                    const success = await syncToCloud();
-                    if (success) {
-                      showToast("Your data has been safely backed up to the cloud.", "success", 3500, null, "Backup Successful");
-                    } else {
-                      showToast("Unable to reach cloud servers. Please check your internet connection.", "error", 4000, null, "Backup Failed");
-                    }
-                  }}
-                  activeOpacity={0.8}
-                  style={[styles.actionButton, { borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 4 }]}
-                >
-                  <Cloud size={18} color="#fff" />
-                  <Text style={[styles.actionButtonText, { fontSize: 15, fontWeight: '800' }]}>Instant Cloud Backup</Text>
-                </TouchableOpacity>
-
-                {/* --- Cloud Sync Engine Heartbeat --- */}
-                <View style={{ marginTop: 32 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
-                    <View>
-                      <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 1 }}>Sync Status</Text>
-                      <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 }}>Real-time engine heartbeat</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' }}>
-                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: isConnected ? (queueLength > 0 ? '#f59e0b' : '#10b981') : '#ef4444' }} />
-                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#334155' }}>
-                        {!isConnected ? 'OFFLINE' : (queueLength > 0 ? 'SYNCING' : 'IDLE')}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* --- NEW: Clear Pending Data Section --- */}
-                  {queueLength > 0 && (
-                    <View style={{ marginTop: 24, padding: 20, backgroundColor: '#fff', borderRadius: 24, borderWidth: 1.5, borderColor: '#f59e0b' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                        <View style={{ backgroundColor: '#fef3c7', padding: 8, borderRadius: 12 }}>
-                          <Cloud size={20} color="#f59e0b" />
-                        </View>
-                        <View>
-                          <Text style={{ fontSize: 16, fontWeight: '900', color: '#000' }}>Data Pending Upload</Text>
-                          <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Safely stored on your device</Text>
-                        </View>
-                      </View>
-
-                      <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
-                        <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 16, padding: 16, alignItems: 'center' }}>
-                          <Text style={{ fontSize: 28, fontWeight: '900', color: '#000' }}>{queueLength}</Text>
-                          <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', marginTop: 4, textTransform: 'uppercase' }}>Items Queued</Text>
-                        </View>
-                        <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 16, padding: 16, alignItems: 'center' }}>
-                          <Text style={{ fontSize: 24, fontWeight: '900', color: '#000' }}>~{estimatedUploadTime}s</Text>
-                          <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', marginTop: 4, textTransform: 'uppercase', textAlign: 'center' }}>
-                            Est. Time to sync
-                          </Text>
-                        </View>
-                      </View>
-
-                      {isConnected ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f0fdf4', padding: 12, borderRadius: 12 }}>
-                          <ActivityIndicator size="small" color="#10b981" />
-                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#10b981', flex: 1 }}>Uploading to Drive now...</Text>
-                        </View>
-                      ) : (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fef2f2', padding: 12, borderRadius: 12 }}>
-                          <AlertCircle size={16} color="#ef4444" />
-                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#ef4444', flex: 1 }}>Waiting for internet connection...</Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
-
-                  {/* Multilingual Warning Section */}
-                  {queueLength > 0 && (
-                    <View style={{ marginTop: 24, backgroundColor: '#fff', borderRadius: 24, borderWidth: 1.5, borderColor: '#fca5a5', overflow: 'hidden' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 18, backgroundColor: '#fee2e2', borderBottomWidth: 1.5, borderBottomColor: '#fca5a5' }}>
-                        <AlertCircle size={22} color="#dc2626" />
-                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5 }}>Do Not Uninstall!</Text>
-                      </View>
-
-                      <ScrollView style={{ maxHeight: 260, backgroundColor: '#fef2f2' }} nestedScrollEnabled={true}>
-                        <View style={{ padding: 20, gap: 24 }}>
-                          {/* English */}
-                          <View>
-                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>English</Text>
-                            <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 22, fontWeight: '700' }}>
-                              Do not uninstall the app or clear data! Your pending bills are stored on this device. Uninstalling will permanently delete them.
-                            </Text>
-                          </View>
-                          {/* Tamil */}
-                          <View>
-                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>தமிழ் (Tamil)</Text>
-                            <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
-                              ஆப்ஸை அன்இன்ஸ்டால் செய்யவோ அல்லது டேட்டாவை அழிக்கவோ வேண்டாம்! அன்இன்ஸ்டால் செய்தால் உங்கள் பில்கள் நிரந்தரமாக அழிந்துவிடும்.
-                            </Text>
-                          </View>
-                          {/* Malayalam */}
-                          <View>
-                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>മലയാളം (Malayalam)</Text>
-                            <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
-                              ആപ്പ് അൺഇൻസ്റ്റാൾ ചെയ്യുകയോ ഡാറ്റ മായ്ക്കുകയോ ചെയ്യരുത്! അങ്ങനെ ചെയ്താൽ നിങ്ങളുടെ ഡാറ്റ പൂർണ്ണമായും നഷ്ടപ്പെടും.
-                            </Text>
-                          </View>
-                          {/* Telugu */}
-                          <View>
-                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>తెలుగు (Telugu)</Text>
-                            <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
-                              యాప్ ను అన్‌ఇన్‌స్టాల్ చేయడం కానీ లేదా డేటాను క్లీన్ చేయడం కానీ చేయకండి! అన్‌ఇన్‌స్టాల్ చేయడం వల్ల మీ డేటా శాశ్వతంగా కోల్పోతారు.
-                            </Text>
-                          </View>
-                          {/* Kannada */}
-                          <View>
-                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>ಕನ್ನಡ (Kannada)</Text>
-                            <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
-                              ಅಪ್ಲಿಕೇಶನ್ ಅನ್‌ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಬೇಡಿ ಅಥವಾ ಡೇಟಾ ಕ್ಲಿಯರ್ ಮಾಡಬೇಡಿ! ಅನ್‌ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡುವುದರಿಂದ ಬಿಲ್‌ಗಳು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿಹೋಗುತ್ತದೆ.
-                            </Text>
-                          </View>
-                          {/* Hindi */}
-                          <View>
-                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>हिंदी (Hindi)</Text>
-                            <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 22, fontWeight: '700' }}>
-                              कृपया ऐप को अनइंस्टॉल या डेटा साफ़ न करें! आपके पेंडिंग बिल इसी फ़ोन में हैं। अनइंस्टॉल करने से डेटा हमेशा के लिए डिलीट हो जाएगा।
-                            </Text>
-                          </View>
-                        </View>
-                      </ScrollView>
-                    </View>
-                  )}
-
-                  {/* Explanation Section */}
-                  <View style={{ marginTop: 24, backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                      <HelpCircle size={16} color="#000" />
-                      <Text style={{ fontSize: 14, fontWeight: '800', color: '#000' }}>How it works</Text>
-                    </View>
-                    <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 20, fontWeight: '500' }}>
-                      Every action is recorded as a secure <Text style={{ color: '#000', fontWeight: '800' }}>"Event"</Text>. These stay on your device when offline and automatically sync to your Google Drive when you're back online.
-                    </Text>
-                  </View>
-                </View>
-                {/* ------------------------------------- */}
-                <View style={styles.divider} />
-
-                {queueLength === 0 ? (
-                  <View style={{ gap: 20 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <View>
-                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#000' }}>Manual Sync</Text>
-                        <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Last sync: {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}</Text>
-                      </View>
-                      <TouchableOpacity
-                        onPress={async () => {
-                          showToast("Updating local data with latest cloud changes.", "info", 3000, null, "Synchronizing");
-                          const success = await syncAllData();
-                          if (success) {
-                            showToast("All data records are now up to date.", "success", 3500, null, "Sync Completed");
-                            fetchCustomers();
-                            fetchProducts();
-                            fetchTransactions();
-                          } else {
-                            showToast("Synchronization encountered an error. Please try again.", "error", 4000, null, "Sync Failed");
-                          }
-                        }}
-                        style={{ backgroundColor: '#000', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                      >
-                        <RotateCcw size={16} color="#fff" />
-                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>Sync Now</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={{ backgroundColor: '#fff', padding: 20, borderRadius: 24, borderWidth: 1.5, borderColor: '#000' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                        <RefreshCw size={18} color="#000" />
-                        <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Advanced Recovery</Text>
-                      </View>
-                      <Text style={{ fontSize: 11, color: '#64748b', lineHeight: 18, marginBottom: 16 }}>
-                        Notice missing data or sync errors? Force Re-sync rebuilds your local database from scratch using your Google Drive events.
-                      </Text>
-                      <TouchableOpacity
-                        onPress={openResyncModal}
-                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9', marginTop: 4 }}
-                      >
-                        <Text style={{ color: '#000', fontWeight: '800', fontSize: 13, textDecorationLine: 'underline' }}>Force Re-sync Database</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={{ padding: 24, backgroundColor: '#f8fafc', borderRadius: 24, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' }}>
-                    <Shield size={32} color="#94a3b8" style={{ marginBottom: 12 }} />
-                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#000', textAlign: 'center' }}>Sync Engine Active</Text>
-                    <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 6, lineHeight: 20 }}>
-                      Manual sync actions are restricted while background uploads are in progress to ensure data integrity.
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </Card>
-
-            {/* Local backup section */}
-            <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10, marginTop: 12 }]}>
-              <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
-                <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
-                  <Folder size={18} color="#fff" />
-                </View>
-                <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Device Protection</Text>
-              </View>
-              <View style={styles.cardPadding}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
-                  <View style={{ flex: 1, marginRight: 16 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Local Auto Save</Text>
-                      <View style={{ backgroundColor: '#10b981', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                        <Text style={{ fontSize: 8, fontWeight: '900', color: '#fff' }}>ACTIVE</Text>
-                      </View>
-                    </View>
-                    <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 18 }}>Offline backup files are saved to your storage on every change.</Text>
-                  </View>
-                  <Switch
-                    value={true}
-                    disabled={true}
-                    thumbColor="#fff"
-                    trackColor={{ false: '#f1f5f9', true: '#000' }}
-                  />
-                </View>
-
-                <View style={{ marginTop: 20, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 8 }}>
-                  <View style={{ width: 32, height: 32, backgroundColor: '#f0fdf4', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
-                    <Shield size={16} color="#10b981" />
-                  </View>
-                  <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', flex: 1 }}>
-                    All local data for Products, Parties, and Invoices is being mirrored for emergency recovery.
-                  </Text>
-                </View>
-              </View>
-            </Card>
-          </View>
-        );
-      case 'contact':
-        return (
-          <View style={styles.tabContent}>
-            {/* Header Section */}
-            <View style={{ marginBottom: 24, paddingHorizontal: 4 }}>
-              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                <Headset size={24} color="#fff" />
-              </View>
-              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Help & Support</Text>
-              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 6, fontWeight: '500' }}>
-                Have questions? We're here to help you grow.
-              </Text>
-            </View>
-
-            {/* Support Actions */}
-            <View style={{ gap: 12 }}>
-              {/* WhatsApp - Primary Action */}
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => Linking.openURL('whatsapp://send?phone=+917558175156&text=Hi Kwiq Billing Support, I need help with...')}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: '#000',
-                  paddingVertical: 18,
-                  paddingHorizontal: 20,
-                  borderRadius: 16,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.15,
-                  shadowRadius: 10,
-                  elevation: 4
-                }}
-              >
-                <MessageCircle size={24} color="#fff" />
-                <View style={{ flex: 1, marginLeft: 16 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#ffffffff' }}>Chat on WhatsApp</Text>
-                  <Text style={{ fontSize: 12, color: '#a3a3a3', marginTop: 2 }}>Instant replies from our team</Text>
-                </View>
-                <View style={{ backgroundColor: '#333', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>ONLINE</Text>
-                </View>
-              </TouchableOpacity>
-
-              {/* Call Us */}
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => Linking.openURL('tel:+917558175156')}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: '#fff',
-                  borderWidth: 1,
-                  borderColor: '#e2e8f0',
-                  paddingVertical: 16,
-                  paddingHorizontal: 20,
-                  borderRadius: 16
-                }}
-              >
-                <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 10 }}>
-                  <Phone size={20} color="#000" />
-                </View>
-                <View style={{ flex: 1, marginLeft: 16 }}>
-                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Call Support</Text>
-                  <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>+91 75581 75156</Text>
-                </View>
-                <ChevronRight size={20} color="#cbd5e1" />
-              </TouchableOpacity>
-
-              {/* Email Us */}
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => Linking.openURL('mailto:support@kwiqbill.com')}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: '#fff',
-                  borderWidth: 1,
-                  borderColor: '#e2e8f0',
-                  paddingVertical: 16,
-                  paddingHorizontal: 20,
-                  borderRadius: 16
-                }}
-              >
-                <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 10 }}>
-                  <Mail size={20} color="#000" />
-                </View>
-                <View style={{ flex: 1, marginLeft: 16 }}>
-                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Email Us</Text>
-                  <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>support@kwiqbill.com</Text>
-                </View>
-                <ChevronRight size={20} color="#cbd5e1" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Info Footer */}
-            <View style={{ marginTop: 24, padding: 24, backgroundColor: '#fafafa', borderRadius: 20, borderWidth: 1, borderColor: '#f1f5f9', alignItems: 'center' }}>
-              <View style={{ padding: 10, backgroundColor: '#fff', borderRadius: 24, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
-                <RefreshCw size={24} color="#000" />
-              </View>
-              <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a', textAlign: 'center' }}>Available Mon-Sat</Text>
-              <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4, lineHeight: 18, maxWidth: 260 }}>
-                Our team is available from 9:00 AM to 7:00 PM. We typically respond within 2 hours.
-              </Text>
-            </View>
-          </View>
-        );
-      case 'logout':
-        return (
-          <View style={styles.tabContent}>
-            {/* Logout Tab Header */}
-            <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
-              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                <LogOut size={24} color="#fff" />
-              </View>
-              <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Sign Out</Text>
-              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
-                Securely sign out of your Kwiq Bill account.
-              </Text>
-            </View>
-            {/* Pro Visual: What Happens Section */}
-            <View style={{ padding: 4 }}>
-              <Text style={{ fontSize: 14, fontWeight: '900', color: '#000', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>
-                Security & Data Impact
-              </Text>
-
-              <View style={{ gap: 12 }}>
-                {/* Visual Step 1 */}
-                <View style={{ flexDirection: 'row', gap: 16 }}>
-                  <View style={{ alignItems: 'center' }}>
-                    <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
-                      <Database size={18} color="#fff" />
-                    </View>
-                    <View style={{ width: 2, flex: 1, backgroundColor: '#f1f5f9' }} />
-                  </View>
-                  <View style={{ flex: 1, paddingBottom: 24 }}>
-                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Local Storage Cleared</Text>
-                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
-                      All local database cache and events will be wiped from this device for your security.
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Visual Step 2 */}
-                <View style={{ flexDirection: 'row', gap: 16 }}>
-                  <View style={{ alignItems: 'center' }}>
-                    <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
-                      <Cloud size={18} color="#fff" />
-                    </View>
-                    <View style={{ width: 2, flex: 1, backgroundColor: '#f1f5f9' }} />
-                  </View>
-                  <View style={{ flex: 1, paddingBottom: 24 }}>
-                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Cloud Backups Retained</Text>
-                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
-                      Your products, customers, and invoices remain safely encrypted in your Google Drive and Private Cloud.
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Visual Step 3 */}
-                <View style={{ flexDirection: 'row', gap: 16 }}>
-                  <View style={{ alignItems: 'center' }}>
-                    <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
-                      <RefreshCw size={18} color="#fff" />
-                    </View>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Instant Recovery</Text>
-                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
-                      Sign back in on any device with this Google account to instantly restore all your business data.
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            {/* Sync Safety Indicator */}
-            <View style={{
-              marginTop: 32,
-              backgroundColor: queueLength > 0 ? '#fffbeb' : '#f8fafc',
-              padding: 20,
-              borderRadius: 24,
-              borderWidth: 1.5,
-              borderColor: queueLength > 0 ? '#fde68a' : '#e2e8f0',
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 16
-            }}>
-              <View style={{
-                width: 48,
-                height: 48,
-                borderRadius: 16,
-                backgroundColor: queueLength > 0 ? '#fef3c7' : '#fff',
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: queueLength > 0 ? '#fde68a' : '#e2e8f0'
-              }}>
-                {queueLength > 0 ? (
-                  <ActivityIndicator size="small" color="#d97706" />
-                ) : (
-                  <CheckCircle2 size={24} color="#16a34a" />
-                )}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: '900', color: '#000' }}>
-                  {queueLength > 0 ? 'Sync in Progress' : 'Cloud Status: Protected'}
-                </Text>
-                <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2, fontWeight: '600' }}>
-                  {queueLength > 0
-                    ? `Waiting for ${queueLength} items to upload.`
-                    : 'Everything is synced. Safe to sign out.'}
-                </Text>
-              </View>
-            </View>
-
-            {/* Pro Logout Button */}
-            <View style={{ marginTop: 20 }}>
-              <TouchableOpacity
-                onPress={handleLogout}
-                activeOpacity={0.8}
-                style={{
-                  backgroundColor: queueLength > 0 ? '#f1f5f9' : '#000',
-                  paddingVertical: 18,
-                  borderRadius: 24,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 12,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 10 },
-                  shadowOpacity: queueLength > 0 ? 0 : 0.3,
-                  shadowRadius: 20,
-                  elevation: queueLength > 0 ? 0 : 8,
-                  borderWidth: queueLength > 0 ? 1.5 : 0,
-                  borderColor: '#e2e8f0'
-                }}
-              >
-                {queueLength > 0 ? (
-                  <ActivityIndicator size="small" color="#94a3b8" />
-                ) : (
-                  <LogOut size={22} color="#fff" />
-                )}
-                <Text style={{
-                  color: queueLength > 0 ? '#94a3b8' : '#fff',
-                  fontSize: 16,
-                  fontWeight: '900',
-                  letterSpacing: 1
-                }}>
-                  {queueLength > 0 ? 'SYNCHRONIZING...' : 'SIGN OUT SECURELY'}
-                </Text>
-              </TouchableOpacity>
-
-              {queueLength > 0 && (
-                <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 12, fontWeight: '600' }}>
-                  Logout will be available once all {queueLength} events are safely in the cloud.
-                </Text>
-              )}
             </View>
 
             <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={{ paddingVertical: 16, alignItems: 'center' }}
+              onPress={async () => {
+                setIsTestingPrinter(true);
+                try {
+                  await testPrinter(localSettings);
+                } finally {
+                  setIsTestingPrinter(false);
+                }
+              }}
+              disabled={isTestingPrinter}
+              style={{
+                backgroundColor: isTestingPrinter ? '#64748b' : '#000',
+                paddingVertical: 14,
+                borderRadius: 16,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                marginBottom: 24,
+                borderWidth: 1,
+                borderColor: isTestingPrinter ? '#64748b' : '#000'
+              }}
             >
-              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>Go back to Settings</Text>
+              {isTestingPrinter ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Printer size={18} color="#fff" />
+              )}
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 }}>
+                {isTestingPrinter ? 'SENDING TEST PRINT...' : 'TEST PRINTER CONNECTION'}
+              </Text>
             </TouchableOpacity>
+          </>
+        )}
 
-            {/* Version Badge */}
-            <View style={{ alignItems: 'center', marginTop: 20, opacity: 0.3 }}>
-              <Text style={{ fontSize: 10, fontWeight: '900', color: '#000', letterSpacing: 1 }}>KWIQ BILL v1.0.0</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <Text style={{ fontSize: 14, fontWeight: '800', color: '#334155' }}>Paired Devices</Text>
+          <TouchableOpacity
+            onPress={initBluetooth}
+            disabled={isScanning}
+            style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#f1f5f9', borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+          >
+            {isScanning ? <ActivityIndicator size="small" color="#000" /> : <RefreshCw size={14} color="#000" />}
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#000' }}>{isScanning ? 'Scanning...' : 'Scan'}</Text>
+          </TouchableOpacity>
+        </View>
+        {/* Note: this list shows all Bluetooth devices that are OS-paired on this phone.
+                    A device will appear here even if it is currently powered off. Tap 'Connect'
+                    only when the printer is physically ON and in range. */}
+        <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginBottom: 12, fontStyle: 'italic' }}>
+          Shows all OS-paired Bluetooth devices. Turn the printer ON before tapping Connect.
+        </Text>
+
+        <View style={{ marginBottom: 12 }}>
+          <TouchableOpacity
+            onPress={() => requestBluetoothPermissions(true)}
+            style={{
+              padding: 12,
+              backgroundColor: '#fff',
+              borderRadius: 12,
+              borderWidth: 1.5,
+              borderColor: '#000',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              borderStyle: 'dashed'
+            }}
+          >
+            <Shield size={16} color="#000" />
+            <Text style={{ fontSize: 13, fontWeight: '800', color: '#000' }}>Allow Bluetooth Permissions</Text>
+          </TouchableOpacity>
+          <Text style={{ fontSize: 10, color: '#64748b', textAlign: 'center', marginTop: 6 }}>
+            Required for Android 12+ to find nearby printers.
+          </Text>
+        </View>
+
+        <View style={{ gap: 8, minHeight: 40 }}>
+          {!bleOpend && (
+            <Text style={{ color: '#ef4444', fontSize: 12, marginBottom: 8, fontWeight: '600' }}>
+              Bluetooth is turned off. Please enable Bluetooth on your device.
+            </Text>
+          )}
+          {bleOpend && pairedDevices.length === 0 && !isScanning && (
+            <Text style={{ color: '#64748b', fontSize: 12, marginBottom: 8, fontStyle: 'italic' }}>
+              No paired devices found. Pair the printer in Settings first.
+            </Text>
+          )}
+          {pairedDevices.map((device, i) => (
+            <TouchableOpacity
+              key={i}
+              onPress={() => connectToPrinter(device)}
+              style={{
+                padding: 12,
+                backgroundColor: '#f8fafc',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#e2e8f0',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}
+            >
+              <View>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0f172a' }}>
+                  {device.name || 'Unknown Device'}
+                </Text>
+                <Text style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                  {device.address}
+                </Text>
+              </View>
+
+              {isConnectingMac === device.address ? (
+                <ActivityIndicator size="small" color="#000" />
+              ) : (
+                localSettings?.invoice?.selectedPrinter?.address !== device.address && (
+                  <View style={{ backgroundColor: '#000', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}>
+                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Connect</Text>
+                  </View>
+                )
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    </Card>
+  </View>
+);
+      case 'backup':
+return (
+  <View style={styles.tabContent}>
+    {/* Backup Tab Header */}
+    <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+          <Cloud size={24} color="#fff" />
+        </View>
+        <TouchableOpacity
+          onPress={() => {
+            checkQueueStatus();
+            showToast("Checking cloud synchronization heartbeat.", "info", 3000, null, "Sync Engine");
+          }}
+          activeOpacity={0.7}
+          style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}
+        >
+          <RotateCcw size={20} color="#000" />
+        </TouchableOpacity>
+      </View>
+      <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Cloud & Backup</Text>
+      <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+        Manage data sync, backup, and device protection.
+      </Text>
+    </View>
+
+    {/* Cloud Sync Section */}
+    <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10 }]}>
+      <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+        <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+          <Cloud size={18} color="#fff" />
+        </View>
+        <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Cloud Backup & Sync</Text>
+      </View>
+      <View style={styles.cardPadding}>
+        <Text style={styles.sectionDesc}>
+          Your data is automatically synced with Google Drive. Access your information across multiple devices and never lose a single invoice.
+        </Text>
+
+        <TouchableOpacity
+          onPress={async () => {
+            showToast("Initiating cloud synchronization protocol.", "info", 3000, null, "Cloud Backup");
+            const success = await syncToCloud();
+            if (success) {
+              showToast("Your data has been safely backed up to the cloud.", "success", 3500, null, "Backup Successful");
+            } else {
+              showToast("Unable to reach cloud servers. Please check your internet connection.", "error", 4000, null, "Backup Failed");
+            }
+          }}
+          activeOpacity={0.8}
+          style={[styles.actionButton, { borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 4 }]}
+        >
+          <Cloud size={18} color="#fff" />
+          <Text style={[styles.actionButtonText, { fontSize: 15, fontWeight: '800' }]}>Instant Cloud Backup</Text>
+        </TouchableOpacity>
+
+        {/* --- Cloud Sync Engine Heartbeat --- */}
+        <View style={{ marginTop: 32 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 1 }}>Sync Status</Text>
+              <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 }}>Real-time engine heartbeat</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: isConnected ? (queueLength > 0 ? '#f59e0b' : '#10b981') : '#ef4444' }} />
+              <Text style={{ fontSize: 11, fontWeight: '800', color: '#334155' }}>
+                {!isConnected ? 'OFFLINE' : (queueLength > 0 ? 'SYNCING' : 'IDLE')}
+              </Text>
             </View>
           </View>
-        );
+
+          {/* --- NEW: Clear Pending Data Section --- */}
+          {queueLength > 0 && (
+            <View style={{ marginTop: 24, padding: 20, backgroundColor: '#fff', borderRadius: 24, borderWidth: 1.5, borderColor: '#f59e0b' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <View style={{ backgroundColor: '#fef3c7', padding: 8, borderRadius: 12 }}>
+                  <Cloud size={20} color="#f59e0b" />
+                </View>
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: '900', color: '#000' }}>Data Pending Upload</Text>
+                  <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Safely stored on your device</Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+                <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 16, padding: 16, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 28, fontWeight: '900', color: '#000' }}>{queueLength}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', marginTop: 4, textTransform: 'uppercase' }}>Items Queued</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 16, padding: 16, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 24, fontWeight: '900', color: '#000' }}>~{estimatedUploadTime}s</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', marginTop: 4, textTransform: 'uppercase', textAlign: 'center' }}>
+                    Est. Time to sync
+                  </Text>
+                </View>
+              </View>
+
+              {isConnected ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f0fdf4', padding: 12, borderRadius: 12 }}>
+                  <ActivityIndicator size="small" color="#10b981" />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#10b981', flex: 1 }}>Uploading to Drive now...</Text>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fef2f2', padding: 12, borderRadius: 12 }}>
+                  <AlertCircle size={16} color="#ef4444" />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#ef4444', flex: 1 }}>Waiting for internet connection...</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Multilingual Warning Section */}
+          {queueLength > 0 && (
+            <View style={{ marginTop: 24, backgroundColor: '#fff', borderRadius: 24, borderWidth: 1.5, borderColor: '#fca5a5', overflow: 'hidden' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 18, backgroundColor: '#fee2e2', borderBottomWidth: 1.5, borderBottomColor: '#fca5a5' }}>
+                <AlertCircle size={22} color="#dc2626" />
+                <Text style={{ fontSize: 16, fontWeight: '900', color: '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5 }}>Do Not Uninstall!</Text>
+              </View>
+
+              <ScrollView style={{ maxHeight: 260, backgroundColor: '#fef2f2' }} nestedScrollEnabled={true}>
+                <View style={{ padding: 20, gap: 24 }}>
+                  {/* English */}
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>English</Text>
+                    <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 22, fontWeight: '700' }}>
+                      Do not uninstall the app or clear data! Your pending bills are stored on this device. Uninstalling will permanently delete them.
+                    </Text>
+                  </View>
+                  {/* Tamil */}
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>தமிழ் (Tamil)</Text>
+                    <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
+                      ஆப்ஸை அன்இன்ஸ்டால் செய்யவோ அல்லது டேட்டாவை அழிக்கவோ வேண்டாம்! அன்இன்ஸ்டால் செய்தால் உங்கள் பில்கள் நிரந்தரமாக அழிந்துவிடும்.
+                    </Text>
+                  </View>
+                  {/* Malayalam */}
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>മലയാളം (Malayalam)</Text>
+                    <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
+                      ആപ്പ് അൺഇൻസ്റ്റാൾ ചെയ്യുകയോ ഡാറ്റ മായ്ക്കുകയോ ചെയ്യരുത്! അങ്ങനെ ചെയ്താൽ നിങ്ങളുടെ ഡാറ്റ പൂർണ്ണമായും നഷ്ടപ്പെടും.
+                    </Text>
+                  </View>
+                  {/* Telugu */}
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>తెలుగు (Telugu)</Text>
+                    <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
+                      యాప్ ను అన్‌ఇన్‌స్టాల్ చేయడం కానీ లేదా డేటాను క్లీన్ చేయడం కానీ చేయకండి! అన్‌ఇన్‌స్టాల్ చేయడం వల్ల మీ డేటా శాశ్వతంగా కోల్పోతారు.
+                    </Text>
+                  </View>
+                  {/* Kannada */}
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>ಕನ್ನಡ (Kannada)</Text>
+                    <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
+                      ಅಪ್ಲಿಕೇಶನ್ ಅನ್‌ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಬೇಡಿ ಅಥವಾ ಡೇಟಾ ಕ್ಲಿಯರ್ ಮಾಡಬೇಡಿ! ಅನ್‌ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡುವುದರಿಂದ ಬಿಲ್‌ಗಳು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿಹೋಗುತ್ತದೆ.
+                    </Text>
+                  </View>
+                  {/* Hindi */}
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>हिंदी (Hindi)</Text>
+                    <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 22, fontWeight: '700' }}>
+                      कृपया ऐप को अनइंस्टॉल या डेटा साफ़ न करें! आपके पेंडिंग बिल इसी फ़ोन में हैं। अनइंस्टॉल करने से डेटा हमेशा के लिए डिलीट हो जाएगा।
+                    </Text>
+                  </View>
+                </View>
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Explanation Section */}
+          <View style={{ marginTop: 24, backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <HelpCircle size={16} color="#000" />
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#000' }}>How it works</Text>
+            </View>
+            <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 20, fontWeight: '500' }}>
+              Every action is recorded as a secure <Text style={{ color: '#000', fontWeight: '800' }}>"Event"</Text>. These stay on your device when offline and automatically sync to your Google Drive when you're back online.
+            </Text>
+          </View>
+        </View>
+        {/* ------------------------------------- */}
+        <View style={styles.divider} />
+
+        {queueLength === 0 ? (
+          <View style={{ gap: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: '#000' }}>Manual Sync</Text>
+                <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Last sync: {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}</Text>
+              </View>
+              <TouchableOpacity
+                onPress={async () => {
+                  showToast("Updating local data with latest cloud changes.", "info", 3000, null, "Synchronizing");
+                  const success = await syncAllData();
+                  if (success) {
+                    showToast("All data records are now up to date.", "success", 3500, null, "Sync Completed");
+                    fetchCustomers();
+                    fetchProducts();
+                    fetchTransactions();
+                  } else {
+                    showToast("Synchronization encountered an error. Please try again.", "error", 4000, null, "Sync Failed");
+                  }
+                }}
+                style={{ backgroundColor: '#000', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+              >
+                <RotateCcw size={16} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>Sync Now</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ backgroundColor: '#fff', padding: 20, borderRadius: 24, borderWidth: 1.5, borderColor: '#000' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <Cloud size={18} color="#000" />
+                <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Repair Sync Channel</Text>
+              </View>
+              <Text style={{ fontSize: 11, color: '#64748b', lineHeight: 18, marginBottom: 16 }}>
+                Missing some products or customers? This re-scans the cloud to find and re-download records that were previously blocked.
+              </Text>
+              
+              <View style={{ gap: 12 }}>
+                <TouchableOpacity
+                  onPress={openRepairModal}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0' }}
+                >
+                  <Text style={{ color: '#000', fontWeight: '800', fontSize: 13 }}>Quick Repair</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={openDeepRepairModal}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 12, backgroundColor: '#000' }}
+                >
+                  <ShieldCheck size={16} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>Deep Data Restore</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={{ backgroundColor: '#fff', padding: 20, borderRadius: 24, borderWidth: 1.5, borderColor: '#000' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <RefreshCw size={18} color="#000" />
+                <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Advanced Recovery</Text>
+              </View>
+              <Text style={{ fontSize: 11, color: '#64748b', lineHeight: 18, marginBottom: 16 }}>
+                Notice persistent sync errors? Force Re-sync wipes and rebuilds your local database from your Google Drive events.
+              </Text>
+              <TouchableOpacity
+                onPress={openResyncModal}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9', marginTop: 4 }}
+              >
+                <Text style={{ color: '#000', fontWeight: '800', fontSize: 13, textDecorationLine: 'underline' }}>Force Re-sync Database</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={{ padding: 24, backgroundColor: '#f8fafc', borderRadius: 24, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' }}>
+            <Shield size={32} color="#94a3b8" style={{ marginBottom: 12 }} />
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#000', textAlign: 'center' }}>Sync Engine Active</Text>
+            <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 6, lineHeight: 20 }}>
+              Manual sync actions are restricted while background uploads are in progress to ensure data integrity.
+            </Text>
+          </View>
+        )}
+      </View>
+    </Card>
+
+    {/* Local backup section */}
+    <Card style={[styles.card, { borderLeftWidth: 0, borderRightWidth: 0, borderRadius: 24, paddingVertical: 10, marginTop: 12 }]}>
+      <View style={[styles.cardHeader, { backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 10 }]}>
+        <View style={[styles.headerIconContainer, { backgroundColor: '#000', borderRadius: 12 }]}>
+          <Folder size={18} color="#fff" />
+        </View>
+        <Text style={[styles.cardTitle, { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }]}>Device Protection</Text>
+      </View>
+      <View style={styles.cardPadding}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
+          <View style={{ flex: 1, marginRight: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Local Auto Save</Text>
+              <View style={{ backgroundColor: '#10b981', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                <Text style={{ fontSize: 8, fontWeight: '900', color: '#fff' }}>ACTIVE</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 18 }}>Offline backup files are saved to your storage on every change.</Text>
+          </View>
+          <Switch
+            value={true}
+            disabled={true}
+            thumbColor="#fff"
+            trackColor={{ false: '#f1f5f9', true: '#000' }}
+          />
+        </View>
+
+        <View style={{ marginTop: 20, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 8 }}>
+          <View style={{ width: 32, height: 32, backgroundColor: '#f0fdf4', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
+            <Shield size={16} color="#10b981" />
+          </View>
+          <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', flex: 1 }}>
+            All local data for Products, Parties, and Invoices is being mirrored for emergency recovery.
+          </Text>
+        </View>
+      </View>
+    </Card>
+  </View>
+);
+      case 'contact':
+return (
+  <View style={styles.tabContent}>
+    {/* Header Section */}
+    <View style={{ marginBottom: 24, paddingHorizontal: 4 }}>
+      <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+        <Headset size={24} color="#fff" />
+      </View>
+      <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Help & Support</Text>
+      <Text style={{ fontSize: 14, color: '#64748b', marginTop: 6, fontWeight: '500' }}>
+        Have questions? We're here to help you grow.
+      </Text>
+    </View>
+
+    {/* Support Actions */}
+    <View style={{ gap: 12 }}>
+      {/* WhatsApp - Primary Action */}
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => Linking.openURL('whatsapp://send?phone=+917558175156&text=Hi Kwiq Billing Support, I need help with...')}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#000',
+          paddingVertical: 18,
+          paddingHorizontal: 20,
+          borderRadius: 16,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 10,
+          elevation: 4
+        }}
+      >
+        <MessageCircle size={24} color="#fff" />
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={{ fontSize: 16, fontWeight: '800', color: '#ffffffff' }}>Chat on WhatsApp</Text>
+          <Text style={{ fontSize: 12, color: '#a3a3a3', marginTop: 2 }}>Instant replies from our team</Text>
+        </View>
+        <View style={{ backgroundColor: '#333', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>ONLINE</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Call Us */}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => Linking.openURL('tel:+917558175156')}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#fff',
+          borderWidth: 1,
+          borderColor: '#e2e8f0',
+          paddingVertical: 16,
+          paddingHorizontal: 20,
+          borderRadius: 16
+        }}
+      >
+        <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 10 }}>
+          <Phone size={20} color="#000" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Call Support</Text>
+          <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>+91 75581 75156</Text>
+        </View>
+        <ChevronRight size={20} color="#cbd5e1" />
+      </TouchableOpacity>
+
+      {/* Email Us */}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => Linking.openURL('mailto:support@kwiqbill.com')}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#fff',
+          borderWidth: 1,
+          borderColor: '#e2e8f0',
+          paddingVertical: 16,
+          paddingHorizontal: 20,
+          borderRadius: 16
+        }}
+      >
+        <View style={{ padding: 10, backgroundColor: '#f8fafc', borderRadius: 10 }}>
+          <Mail size={20} color="#000" />
+        </View>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Email Us</Text>
+          <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>support@kwiqbill.com</Text>
+        </View>
+        <ChevronRight size={20} color="#cbd5e1" />
+      </TouchableOpacity>
+    </View>
+
+    {/* Info Footer */}
+    <View style={{ marginTop: 24, padding: 24, backgroundColor: '#fafafa', borderRadius: 20, borderWidth: 1, borderColor: '#f1f5f9', alignItems: 'center' }}>
+      <View style={{ padding: 10, backgroundColor: '#fff', borderRadius: 24, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
+        <RefreshCw size={24} color="#000" />
+      </View>
+      <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a', textAlign: 'center' }}>Available Mon-Sat</Text>
+      <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4, lineHeight: 18, maxWidth: 260 }}>
+        Our team is available from 9:00 AM to 7:00 PM. We typically respond within 2 hours.
+      </Text>
+    </View>
+  </View>
+);
+      case 'logout':
+return (
+  <View style={styles.tabContent}>
+    {/* Logout Tab Header */}
+    <View style={{ marginBottom: 28, paddingHorizontal: 4 }}>
+      <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+        <LogOut size={24} color="#fff" />
+      </View>
+      <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -0.5 }}>Sign Out</Text>
+      <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4, fontWeight: '500' }}>
+        Securely sign out of your Kwiq Bill account.
+      </Text>
+    </View>
+    {/* Pro Visual: What Happens Section */}
+    <View style={{ padding: 4 }}>
+      <Text style={{ fontSize: 14, fontWeight: '900', color: '#000', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>
+        Security & Data Impact
+      </Text>
+
+      <View style={{ gap: 12 }}>
+        {/* Visual Step 1 */}
+        <View style={{ flexDirection: 'row', gap: 16 }}>
+          <View style={{ alignItems: 'center' }}>
+            <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
+              <Database size={18} color="#fff" />
+            </View>
+            <View style={{ width: 2, flex: 1, backgroundColor: '#f1f5f9' }} />
+          </View>
+          <View style={{ flex: 1, paddingBottom: 24 }}>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Local Storage Cleared</Text>
+            <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
+              All local database cache and events will be wiped from this device for your security.
+            </Text>
+          </View>
+        </View>
+
+        {/* Visual Step 2 */}
+        <View style={{ flexDirection: 'row', gap: 16 }}>
+          <View style={{ alignItems: 'center' }}>
+            <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
+              <Cloud size={18} color="#fff" />
+            </View>
+            <View style={{ width: 2, flex: 1, backgroundColor: '#f1f5f9' }} />
+          </View>
+          <View style={{ flex: 1, paddingBottom: 24 }}>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Cloud Backups Retained</Text>
+            <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
+              Your products, customers, and invoices remain safely encrypted in your Google Drive and Private Cloud.
+            </Text>
+          </View>
+        </View>
+
+        {/* Visual Step 3 */}
+        <View style={{ flexDirection: 'row', gap: 16 }}>
+          <View style={{ alignItems: 'center' }}>
+            <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 1 }}>
+              <RefreshCw size={18} color="#fff" />
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Instant Recovery</Text>
+            <Text style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 18, fontWeight: '500' }}>
+              Sign back in on any device with this Google account to instantly restore all your business data.
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
+
+    {/* Sync Safety Indicator */}
+    <View style={{
+      marginTop: 32,
+      backgroundColor: queueLength > 0 ? '#fffbeb' : '#f8fafc',
+      padding: 20,
+      borderRadius: 24,
+      borderWidth: 1.5,
+      borderColor: queueLength > 0 ? '#fde68a' : '#e2e8f0',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 16
+    }}>
+      <View style={{
+        width: 48,
+        height: 48,
+        borderRadius: 16,
+        backgroundColor: queueLength > 0 ? '#fef3c7' : '#fff',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: queueLength > 0 ? '#fde68a' : '#e2e8f0'
+      }}>
+        {queueLength > 0 ? (
+          <ActivityIndicator size="small" color="#d97706" />
+        ) : (
+          <CheckCircle2 size={24} color="#16a34a" />
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 14, fontWeight: '900', color: '#000' }}>
+          {queueLength > 0 ? 'Sync in Progress' : 'Cloud Status: Protected'}
+        </Text>
+        <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2, fontWeight: '600' }}>
+          {queueLength > 0
+            ? `Waiting for ${queueLength} items to upload.`
+            : 'Everything is synced. Safe to sign out.'}
+        </Text>
+      </View>
+    </View>
+
+    {/* Pro Logout Button */}
+    <View style={{ marginTop: 20 }}>
+      <TouchableOpacity
+        onPress={handleLogout}
+        activeOpacity={0.8}
+        style={{
+          backgroundColor: queueLength > 0 ? '#f1f5f9' : '#000',
+          paddingVertical: 18,
+          borderRadius: 24,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 12,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: queueLength > 0 ? 0 : 0.3,
+          shadowRadius: 20,
+          elevation: queueLength > 0 ? 0 : 8,
+          borderWidth: queueLength > 0 ? 1.5 : 0,
+          borderColor: '#e2e8f0'
+        }}
+      >
+        {queueLength > 0 ? (
+          <ActivityIndicator size="small" color="#94a3b8" />
+        ) : (
+          <LogOut size={22} color="#fff" />
+        )}
+        <Text style={{
+          color: queueLength > 0 ? '#94a3b8' : '#fff',
+          fontSize: 16,
+          fontWeight: '900',
+          letterSpacing: 1
+        }}>
+          {queueLength > 0 ? 'SYNCHRONIZING...' : 'SIGN OUT SECURELY'}
+        </Text>
+      </TouchableOpacity>
+
+      {queueLength > 0 && (
+        <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 12, fontWeight: '600' }}>
+          Logout will be available once all {queueLength} events are safely in the cloud.
+        </Text>
+      )}
+    </View>
+
+    <TouchableOpacity
+      onPress={() => navigation.goBack()}
+      style={{ paddingVertical: 16, alignItems: 'center' }}
+    >
+      <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>Go back to Settings</Text>
+    </TouchableOpacity>
+
+    {/* Version Badge */}
+    <View style={{ alignItems: 'center', marginTop: 20, opacity: 0.3 }}>
+      <Text style={{ fontSize: 10, fontWeight: '900', color: '#000', letterSpacing: 1 }}>KWIQ BILL v1.0.0</Text>
+    </View>
+  </View>
+);
       default:
-        return null;
+return null;
     }
   };
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+return (
+  <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      {/* Full Screen Sync Overlay Removed - Now uses Global Toast Indicator */}
+    {/* Full Screen Sync Overlay Removed - Now uses Global Toast Indicator */}
 
-      {/* Custom Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ChevronLeft size={24} color="#1e293b" />
-          </TouchableOpacity>
-          <View>
-            <Text style={styles.headerTitle}>Settings</Text>
-            {unsavedChanges && (
-              <View style={styles.unsavedBadge}>
-                <AlertCircle size={10} color="#92400e" />
-                <Text style={styles.unsavedText}>Unsaved Changes</Text>
-              </View>
-            )}
-          </View>
-        </View>
-        <View style={styles.headerActions}>
-          {isEditing && (
-            <TouchableOpacity onPress={handleCancel} style={styles.cancelBtn}>
-              <X size={20} color="#64748b" />
-            </TouchableOpacity>
+    {/* Custom Header */}
+    <View style={styles.header}>
+      <View style={styles.headerLeft}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <ChevronLeft size={24} color="#1e293b" />
+        </TouchableOpacity>
+        <View>
+          <Text style={styles.headerTitle}>Settings</Text>
+          {unsavedChanges && (
+            <View style={styles.unsavedBadge}>
+              <AlertCircle size={10} color="#92400e" />
+              <Text style={styles.unsavedText}>Unsaved Changes</Text>
+            </View>
           )}
+        </View>
+      </View>
+      <View style={styles.headerActions}>
+        {isEditing && (
+          <TouchableOpacity onPress={handleCancel} style={styles.cancelBtn}>
+            <X size={20} color="#64748b" />
+          </TouchableOpacity>
+        )}
 
-          <TouchableOpacity
-            onPress={(unsavedChanges && !isSaving) ? handleSave : null}
-            activeOpacity={unsavedChanges ? 0.7 : 1}
-            disabled={isSaving}
+        <TouchableOpacity
+          onPress={(unsavedChanges && !isSaving) ? handleSave : null}
+          activeOpacity={unsavedChanges ? 0.7 : 1}
+          disabled={isSaving}
+          style={[
+            styles.saveBtn,
+            { backgroundColor: showSuccessIcon ? '#000' : (unsavedChanges ? '#000' : '#f1f5f9') },
+            (!unsavedChanges || isSaving) && !showSuccessIcon && { opacity: 0.5, borderWidth: 1.5, borderColor: '#000' }
+          ]}
+        >
+          {isSaving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : showSuccessIcon ? (
+            <CheckCircle2 size={20} color="#fff" />
+          ) : (
+            <Save size={20} color={unsavedChanges ? "#fff" : "#94a3b8"} />
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+
+    {/* Tab Navigation */}
+    <View style={styles.tabBar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              onPress={() => setActiveTab(tab.id)}
+              style={[
+                styles.tabItem,
+                active && styles.tabItemActive,
+                active && tab.id === 'logout' && { backgroundColor: '#ef4444', borderColor: '#ef4444' }
+              ]}
+            >
+              <Icon
+                size={18}
+                color={active ? '#fff' : (tab.id === 'logout' ? '#ef4444' : '#000')}
+              />
+              <Text style={[
+                styles.tabText,
+                active && styles.tabTextActive,
+                !active && tab.id === 'logout' && { color: '#ef4444' }
+              ]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+
+    {/* Custom Logout Confirmation Modal */}
+    <Modal
+      visible={isLogoutModalVisible}
+      transparent
+      animationType="none"
+      onRequestClose={closeLogoutModal}
+    >
+      <View style={styles.modalOverlay}>
+        <Animated.View
+          style={[
+            styles.modalBackdrop,
+            { opacity: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+          ]}
+        />
+        <Pressable style={styles.modalPressable} onPress={closeLogoutModal}>
+          <Animated.View
             style={[
-              styles.saveBtn,
-              { backgroundColor: showSuccessIcon ? '#000' : (unsavedChanges ? '#000' : '#f1f5f9') },
-              (!unsavedChanges || isSaving) && !showSuccessIcon && { opacity: 0.5, borderWidth: 1.5, borderColor: '#000' }
+              styles.logoutModalContainer,
+              {
+                transform: [
+                  { scale: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                  { translateY: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
+                ],
+                opacity: logoutFadeAnim
+              }
             ]}
           >
-            {isSaving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : showSuccessIcon ? (
-              <CheckCircle2 size={20} color="#fff" />
-            ) : (
-              <Save size={20} color={unsavedChanges ? "#fff" : "#94a3b8"} />
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
+            <View style={styles.logoutIconContainer}>
+              <LogOut size={32} color="#fff" />
+            </View>
 
-      {/* Tab Navigation */}
-      <View style={styles.tabBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
-          {tabs.map(tab => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
+            <Text style={styles.logoutModalTitle}>Signing Out?</Text>
+            <Text style={styles.logoutModalDesc}>
+              All local data and cache will be cleared from this device. {"\n\n"}
+              <Text style={{ fontWeight: '800', color: '#000' }}>Don't worry:</Text> Your products, parties, and invoices are safely backed up to your Google Drive.
+            </Text>
+
+            <View style={styles.logoutModalFooter}>
               <TouchableOpacity
-                key={tab.id}
-                onPress={() => setActiveTab(tab.id)}
-                style={[
-                  styles.tabItem,
-                  active && styles.tabItemActive,
-                  active && tab.id === 'logout' && { backgroundColor: '#ef4444', borderColor: '#ef4444' }
-                ]}
+                onPress={closeLogoutModal}
+                style={styles.logoutModalCancel}
               >
-                <Icon
-                  size={18}
-                  color={active ? '#fff' : (tab.id === 'logout' ? '#ef4444' : '#000')}
-                />
-                <Text style={[
-                  styles.tabText,
-                  active && styles.tabTextActive,
-                  !active && tab.id === 'logout' && { color: '#ef4444' }
-                ]}>
-                  {tab.label}
-                </Text>
+                <Text style={styles.logoutModalCancelText}>Cancel</Text>
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+
+              <TouchableOpacity
+                onPress={confirmLogout}
+                style={styles.logoutModalConfirm}
+              >
+                <Text style={styles.logoutModalConfirmText}>Sign Out</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </Pressable>
       </View>
+    </Modal>
 
-      {/* Custom Logout Confirmation Modal */}
-      <Modal
-        visible={isLogoutModalVisible}
-        transparent
-        animationType="none"
-        onRequestClose={closeLogoutModal}
-      >
-        <View style={styles.modalOverlay}>
+    {/* Custom Re-sync Confirmation Modal */}
+    <Modal
+      visible={isResyncModalVisible}
+      transparent
+      animationType="none"
+      onRequestClose={closeResyncModal}
+    >
+      <View style={styles.modalOverlay}>
+        <Animated.View
+          style={[
+            styles.modalBackdrop,
+            { opacity: resyncFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+          ]}
+        />
+        <Pressable style={styles.modalPressable} onPress={closeResyncModal}>
           <Animated.View
             style={[
-              styles.modalBackdrop,
-              { opacity: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+              styles.logoutModalContainer, // Reusing logout modal container styles
+              {
+                transform: [
+                  { scale: resyncFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                  { translateY: resyncFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
+                ],
+                opacity: resyncFadeAnim
+              }
             ]}
-          />
-          <Pressable style={styles.modalPressable} onPress={closeLogoutModal}>
-            <Animated.View
-              style={[
-                styles.logoutModalContainer,
-                {
-                  transform: [
-                    { scale: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
-                    { translateY: logoutFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
-                  ],
-                  opacity: logoutFadeAnim
-                }
-              ]}
-            >
-              <View style={styles.logoutIconContainer}>
-                <LogOut size={32} color="#fff" />
-              </View>
+          >
+            <View style={[styles.logoutIconContainer, { backgroundColor: '#f1f5f9' }]}>
+              <RefreshCw size={32} color="#000" />
+            </View>
 
-              <Text style={styles.logoutModalTitle}>Signing Out?</Text>
-              <Text style={styles.logoutModalDesc}>
-                All local data and cache will be cleared from this device. {"\n\n"}
-                <Text style={{ fontWeight: '800', color: '#000' }}>Don't worry:</Text> Your products, parties, and invoices are safely backed up to your Google Drive.
-              </Text>
+            <Text style={styles.logoutModalTitle}>Force Re-sync?</Text>
+            <Text style={styles.logoutModalDesc}>
+              This will clear local sync data and re-download everything from your Google Drive. {"\n\n"}
+              <Text style={{ fontWeight: '800', color: '#000' }}>Warning:</Text> Your local data will be replaced to match the cloud exactly.
+            </Text>
 
-              <View style={styles.logoutModalFooter}>
-                <TouchableOpacity
-                  onPress={closeLogoutModal}
-                  style={styles.logoutModalCancel}
-                >
-                  <Text style={styles.logoutModalCancelText}>Cancel</Text>
-                </TouchableOpacity>
+            <View style={styles.logoutModalFooter}>
+              <TouchableOpacity
+                onPress={closeResyncModal}
+                style={styles.logoutModalCancel}
+              >
+                <Text style={styles.logoutModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={confirmLogout}
-                  style={styles.logoutModalConfirm}
-                >
-                  <Text style={styles.logoutModalConfirmText}>Sign Out</Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          </Pressable>
-        </View>
-      </Modal>
+              <TouchableOpacity
+                onPress={confirmResync}
+                style={[styles.logoutModalConfirm, { backgroundColor: '#000' }]}
+              >
+                <Text style={styles.logoutModalConfirmText}>Re-sync Now</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </Pressable>
+      </View>
+    </Modal>
 
-      {/* Custom Re-sync Confirmation Modal */}
-      <Modal
-        visible={isResyncModalVisible}
-        transparent
-        animationType="none"
-        onRequestClose={closeResyncModal}
-      >
-        <View style={styles.modalOverlay}>
+    {/* Custom Repair Sync Confirmation Modal */}
+    <Modal
+      visible={isRepairModalVisible}
+      transparent
+      animationType="none"
+      onRequestClose={closeRepairModal}
+    >
+      <View style={styles.modalOverlay}>
+        <Animated.View
+          style={[
+            styles.modalBackdrop,
+            { opacity: repairFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+          ]}
+        />
+        <Pressable style={styles.modalPressable} onPress={closeRepairModal}>
           <Animated.View
             style={[
-              styles.modalBackdrop,
-              { opacity: resyncFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+              styles.logoutModalContainer,
+              {
+                transform: [
+                  { scale: repairFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                  { translateY: repairFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
+                ],
+                opacity: repairFadeAnim
+              }
             ]}
-          />
-          <Pressable style={styles.modalPressable} onPress={closeResyncModal}>
-            <Animated.View
-              style={[
-                styles.logoutModalContainer, // Reusing logout modal container styles
-                {
-                  transform: [
-                    { scale: resyncFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
-                    { translateY: resyncFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
-                  ],
-                  opacity: resyncFadeAnim
-                }
-              ]}
-            >
-              <View style={[styles.logoutIconContainer, { backgroundColor: '#f1f5f9' }]}>
-                <RefreshCw size={32} color="#000" />
-              </View>
+          >
+            <View style={[styles.logoutIconContainer, { backgroundColor: '#f1f5f9' }]}>
+              <Cloud size={32} color="#000" />
+            </View>
 
-              <Text style={styles.logoutModalTitle}>Force Re-sync?</Text>
-              <Text style={styles.logoutModalDesc}>
-                This will clear local sync data and re-download everything from your Google Drive. {"\n\n"}
-                <Text style={{ fontWeight: '800', color: '#000' }}>Warning:</Text> Your local data will be replaced to match the cloud exactly.
-              </Text>
+            <Text style={styles.logoutModalTitle}>Quick Repair?</Text>
+            <Text style={styles.logoutModalDesc}>
+              This re-scans for missed individual events. Use this if only a few recent items are missing. {"\n\n"}
+              <Text style={{ fontWeight: '800', color: '#000' }}>Note:</Text> This is safe and will not delete your data.
+            </Text>
 
-              <View style={styles.logoutModalFooter}>
-                <TouchableOpacity
-                  onPress={closeResyncModal}
-                  style={styles.logoutModalCancel}
-                >
-                  <Text style={styles.logoutModalCancelText}>Cancel</Text>
-                </TouchableOpacity>
+            <View style={styles.logoutModalFooter}>
+              <TouchableOpacity
+                onPress={closeRepairModal}
+                style={styles.logoutModalCancel}
+              >
+                <Text style={styles.logoutModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={confirmResync}
-                  style={[styles.logoutModalConfirm, { backgroundColor: '#000' }]}
-                >
-                  <Text style={styles.logoutModalConfirmText}>Re-sync Now</Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          </Pressable>
-        </View>
-      </Modal>
+              <TouchableOpacity
+                onPress={confirmRepair}
+                style={[styles.logoutModalConfirm, { backgroundColor: '#000' }]}
+              >
+                <Text style={styles.logoutModalConfirmText}>Repair Now</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </Pressable>
+      </View>
+    </Modal>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        enabled={Platform.OS === 'ios'}
-        style={{ flex: 1 }}
+    {/* Custom Deep Repair Confirmation Modal */}
+    <Modal
+      visible={isDeepRepairModalVisible}
+      transparent
+      animationType="none"
+      onRequestClose={closeDeepRepairModal}
+    >
+      <View style={styles.modalOverlay}>
+        <Animated.View
+          style={[
+            styles.modalBackdrop,
+            { opacity: deepRepairFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+          ]}
+        />
+        <Pressable style={styles.modalPressable} onPress={closeDeepRepairModal}>
+          <Animated.View
+            style={[
+              styles.logoutModalContainer,
+              {
+                transform: [
+                  { scale: deepRepairFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                  { translateY: deepRepairFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
+                ],
+                opacity: deepRepairFadeAnim
+              }
+            ]}
+          >
+            <View style={[styles.logoutIconContainer, { backgroundColor: '#000' }]}>
+              <ShieldCheck size={32} color="#fff" />
+            </View>
+
+            <Text style={styles.logoutModalTitle}>Deep Data Restore?</Text>
+            <Text style={styles.logoutModalDesc}>
+              This is the strongest repair. It recovers bulk data from major cloud snapshots and then merges all recent events. {"\n\n"}
+              <Text style={{ fontWeight: '800', color: '#000' }}>Recommended:</Text> Use this if large numbers of products are missing.
+            </Text>
+
+            <View style={styles.logoutModalFooter}>
+              <TouchableOpacity
+                onPress={closeDeepRepairModal}
+                style={styles.logoutModalCancel}
+              >
+                <Text style={styles.logoutModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={confirmDeepRepair}
+                style={[styles.logoutModalConfirm, { backgroundColor: '#000' }]}
+              >
+                <Text style={styles.logoutModalConfirmText}>Run Deep Repair</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </Pressable>
+      </View>
+    </Modal>
+
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      enabled={Platform.OS === 'ios'}
+      style={{ flex: 1 }}
+    >
+      <ScrollView
+        style={styles.scroller}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
+        removeClippedSubviews={false}
       >
-        <ScrollView
-          style={styles.scroller}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
-          removeClippedSubviews={false}
-        >
-          {renderTabContent()}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
+        {renderTabContent()}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  </SafeAreaView>
+);
 };
 
 const styles = StyleSheet.create({

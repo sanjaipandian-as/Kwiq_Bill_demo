@@ -198,20 +198,39 @@ export default function CustomersPage({ route }) {
     }
   }, [route?.params?.editId, customers]);
 
-  const getCustomerStats = useCallback((customerId) => {
-    if (!transactions || !customerId) return { totalSpent: 0, totalVisits: 0, due: 0, lastVisit: null };
-    const customerTx = transactions.filter(t =>
-      t.customerId === customerId || String(t.customerId) === String(customerId)
-    );
-    const totalSpent = customerTx.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0);
-    const totalVisits = customerTx.length;
-    const due = customerTx.reduce((sum, t) => {
-      const d = Math.max(0, parseFloat(t.total || 0) - parseFloat(t.amountReceived || 0));
-      return sum + d;
-    }, 0);
-    const lastVisit = customerTx.length > 0 ? customerTx[0].date : null;
-    return { totalSpent, totalVisits, due, lastVisit };
+  // PERFORMANCE: Pre-calculate stats for all customers in ONE pass through transactions
+  const customerStatsMap = useMemo(() => {
+    const map = {};
+    if (!transactions) return map;
+
+    // Fast single pass through all transactions
+    transactions.forEach(t => {
+      const cId = t.customerId || t.customer_id;
+      if (!cId) return;
+
+      if (!map[cId]) {
+        map[cId] = { totalSpent: 0, totalVisits: 0, due: 0, lastVisit: null };
+      }
+
+      const total = parseFloat(t.total) || 0;
+      const received = parseFloat(t.amountReceived) || 0;
+      const dueAmount = Math.max(0, total - received);
+
+      map[cId].totalSpent += total;
+      map[cId].totalVisits += 1;
+      map[cId].due += dueAmount;
+      
+      // Since transactions are sorted by date DESC, the first one seen is the last visit
+      if (!map[cId].lastVisit) {
+        map[cId].lastVisit = t.date;
+      }
+    });
+    return map;
   }, [transactions]);
+
+  const getCustomerStats = useCallback((customerId) => {
+    return customerStatsMap[customerId] || { totalSpent: 0, totalVisits: 0, due: 0, lastVisit: null };
+  }, [customerStatsMap]);
 
   const stats = useMemo(() => {
     let revenue = 0, due = 0;

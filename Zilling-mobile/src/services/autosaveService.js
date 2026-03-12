@@ -9,7 +9,9 @@ import { exportToDeviceFolders } from './backupservices';
 export const triggerAutoSave = async () => {
   try {
     // 1. Check if Auto Save is enabled in settings
-    const settingsStr = await AsyncStorage.getItem('app_settings');
+    const { getActiveSettingsKey } = require('../utils/storageKeys');
+    const settingsKey = await getActiveSettingsKey();
+    const settingsStr = await AsyncStorage.getItem(settingsKey);
     if (!settingsStr) return;
 
     const settings = JSON.parse(settingsStr);

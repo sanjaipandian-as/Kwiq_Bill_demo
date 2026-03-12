@@ -89,56 +89,41 @@ export default function Dashboard() {
     let filteredTx = [];
     let filteredExp = [];
 
-    // Filter Logic
-    switch (dateFilter) {
-      case 'Today':
-        filteredTx = transactions.filter(t => new Date(t.date) >= todayStart);
-        filteredExp = expenses.filter(e => new Date(e.date) >= todayStart);
-        break;
-      case 'Yesterday':
-        const yestStart = new Date(todayStart);
-        yestStart.setDate(todayStart.getDate() - 1);
-        filteredTx = transactions.filter(t => {
-          const d = new Date(t.date);
-          return d >= yestStart && d < todayStart;
-        });
-        filteredExp = expenses.filter(e => {
-          const d = new Date(e.date);
-          return d >= yestStart && d < todayStart;
-        });
-        break;
-      case 'This Week':
-        const weekStart = getStartOfWeek(now);
-        filteredTx = transactions.filter(t => new Date(t.date) >= weekStart);
-        filteredExp = expenses.filter(e => new Date(e.date) >= weekStart);
-        break;
-      case 'Last Month':
-        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-        filteredTx = transactions.filter(t => {
-          const d = new Date(t.date);
-          return d >= lastMonthStart && d <= lastMonthEnd;
-        });
-        filteredExp = expenses.filter(e => {
-          const d = new Date(e.date);
-          return d >= lastMonthStart && d <= lastMonthEnd;
-        });
-        break;
-      case 'This Month':
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        filteredTx = transactions.filter(t => new Date(t.date) >= monthStart);
-        filteredExp = expenses.filter(e => new Date(e.date) >= monthStart);
-        break;
-      case 'All':
-        filteredTx = transactions;
-        filteredExp = expenses;
-        break;
-      default: // Last 7 Days (fallback)
-        const sevenDaysAgo = new Date(todayStart);
-        sevenDaysAgo.setDate(todayStart.getDate() - 7);
-        filteredTx = transactions.filter(t => new Date(t.date) >= sevenDaysAgo);
-        filteredExp = expenses.filter(e => new Date(e.date) >= sevenDaysAgo);
-    }
+    // OPTIMIZATION: One single pass filter
+    const weekStart = getStartOfWeek(now);
+    const yestStart = new Date(todayStart);
+    yestStart.setDate(todayStart.getDate() - 1);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    const sevenDaysAgo = new Date(todayStart);
+    sevenDaysAgo.setDate(todayStart.getDate() - 7);
+
+    filteredTx = transactions.filter(t => {
+      const d = new Date(t.date);
+      switch (dateFilter) {
+        case 'Today': return d >= todayStart;
+        case 'Yesterday': return d >= yestStart && d < todayStart;
+        case 'This Week': return d >= weekStart;
+        case 'This Month': return d >= monthStart;
+        case 'Last Month': return d >= lastMonthStart && d <= lastMonthEnd;
+        case 'All': return true;
+        default: return d >= sevenDaysAgo;
+      }
+    });
+
+    filteredExp = expenses.filter(e => {
+      const d = new Date(e.date);
+      switch (dateFilter) {
+        case 'Today': return d >= todayStart;
+        case 'Yesterday': return d >= yestStart && d < todayStart;
+        case 'This Week': return d >= weekStart;
+        case 'This Month': return d >= monthStart;
+        case 'Last Month': return d >= lastMonthStart && d <= lastMonthEnd;
+        case 'All': return true;
+        default: return d >= sevenDaysAgo;
+      }
+    });
 
     const totalSales = filteredTx.reduce((sum, t) => sum + (t.total || 0), 0);
     const totalExpenses = filteredExp.reduce((sum, e) => sum + (e.amount || 0), 0);

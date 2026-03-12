@@ -38,6 +38,73 @@ export const EventTypes = {
  * Normalizes items: ensures always a JS Array of objects.
  * Handles: Array, stringified JSON, null/undefined, single-object, malformed.
  */
+// ═══════════════════════════════════════════════════════════════════
+// GOLDEN RULE #0: Smart Parser & Data Cleaning
+// Automatically handles Plain JSON (Desktop) vs Encrypted (Mobile)
+// and strips Google Drive multipart/MIME leakage.
+// ═══════════════════════════════════════════════════════════════════
+
+function smartParse(text, key, fileName = "unknown") {
+    if (!text || text.trim() === "") return null;
+
+    // 1. ROBUST CLEANING: Strip hidden MIME/Multipart trash
+    let cleaned = text.trim();
+    
+    // Find where the real data starts ({ or [ for JSON, U2Fsd for Encrypted)
+    const jsonStart = cleaned.search(/[\{\[]/);
+    const encStart = cleaned.indexOf('U2FsdGVkX1');
+    
+    if (jsonStart !== -1 || encStart !== -1) {
+        const start = (jsonStart !== -1 && encStart !== -1) 
+            ? Math.min(jsonStart, encStart) 
+            : Math.max(jsonStart, encStart);
+        cleaned = cleaned.substring(start);
+        
+        // If it looks like JSON, find the absolute last bracket/brace
+        if (cleaned.startsWith('{')) {
+            const lastBrace = cleaned.lastIndexOf('}');
+            if (lastBrace !== -1) cleaned = cleaned.substring(0, lastBrace + 1);
+        } else if (cleaned.startsWith('[')) {
+            const lastBracket = cleaned.lastIndexOf(']');
+            if (lastBracket !== -1) cleaned = cleaned.substring(0, lastBracket + 1);
+        }
+    }
+
+    // 2. SMART DETECTION & PARSING
+    // Attempt A: Plain JSON First (Desktop Format)
+    try {
+        if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
+            return JSON.parse(cleaned);
+        }
+    } catch (e) {
+        // Not valid JSON yet, might be encrypted
+    }
+
+    // Attempt B: Decryption (Mobile/Legacy Format)
+    if (cleaned.startsWith('U2FsdGVkX1')) {
+        if (!key) {
+            console.warn(`[Sync] Encrypted file ${fileName} skipped: No decryption key.`);
+            return null;
+        }
+        try {
+            const bytes = CryptoJS.AES.decrypt(cleaned, key);
+            const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+            if (decrypted && (decrypted.trim().startsWith('{') || decrypted.trim().startsWith('['))) {
+                return JSON.parse(decrypted);
+            }
+        } catch (decErr) {
+            // Silence common 'Malformed UTF-8' errors which happen when keys don't match across teammates
+            if (__DEV__) console.log(`[Sync] Skipping encrypted file ${fileName} (Key mismatch or corrupt)`);
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Normalizes items: ensures always a JS Array of objects.
+ * Handles: Array, stringified JSON, null/undefined, single-object, malformed.
+ */
 function normalizeItems(raw) {
     if (!raw) return [];
     if (Array.isArray(raw)) return raw;
@@ -262,6 +329,14 @@ let _cachedSyncKey = null;
 export const SyncService = {
 
     /**
+     * Clear session caches on logout
+     */
+    logout() {
+        _cachedEventsFolderId = null;
+        _cachedSyncKey = null;
+    },
+
+    /**
      * Initialize or verify folder structure
      */
     async getEventsFolderId(accessToken) {
@@ -272,6 +347,23 @@ export const SyncService = {
         const eventsId = await getOrCreateFolder(accessToken, 'events', rootId);
         _cachedEventsFolderId = eventsId; // cache for session
         return eventsId;
+    },
+
+    /**
+     * Get User-Specific Storage Key
+     */
+    async getUserSyncKey(baseKey) {
+        try {
+            const userStr = await AsyncStorage.getItem('user');
+            const user = userStr ? JSON.parse(userStr) : null;
+            if (user && user.email) {
+                // Return a key specific to this email (e.g., 'last_synced_timestamp_user@gmail.com')
+                return `${baseKey}_${user.email.replace(/[@.]/g, '_')}`;
+            }
+        } catch (e) {
+            console.warn('[Sync] Failed to get user for sync key, using default.');
+        }
+        return baseKey;
     },
 
     /**
@@ -373,6 +465,10 @@ export const SyncService = {
             const userStr = await AsyncStorage.getItem('user');
             const currentUser = userStr ? JSON.parse(userStr) : null;
             const syncKey = currentUser?.email || "";
+            
+            if (!syncKey) {
+                console.warn('[Sync] No sync key (user email) found. Encrypted files will fail.');
+            }
 
 
             const folderId = await this.getEventsFolderId(accessToken);
@@ -381,14 +477,17 @@ export const SyncService = {
             // 1. List all files in events folder
             updateStatus('Fetching cloud updates...', 0.66);
 
-            // OPTIMIZATION: Use Incremental Sync by filtering by createdTime
-            const lastSyncTime = await AsyncStorage.getItem(LAST_SYNCED_KEY);
+            // OPTIMIZATION: Use User-Specific Incremental Sync
+            const userLastSyncedKey = await this.getUserSyncKey(LAST_SYNCED_KEY);
+            const userProcessedEventsKey = await this.getUserSyncKey(PROCESSED_EVENTS_KEY);
+
+            const lastSyncTime = await AsyncStorage.getItem(userLastSyncedKey);
             let timeFilter = "";
             if (lastSyncTime) {
                 // Formatting for Google Drive RFC 3339
                 const date = new Date(lastSyncTime);
                 timeFilter = ` and createdTime > '${date.toISOString()}'`;
-                console.log(`[Sync] Performing incremental sync since: ${date.toISOString()}`);
+                console.log(`[Sync] Performing incremental sync for user since: ${date.toISOString()}`);
             }
 
             let allFiles = [];
@@ -420,7 +519,7 @@ export const SyncService = {
             } while (nextPageToken);
 
             // 2. Filter: Ignore already processed events
-            const processedIdsStr = await AsyncStorage.getItem(PROCESSED_EVENTS_KEY);
+            const processedIdsStr = await AsyncStorage.getItem(userProcessedEventsKey);
             const processedIds = processedIdsStr ? JSON.parse(processedIdsStr) : [];
             const processedSet = new Set(processedIds);
 
@@ -446,8 +545,8 @@ export const SyncService = {
             updateStatus(`${filesToProcess.length} new events found.`, 0.68);
 
             // Optimization: Fetch event contents in parallel batches
-            // Increased BATCH_SIZE to 500 to accelerate the synchronization process.
-            const BATCH_SIZE = 500;
+            // Increased BATCH_SIZE to 100 to accelerate the synchronization process.
+            const BATCH_SIZE = 100;
             let processedCount = 0;
             let failures = 0;
             const totalToProcess = filesToProcess.length;
@@ -513,51 +612,17 @@ export const SyncService = {
                             }
 
                             const text = await contentRes.text();
-                            if (!text || text.trim() === "") {
-                                console.warn(`[Sync] Empty content for ${file.name}`);
-                                return null;
-                            }
-
-                            // Robust Cleaning: Strip MIME headers if accidentally saved
-                            let cleanText = text.trim();
-                            if (cleanText.toLowerCase().includes('content-type:')) {
-                                const parts = cleanText.split(/\r?\n\r?\n/);
-                                if (parts.length > 1) {
-                                    for (let part of parts) {
-                                        const trimmed = part.trim();
-                                        if (trimmed.toLowerCase().includes('content-type:')) continue;
-                                        if (trimmed.length > 0) {
-                                            cleanText = trimmed;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
+                            // Use SmartParse to handle Plain JSON (Desktop) or Encrypted (Mobile)
                             try {
-                                let contentToParse = cleanText;
-                                // DECIPHER: If content is encrypted (Desktop/Web sync compatibility)
-                                if (contentToParse.startsWith('U2FsdGVkX1')) {
-                                    try {
-                                        const bytes = CryptoJS.AES.decrypt(contentToParse, syncKey);
-                                        const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                                        if (decrypted) {
-                                            contentToParse = decrypted;
-                                        } else {
-                                            throw new Error('Key mismatch');
-                                        }
-                                    } catch (decErr) {
-                                        console.warn(`[Sync] Decryption failed for ${file.name}. Possibly wrong key.`);
-                                        // Mark as permanently failed to avoid endless redownloading loop
-                                        newProcessedIds.push(file.id);
-                                        processedSet.add(file.id);
-                                        return { _isInvalid: true, fileId: file.id };
-                                    }
+                                const envelope = smartParse(text, syncKey, file.name);
+                                if (!envelope) {
+                                    // If parsing failed (unrecognized format or wrong key), skip this file
+                                    return null;
                                 }
-                                return JSON.parse(contentToParse);
-                            } catch (jsonError) {
-                                console.error(`[Sync] JSON Parse Error for ${file.name}.`);
-                                throw jsonError;
+                                return envelope;
+                            } catch (error) {
+                                console.error(`[Sync] Parse Error for ${file.name}:`, error.message);
+                                throw error;
                             }
                         } catch (e) {
                             attempts++;
@@ -626,6 +691,14 @@ export const SyncService = {
                     }
                 }
 
+                // Save progress periodically to avoid massive AsyncStorage write at end
+                // and to preserve progress if app crashes.
+                try {
+                    await AsyncStorage.setItem(userProcessedEventsKey, JSON.stringify(newProcessedIds));
+                } catch (e) {
+                    console.warn('[Sync] Progress save failed:', e.message);
+                }
+
                 // Small delay between batches to give the network stack a breather
                 if (i + BATCH_SIZE < filesToProcess.length) {
                     await new Promise(r => setTimeout(r, 200));
@@ -633,9 +706,9 @@ export const SyncService = {
             }
 
             // Save processed IDs once at the end (not per-batch)
-            await AsyncStorage.setItem(PROCESSED_EVENTS_KEY, JSON.stringify(newProcessedIds));
+            await AsyncStorage.setItem(userProcessedEventsKey, JSON.stringify(newProcessedIds));
 
-            await AsyncStorage.setItem(LAST_SYNCED_KEY, new Date().toISOString());
+            await AsyncStorage.setItem(userLastSyncedKey, new Date().toISOString());
             const finalMsg = `Sync Complete! Applied ${processedCount} new events. ${failures > 0 ? `(${failures} failed)` : ''}`;
             updateStatus(finalMsg, 0.90, liveStats());
 
@@ -653,17 +726,50 @@ export const SyncService = {
 
     /**
      * Resets the local sync state, effectively forcing a full re-sync on next run.
+     * Wipes SQLite and all possible sync keys.
      */
     async resetSyncState() {
         try {
             console.log('[Sync] Wiping local data for full re-sync...');
             await clearDatabase();
+            
+            // Wipe shared keys
             await AsyncStorage.removeItem(PROCESSED_EVENTS_KEY);
             await AsyncStorage.removeItem(LAST_SYNCED_KEY);
+            await AsyncStorage.removeItem(PENDING_UPLOAD_QUEUE_KEY);
+
+            // Wipe user-specific keys if user is present
+            const userProcessedEventsKey = await this.getUserSyncKey(PROCESSED_EVENTS_KEY);
+            const userLastSyncedKey = await this.getUserSyncKey(LAST_SYNCED_KEY);
+            if (userProcessedEventsKey !== PROCESSED_EVENTS_KEY) {
+                await AsyncStorage.removeItem(userProcessedEventsKey);
+            }
+            if (userLastSyncedKey !== LAST_SYNCED_KEY) {
+                await AsyncStorage.removeItem(userLastSyncedKey);
+            }
+
             console.log('[Sync] Sync State Reset Successfully');
             return true;
         } catch (e) {
             console.error('[Sync] Failed to reset sync state:', e);
+            return false;
+        }
+    },
+
+    /**
+     * Repairs the sync state by clearing ONLY the processed events list,
+     * allowing the system to re-try events that might have failed previously.
+     */
+    async resetProcessedEvents() {
+        try {
+            const userProcessedEventsKey = await this.getUserSyncKey(PROCESSED_EVENTS_KEY);
+            const userLastSyncedKey = await this.getUserSyncKey(LAST_SYNCED_KEY);
+            await AsyncStorage.removeItem(userProcessedEventsKey);
+            await AsyncStorage.removeItem(userLastSyncedKey);
+            console.log('[Sync] Processed events list cleared for repair.');
+            return true;
+        } catch (e) {
+            console.error('[Sync] Failed to reset processed events:', e);
             return false;
         }
     },
@@ -753,34 +859,7 @@ export const SyncService = {
                     );
                     if (!res.ok) return null;
                     const text = await res.text();
-                    if (!text || text.trim() === '') return null;
-
-                    // Strip MIME headers if present
-                    let cleanText = text.trim();
-
-                    // DECRYPTION SUPPORT: Handle encrypted snapshots from Desktop/Web
-                    if (cleanText.startsWith('U2FsdGVkX1')) {
-                        try {
-                            // Use email as key (consistent with syncDown and snapshots)
-                            const bytes = CryptoJS.AES.decrypt(cleanText, user.email);
-                            const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                            if (decrypted) cleanText = decrypted;
-                        } catch (decErr) {
-                            console.warn(`[Restore] Decryption failed for ${fileName}.`);
-                        }
-                    }
-
-                    if (cleanText.toLowerCase().includes('content-type:')) {
-                        const parts = cleanText.split(/\r?\n\r?\n/);
-                        for (const part of parts) {
-                            const trimmed = part.trim();
-                            if (!trimmed.toLowerCase().includes('content-type:') && trimmed.length > 0) {
-                                cleanText = trimmed;
-                                break;
-                            }
-                        }
-                    }
-                    return JSON.parse(cleanText);
+                    return smartParse(text, user.email, fileName);
                 } catch (e) {
                     console.error(`[ForceRestore] Failed to fetch ${fileName}:`, e.message);
                     return null;
@@ -879,10 +958,13 @@ export const SyncService = {
 
             // 5. Reset sync timestamp to the force-push date
             //    This ensures future event-based syncs only process events AFTER this snapshot.
+            const userLastSyncedKey = await this.getUserSyncKey(LAST_SYNCED_KEY);
+            const userProcessedEventsKey = await this.getUserSyncKey(PROCESSED_EVENTS_KEY);
+            
             const resetTimestamp = latestModifiedTime || new Date().toISOString();
-            await AsyncStorage.setItem(LAST_SYNCED_KEY, resetTimestamp);
-            await AsyncStorage.removeItem(PROCESSED_EVENTS_KEY); // Clear processed IDs — start fresh
-            console.log(`[ForceRestore] Sync timestamp reset to: ${resetTimestamp}`);
+            await AsyncStorage.setItem(userLastSyncedKey, resetTimestamp);
+            await AsyncStorage.removeItem(userProcessedEventsKey); // Clear processed IDs — start fresh
+            console.log(`[ForceRestore] User sync timestamp reset to: ${resetTimestamp}`);
 
             onProgress('Force Restore Complete!', 1.0);
             console.log('[ForceRestore] Results:', restored);

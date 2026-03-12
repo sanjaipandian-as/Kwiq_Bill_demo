@@ -7,6 +7,7 @@ import { triggerAutoSave } from '../services/autosaveService';
 import services, { API } from '../services/api';
 import { useNetwork } from './NetworkContext';
 import { useToast } from './ToastContext';
+import { getUserSpecificKey, SETTINGS_KEY } from '../utils/storageKeys';
 
 const SettingsContext = createContext();
 
@@ -101,6 +102,9 @@ export const SettingsProvider = ({ children, user }) => {
     const [dbProfileComplete, setDbProfileComplete] = useState(false); // Tracks if profile exists in MongoDB
     const [isLogoUploading, setIsLogoUploading] = useState(false);
 
+    // Derived user-specific key
+    const settingsKey = getUserSpecificKey(SETTINGS_KEY, user?.email);
+
     // Network / Auto-Sync States
     const { isConnected, wasOfflinePreviously, setWasOffline } = useNetwork();
     const { showToast } = useToast();
@@ -152,9 +156,14 @@ export const SettingsProvider = ({ children, user }) => {
 
     const loadSettings = async () => {
         try {
-            const saved = await AsyncStorage.getItem('app_settings');
+            const saved = await AsyncStorage.getItem(settingsKey);
             if (saved) {
                 setSettings(JSON.parse(saved));
+            } else if (settingsKey !== SETTINGS_KEY) {
+                // Fallback attempt: if new user-specific key is empty, check global key
+                // but only if it's the SAME email (safety). 
+                // However, it's cleaner to just start fresh if the specific key is missing.
+                // For now, let's just use the specific key.
             }
 
             const dirty = await AsyncStorage.getItem('settings_dirty');
@@ -199,7 +208,7 @@ export const SettingsProvider = ({ children, user }) => {
             const dirtyFlag = await AsyncStorage.getItem('settings_dirty');
             if (dirtyFlag === 'true') {
                 setSyncStatus('Finalizing cloud setup...');
-                const saved = await AsyncStorage.getItem('app_settings');
+                const saved = await AsyncStorage.getItem(settingsKey);
                 if (saved) {
                     const currentSettings = JSON.parse(saved);
                     const onboardingData = {
@@ -248,7 +257,7 @@ export const SettingsProvider = ({ children, user }) => {
             if (user && user.id) {
                 // OFFLINE-FIRST: Unblock the UI immediately if local profile is complete
                 try {
-                    const saved = await AsyncStorage.getItem('app_settings');
+                    const saved = await AsyncStorage.getItem(settingsKey);
                     if (saved) {
                         const local = JSON.parse(saved);
                         if (local.onboardingCompletedAt || !!local.store?.name) {
@@ -364,7 +373,7 @@ export const SettingsProvider = ({ children, user }) => {
                                     };
                                 }
 
-                                AsyncStorage.setItem('app_settings', JSON.stringify(updated));
+                                AsyncStorage.setItem(settingsKey, JSON.stringify(updated));
                                 return updated;
                             });
                         } else {
@@ -373,7 +382,7 @@ export const SettingsProvider = ({ children, user }) => {
                     } catch (dbErr) {
                         console.warn('[SettingsContext] DB profile check failed:', dbErr.message);
                         if (!hasUnlockedUI) {
-                            const saved = await AsyncStorage.getItem('app_settings');
+                            const saved = await AsyncStorage.getItem(settingsKey);
                             if (saved) {
                                 const local = JSON.parse(saved);
                                 setDbProfileComplete(!!local.onboardingCompletedAt);
@@ -470,7 +479,7 @@ export const SettingsProvider = ({ children, user }) => {
                     ...updates
                 }
             };
-            AsyncStorage.setItem('app_settings', JSON.stringify(newSettings));
+            AsyncStorage.setItem(settingsKey, JSON.stringify(newSettings));
 
             (async () => {
                 // Background logo upload if it's the store section and logo changed
@@ -483,7 +492,7 @@ export const SettingsProvider = ({ children, user }) => {
                             store: { ...newSettings.store, logo: cloudLogo }
                         };
                         setSettings(finalSettings);
-                        AsyncStorage.setItem('app_settings', JSON.stringify(finalSettings));
+                        AsyncStorage.setItem(settingsKey, JSON.stringify(finalSettings));
                     }
                 }
 
@@ -526,7 +535,7 @@ export const SettingsProvider = ({ children, user }) => {
 
             // 1. Instant Local Update - THIS IS THE MOST IMPORTANT STEP FOR OFFLINE-FIRST
             setSettings(updated);
-            await AsyncStorage.setItem('app_settings', JSON.stringify(updated));
+            await AsyncStorage.setItem(settingsKey, JSON.stringify(updated));
             console.log('[SettingsContext] ✅ Local settings saved successfully (Offline-First)');
 
             let finalToSync = updated;
@@ -543,7 +552,7 @@ export const SettingsProvider = ({ children, user }) => {
                             store: { ...updated.store, logo: cloudUrl }
                         };
                         setSettings(finalToSync);
-                        await AsyncStorage.setItem('app_settings', JSON.stringify(finalToSync));
+                        await AsyncStorage.setItem(settingsKey, JSON.stringify(finalToSync));
                     }
                 } catch (logoErr) {
                     console.log('[SettingsContext] Logo upload failed (Offline), will retry later.');
@@ -625,11 +634,69 @@ export const SettingsProvider = ({ children, user }) => {
         }
     };
 
+    const repairSync = async () => {
+        setLoading(true);
+        setSyncStatus('Repairing sync channel...');
+        setIsUploading(true);
+
+        try {
+            const { SyncService } = require('../services/OneWaySyncService');
+            console.log('[SettingsContext] Repairing Sync Cache...');
+            await SyncService.resetProcessedEvents();
+            await syncAllData(false);
+            return true;
+        } catch (error) {
+            console.error('Repair Sync Error:', error);
+            setSyncStatus('Error: ' + error.message);
+            return false;
+        } finally {
+            setIsUploading(false);
+            setLoading(false);
+        }
+    };
+
+    const deepRepair = async () => {
+        if (!user || !user.id) return false;
+        
+        setLoading(true);
+        setSyncStatus('Running Deep Repair...');
+        setIsUploading(true);
+
+        try {
+            const { SyncService } = require('../services/OneWaySyncService');
+            console.log('[SettingsContext] Running Deep Repair (Snapshots + Events)...');
+            
+            // 1. Restore from Snapshots (Nuclear option that keeps drive intact)
+            const restoreResult = await SyncService.forceRestoreFromDrive(user, (msg, progress) => {
+                setSyncStatus(msg);
+            });
+            
+            if (!restoreResult.success) {
+                console.warn('[SettingsContext] Snapshot restore failed, falling back to full event sync:', restoreResult.error);
+            }
+
+            // 2. Clear event cache and re-sync any missing events on top
+            await SyncService.resetProcessedEvents();
+            await SyncService.syncDown((msg, progress) => {
+                setSyncStatus(msg);
+            });
+            
+            return true;
+        } catch (error) {
+            console.error('Deep Repair Error:', error);
+            setSyncStatus('Error: ' + error.message);
+            return false;
+        } finally {
+            setIsUploading(false);
+            setLoading(false);
+        }
+    };
+
     const resetOnboarding = async () => {
         try {
             const updated = { ...settings, onboardingCompletedAt: null };
             setSettings(updated);
-            await AsyncStorage.setItem('app_settings', JSON.stringify(updated));
+            await AsyncStorage.setItem(settingsKey, JSON.stringify(updated));
             Alert.alert("Reset Complete", "Onboarding status has been reset. Restart the app or navigate back to see the onboarding screen.");
             return true;
         } catch (error) {
@@ -670,6 +737,8 @@ export const SettingsProvider = ({ children, user }) => {
             syncAllData,
             syncToCloud,
             forceResync,
+            repairSync,
+            deepRepair,
             lastEventSyncTime,
             syncStatus,
             loading,

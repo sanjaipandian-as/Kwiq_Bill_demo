@@ -26,9 +26,16 @@ export const ProductProvider = ({ children }) => {
     });
   };
 
-  // Initial load from SQLite
+  const { user } = require('./AuthContext').useAuth();
+
+  // Initial load from SQLite - reload when user changes
   useEffect(() => {
     const loadProducts = async () => {
+      if (!user) {
+        setProducts([]);
+        setLoading(false);
+        return;
+      }
       try {
         const data = db.getAllSync('SELECT * FROM products ORDER BY name ASC');
         setProducts(data || []);
@@ -39,7 +46,7 @@ export const ProductProvider = ({ children }) => {
       }
     };
     loadProducts();
-  }, []);
+  }, [user?.id]);
 
   const fetchProducts = async () => {
     setLoading(true);
