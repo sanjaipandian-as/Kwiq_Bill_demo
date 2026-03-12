@@ -162,7 +162,7 @@ const printHybrid = async (content, options = {}, paperFormat = '80mm') => {
 export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm', mode = 'customer') => {
     try {
         const printerAddress = settings?.invoice?.selectedPrinter?.address;
-        const template = settings?.invoice?.billTemplate || 'Standard';
+        const template = settings?.invoice?.billTemplate || 'Professional';
 
         // 'Classic' is the SettingsContext default value for the bill template selector.
         // It maps to the Professional thermal layout (clean column format).
@@ -190,9 +190,41 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
             return " ".repeat(spaces) + String(s) + "\n";
         };
 
+        if (!bill.totals) {
+            bill.totals = {
+                total: bill.total || 0,
+                subtotal: bill.subtotal || 0,
+                tax: bill.tax || 0,
+                discount: bill.discount || 0,
+                grossTotal: bill.grossTotal || 0,
+                amountReceived: bill.amountReceived || 0,
+                roundOff: bill.roundOff || 0,
+                additionalCharges: bill.additionalCharges || 0
+            };
+        }
+        bill.totals.totalItems = bill.totals.totalItems || items.length;
+        bill.totals.totalQty = bill.totals.totalQty || items.reduce((sum, i) => sum + parseFloat(i.quantity || 0), 0);
+
         // 1. Ensure Connection
         if (printerAddress && !(await ensurePrinterConnected(printerAddress))) {
             throw new Error("Printer not connected. Please check Settings.");
+        }
+
+        // ── IMAGE RENDER PREVIEW EXACT MATCH ────────────────────────────
+        try {
+            if (globalPrintRef.current) {
+                const pixelWidth = is80 ? 576 : 384;
+                const uri = await globalPrintRef.current.renderBillToImage(bill, settings, false, pixelWidth);
+                if (uri) {
+                    const { BLEPrinter } = require('react-native-thermal-receipt-printer-image-qr');
+                    await BLEPrinter.printPic(uri, { width: pixelWidth });
+                    await new Promise(r => setTimeout(r, 1000));
+                    await BLEPrinter.printText("\n\n\n\n");
+                    return true;
+                }
+            }
+        } catch (imgError) {
+            console.warn("Image print failed, falling back to text:", imgError);
         }
 
         // 2. Tax Summary calculation omitted from items list as requested
@@ -222,7 +254,16 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
         header += COMMANDS.TEXT_FORMAT.TXT_4SQUARE + (store.name || 'Store Name').toUpperCase() + "\n";
         header += COMMANDS.TEXT_FORMAT.TXT_NORMAL;
 
-        if (store.contact || store.phone) header += center("Ph: " + (store.contact || store.phone));
+        const contactStr = store.contact || store.phone || store.whatsapp;
+        if (contactStr) header += center("WHATSAPP NO: " + contactStr);
+
+        if (typeof store.address === 'object') {
+            if (store.address.street) header += center(store.address.street);
+            if (store.address.city) header += center(store.address.city);
+        } else if (store.address) {
+            header += center(store.address);
+        }
+
         if (store.gstin) header += center("GSTIN: " + store.gstin);
         header += drawLine('-');
         if (mode === 'invoice') {
@@ -312,7 +353,9 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
 
         receiptBody += padR("Status:", width - 12) + padL(paidAmt >= totalBill ? 'PAID' : 'UNPAID', 12) + "\n";
         receiptBody += padR("Paid Amount:", width - 12) + padL(`${cur}${paidAmt.toFixed(2)}`, 12) + "\n";
-        receiptBody += padR(paidAmt >= totalBill ? "Change:" : "Balance:", width - 12) + padL(`${cur}${Math.abs(totalBill - paidAmt).toFixed(2)}`, 12) + "\n";
+        if (Math.abs(totalBill - paidAmt) > 0.01) {
+            receiptBody += padR(paidAmt >= totalBill ? "Change:" : "Balance:", width - 12) + padL(`${cur}${Math.abs(totalBill - paidAmt).toFixed(2)}`, 12) + "\n";
+        }
 
         if (settings?.invoice?.showTaxBreakup !== false) {
             receiptBody += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + center("GST SUMMARY") + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
@@ -349,20 +392,44 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
         if (showTerms && (termsText || conditionsText)) {
             receiptBody += drawLine('-');
             receiptBody += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + "TERMS & CONDITIONS:\n" + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
-            // Word-wrap terms at width chars
-            const allText = [termsText, conditionsText].filter(Boolean).join(' ');
-            const words = allText.split(' ');
-            let line = '';
-            words.forEach(word => {
-                if ((line + word).length > width - 1) {
-                    receiptBody += line.trim() + "\n";
-                    line = word + ' ';
-                } else {
-                    line += word + ' ';
-                }
-            });
-            if (line.trim()) receiptBody += line.trim() + "\n";
+            
+            // Terms
+            if (termsText) {
+                const words = termsText.split(' ');
+                let line = '';
+                words.forEach(word => {
+                    if ((line + word).length > width) {
+                        receiptBody += line.trim() + "\n";
+                        line = word + ' ';
+                    } else {
+                        line += word + ' ';
+                    }
+                });
+                if (line.trim()) receiptBody += line.trim() + "\n";
+            }
+            
+            // Conditions
+            if (conditionsText) {
+                const words = conditionsText.split(' ');
+                let line = '';
+                words.forEach(word => {
+                    if ((line + word).length > width) {
+                        receiptBody += line.trim() + "\n";
+                        line = word + ' ';
+                    } else {
+                        line += word + ' ';
+                    }
+                });
+                if (line.trim()) receiptBody += line.trim() + "\n";
+            }
             receiptBody += drawLine('-');
+        }
+
+        // Footer Note & VIP Message
+        const footerNote = settings?.invoice?.footerNote || 'Thank you for shopping!';
+        receiptBody += center(footerNote);
+        if (vip) {
+            receiptBody += center("Thank you for your business with us!");
         }
 
         receiptBody += "\n\n\n\n";
@@ -410,9 +477,41 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
             }).join('\n') + "\n";
         };
 
+        if (!bill.totals) {
+            bill.totals = {
+                total: bill.total || 0,
+                subtotal: bill.subtotal || 0,
+                tax: bill.tax || 0,
+                discount: bill.discount || 0,
+                grossTotal: bill.grossTotal || 0,
+                amountReceived: bill.amountReceived || 0,
+                roundOff: bill.roundOff || 0,
+                additionalCharges: bill.additionalCharges || 0
+            };
+        }
+        bill.totals.totalItems = bill.totals.totalItems || items.length;
+        bill.totals.totalQty = bill.totals.totalQty || items.reduce((sum, i) => sum + parseFloat(i.quantity || 0), 0);
+
         // 1. Ensure Connection
         if (printerAddress && !(await ensurePrinterConnected(printerAddress))) {
             throw new Error("Printer not connected.");
+        }
+
+        // ── IMAGE RENDER PREVIEW EXACT MATCH ────────────────────────────
+        try {
+            if (globalPrintRef.current) {
+                const pixelWidth = is80 ? 576 : 384;
+                const uri = await globalPrintRef.current.renderBillToImage(bill, settings, true, pixelWidth);
+                if (uri) {
+                    const { BLEPrinter } = require('react-native-thermal-receipt-printer-image-qr');
+                    await BLEPrinter.printPic(uri, { width: pixelWidth });
+                    await new Promise(r => setTimeout(r, 1000));
+                    await BLEPrinter.printText("\n\n\n\n");
+                    return true;
+                }
+            }
+        } catch (imgError) {
+            console.warn("Image print failed, falling back to text:", imgError);
         }
 
         // ── HEADER ──────────────────────────────────────────────────────────
@@ -422,11 +521,16 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         printData += (store.name || 'Store Name').toUpperCase() + "\n";
         printData += COMMANDS.TEXT_FORMAT.TXT_NORMAL;
 
-        const storeAddr = typeof store.address === 'object'
-            ? [store.address.street, store.address.city].filter(Boolean).join(', ')
-            : (store.address || '');
-        if (storeAddr.trim()) printData += center(storeAddr.trim());
-        if (store.contact || store.phone) printData += center("Ph: " + (store.contact || store.phone));
+        const contactStrProf = store.contact || store.phone || store.whatsapp;
+        if (contactStrProf) printData += center("WHATSAPP NO: " + contactStrProf);
+
+        if (typeof store.address === 'object') {
+            if (store.address.street) printData += center(store.address.street);
+            if (store.address.city) printData += center(store.address.city);
+        } else if (store.address) {
+            printData += center(store.address);
+        }
+
         if (store.gstin) printData += center("GSTIN: " + store.gstin);
 
         // Header type: TAX INVOICE for invoices, clean line only for customer bills
@@ -545,24 +649,47 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         }
 
         // Terms & Conditions — controlled by showTerms toggle in settings
-        const showTermsProf = settings?.invoice?.showTerms !== false; // default ON
+        const showTermsProf = settings?.invoice?.showTerms !== false; 
         const termsTextProf = (settings?.invoice?.termsAndConditions || '').trim();
         const conditionsTextProf = (settings?.invoice?.conditionsText || '').trim();
         if (showTermsProf && (termsTextProf || conditionsTextProf)) {
             printData += drawLine('-');
             printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + "TERMS & CONDITIONS:\n" + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
-            const allText = [termsTextProf, conditionsTextProf].filter(Boolean).join(' ');
-            const words = allText.split(' ');
-            let line = '';
-            words.forEach(word => {
-                if ((line + word).length > width - 1) {
-                    printData += line.trim() + "\n";
-                    line = word + ' ';
-                } else {
-                    line += word + ' ';
-                }
-            });
-            if (line.trim()) printData += line.trim() + "\n";
+            
+            if (termsTextProf) {
+                const words = termsTextProf.split(' ');
+                let line = '';
+                words.forEach(word => {
+                    if ((line + word).length > width) {
+                        printData += line.trim() + "\n";
+                        line = word + ' ';
+                    } else {
+                        line += word + ' ';
+                    }
+                });
+                if (line.trim()) printData += line.trim() + "\n";
+            }
+            
+            if (conditionsTextProf) {
+                const words = conditionsTextProf.split(' ');
+                let line = '';
+                words.forEach(word => {
+                    if ((line + word).length > width) {
+                        printData += line.trim() + "\n";
+                        line = word + ' ';
+                    } else {
+                        line += word + ' ';
+                    }
+                });
+                if (line.trim()) printData += line.trim() + "\n";
+            }
+        }
+
+        // Footer Note & VIP Message
+        const footerNoteProf = settings?.invoice?.footerNote || 'Thank you for shopping!';
+        printData += "\n" + center(footerNoteProf);
+        if (vip) {
+            printData += center("Thank you for your business with us!");
         }
 
         // Signatory (Only for Invoices)
@@ -831,14 +958,22 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 </div>
 
                 <div class="dashed"></div>
+                ${(settings?.invoice?.showTerms !== false) ? `
+                <div style="text-align: left; margin-bottom: 10px;">
+                    <div class="bold" style="font-size: 10px; margin-bottom: 2px;">TERMS & CONDITIONS:</div>
+                    ${settings?.invoice?.termsAndConditions ? `<div style="font-size: 10px;">1. ${settings.invoice.termsAndConditions}</div>` : ''}
+                    ${settings?.invoice?.conditionsText ? `<div style="font-size: 10px; margin-top: 2px;">2. ${settings.invoice.conditionsText}</div>` : ''}
+                </div>
+                <div class="dashed"></div>
+                ` : ''}
                 <div class="text-center" style="margin-top: 10px;">
                     <div class="bold">MOBILE NO: ${storeWhatsapp || storePhone || 'N/A'}</div>
-                    <div class="bold" style="letter-spacing: 1px; margin-top: 5px;">
-                        THANK YOU! VISIT AGAIN
+                    <div class="bold" style="font-size: 12px; margin-top: 5px;">
+                        ${settings?.invoice?.footerNote || 'THANK YOU! VISIT AGAIN'}
                     </div>
                     ${vip ? `
-                    <div class="bold" style="letter-spacing: 1px; font-size: 11px; color: #000;">
-                        THANKYOU FOR YOUR BUSINESS WITH US !
+                    <div class="bold" style="font-size: 11px; color: #000; margin-top: 4px; font-style: italic;">
+                        Thank you for your business with us!
                     </div>
                     ` : ''}
                 </div>
@@ -1011,6 +1146,14 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
             </div>
 
             <div class="dashed" style="margin-top: 8px;"></div>
+            ${(settings?.invoice?.showTerms !== false) ? `
+            <div style="text-align: left; margin: 5px 0;">
+                <div class="bold" style="font-size: 10px;">TERMS & CONDITIONS:</div>
+                ${settings?.invoice?.termsAndConditions ? `<div style="font-size: 9px;">1. ${settings.invoice.termsAndConditions}</div>` : ''}
+                ${settings?.invoice?.conditionsText ? `<div style="font-size: 9px;">2. ${settings.invoice.conditionsText}</div>` : ''}
+            </div>
+            <div class="dashed"></div>
+            ` : ''}
             <div class="footer">
                 ${settings?.bankDetails?.accountNumber ? `
                     <div style="font-weight: 900; margin-bottom: 2px;">BANK DETAILS</div>
@@ -1019,9 +1162,14 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                     <div>IFSC: ${settings.bankDetails.ifsc}</div>
                     <div class="dashed"></div>
                 ` : ''}
-                <div style="${vip ? 'font-weight: 900; font-size: 11px;' : ''}">
-                    ${vip ? 'Thankyou for your Buisiness with us !' : 'Thank You! Visit Again.'}
+                <div style="font-weight: 900; font-size: 12px;">
+                    ${settings?.invoice?.footerNote || 'Thank You! Visit Again.'}
                 </div>
+                ${vip ? `
+                <div style="font-weight: 900; font-size: 11px; margin-top: 4px; font-style: italic;">
+                    Thank you for your business with us!
+                </div>
+                ` : ''}
             </div>
         </body>
     </html>
@@ -1278,7 +1426,10 @@ const generateDetailedHTML = (bill, settings, colors) => {
                         </div>
                     ` : ''}
                     <div class="bold">Terms & Conditions:</div>
-                    <div style="font-size: 8px;">${settings?.invoice?.termsAndConditions || '1. Goods once sold will not be taken back. 2. Interest @18% pa will be charged if not paid within due date.'}</div>
+                    <div style="font-size: 8px;">
+                        ${settings?.invoice?.termsAndConditions ? `1. ${settings.invoice.termsAndConditions}` : ''}
+                        ${settings?.invoice?.conditionsText ? `<br/>2. ${settings.invoice.conditionsText}` : ''}
+                    </div>
                 </div>
                 <div class="col" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; text-align: right;">
                     <div class="bold">For ${store.name || ''}</div>
@@ -1390,9 +1541,12 @@ const generateClassicHTML = (bill, settings, colors) => {
                                 <div style="font-style: italic;">${remarks.trim()}</div>
                             </div>
                         ` : ''}
-                        1. Goods once sold will be not taken back.<br/>
-                        2. Interest @18% pa will be charged if not paid within due date.<br/>
-                        Thank you for your business!
+                        ${settings?.invoice?.termsAndConditions ? `1. ${settings.invoice.termsAndConditions}<br/>` : ''}
+                        ${settings?.invoice?.conditionsText ? `2. ${settings.invoice.conditionsText}<br/>` : ''}
+                        <div style="font-weight: bold; margin-top: 5px; font-style: italic;">
+                            ${settings?.invoice?.footerNote || 'Thank you for your business!'}
+                        </div>
+                        ${vip ? `<div style="font-weight: bold; color: ${colors.primary}; margin-top: 2px;">Thank you for your business with us!</div>` : ''}
                     </div>
                 </div>
                 <div style="flex: 1;">

@@ -54,8 +54,8 @@ export const SettingsProvider = ({ children, user }) => {
             billTemplate: 'Classic',
             headerTitle: 'Tax Invoice',
             footerNote: 'Thank you for shopping!',
-            termsAndConditions: '1. Goods once sold will not be taken back.',
-            conditionsText: '',
+            termsAndConditions: 'Goods once sold will not be taken back.',
+            conditionsText: 'All disputes are subject to local jurisdiction only.',
             invoicePaperSize: 'A4',
             billPaperSize: '80mm',
             showLogo: true,
@@ -497,15 +497,10 @@ export const SettingsProvider = ({ children, user }) => {
                 }
 
                 const portable = await ensurePortableSettings(finalSettings);
-                const onboardingData = {
-                    user: portable.user,
-                    store: portable.store,
-                    userEmail: user?.email || portable.user?.email,
-                    onboardingCompletedAt: portable.onboardingCompletedAt
-                };
+                const { _id, __v, createdAt, updatedAt, ...cleanPortable } = portable;
 
                 try {
-                    await services.settings.updateSettings(onboardingData);
+                    await services.settings.updateSettings(cleanPortable);
                     AsyncStorage.setItem('settings_dirty', 'false');
                     setIsSettingsDirty(false);
                 } catch (err) {

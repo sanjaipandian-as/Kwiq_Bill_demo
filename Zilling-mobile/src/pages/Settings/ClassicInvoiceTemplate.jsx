@@ -135,23 +135,26 @@ const ClassicInvoiceTemplate = ({ settings, data }) => {
                 </View>
             </View>
 
-            {/* Footer Notes */}
-            <View style={{ marginTop: 20 }}>
-                <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>Remarks / Payment Instructions:</Text>
-                {settings?.bankDetails?.accountNumber ? (
-                    <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
-                        <Text style={[styles.a4Notes, { fontWeight: '700', color: '#1e293b' }]}>Bank Details:</Text>
-                        <Text style={styles.a4Notes}>A/c Name: {settings.bankDetails.accountName}</Text>
-                        <Text style={styles.a4Notes}>Bank: {settings.bankDetails.bankName} | A/c: {settings.bankDetails.accountNumber}</Text>
-                        <Text style={styles.a4Notes}>IFSC: {settings.bankDetails.ifsc}</Text>
-                    </View>
-                ) : null}
-                <Text style={styles.a4Notes}>Thank you for your business!</Text>
-                <Text style={styles.a4Notes}>Make all checks payable to {store.name}</Text>
-            </View>
+            {/* Terms & Conditions */}
+            {(settings?.invoice?.showTerms !== false) && (
+                <View style={{ marginTop: 20, paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10 }}>
+                    <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>Terms & Conditions:</Text>
+                    {settings?.invoice?.termsAndConditions ? (
+                        <Text style={styles.a4Notes}>{settings.invoice.termsAndConditions}</Text>
+                    ) : null}
+                    {settings?.invoice?.conditionsText ? (
+                        <Text style={[styles.a4Notes, { marginTop: 2 }]}>{settings.invoice.conditionsText}</Text>
+                    ) : null}
+                </View>
+            )}
 
             <View style={{ marginTop: 30 }}>
-                <Text style={styles.a4ThankYou}>Thank you for your business!</Text>
+                <Text style={styles.a4ThankYou}>{settings?.invoice?.footerNote || 'Thank you for your business!'}</Text>
+                {isVIP(invoice.customer) && (
+                    <Text style={[styles.a4ThankYou, { fontSize: 14, color: '#1e293b', marginTop: 4 }]}>
+                        Thank you for your business with us!
+                    </Text>
+                )}
             </View>
         </View>
     );
@@ -300,5 +303,11 @@ const styles = StyleSheet.create({
         fontStyle: 'italic',
     },
 });
+
+const isVIP = (cust) => {
+    if (!cust) return false;
+    const tags = cust.tags || '';
+    return typeof tags === 'string' ? tags.includes('VIP') : (Array.isArray(tags) && tags.includes('VIP'));
+};
 
 export default ClassicInvoiceTemplate;

@@ -109,9 +109,17 @@ const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra' }) => {
                         <Text style={styles.notesText}>{settings?.invoice?.footerNote || 'Thank you for your business!'}</Text>
                         <View style={{ height: 10 }} />
                         <Text style={styles.termsTitle}>Terms:</Text>
-                        <Text style={styles.termsText}>
-                            {settings?.invoice?.termsAndConditions || '1. Goods once sold will not be taken back. 2. Interest @18% pa will be charged if not paid within due date.'}
-                        </Text>
+                        {settings?.invoice?.termsAndConditions ? (
+                            <Text style={[styles.termsText, { marginBottom: 2 }]}>{settings.invoice.termsAndConditions}</Text>
+                        ) : null}
+                        {settings?.invoice?.conditionsText ? (
+                            <Text style={styles.termsText}>{settings.invoice.conditionsText}</Text>
+                        ) : null}
+                        {isVIP(invoiceData.customer || { name: invoiceData.billTo }) && (
+                            <Text style={[styles.notesText, { fontWeight: '700', color: '#115e59', marginTop: 10, fontStyle: 'italic' }]}>
+                                Thank you for your business with us!
+                            </Text>
+                        )}
                     </View>
 
                     {/* Right: Totals */}
@@ -354,5 +362,11 @@ const styles = StyleSheet.create({
         color: '#fff'
     }
 });
+
+const isVIP = (cust) => {
+    if (!cust) return false;
+    const tags = cust.tags || '';
+    return typeof tags === 'string' ? tags.includes('VIP') : (Array.isArray(tags) && tags.includes('VIP'));
+};
 
 export default MinimalInvoiceTemplate;

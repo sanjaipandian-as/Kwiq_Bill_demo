@@ -1454,7 +1454,7 @@ const SettingsPage = ({ navigation, route }) => {
                 <View style={{ marginBottom: 16 }}>
                   <Text style={styles.sectionSubtitle}>Select Template Type</Text>
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                    {['Standard', 'Professional'].map(tmpl => (
+                    {['Professional', 'Standard'].map(tmpl => (
                       <TouchableOpacity
                         key={tmpl}
                         onPress={() => handleChange('invoice', 'billTemplate', tmpl)}
@@ -1463,15 +1463,15 @@ const SettingsPage = ({ navigation, route }) => {
                           paddingVertical: 12,
                           alignItems: 'center',
                           borderRadius: 12,
-                          backgroundColor: (localSettings.invoice.billTemplate || 'Standard') === tmpl ? '#000' : '#f1f5f9',
+                          backgroundColor: (localSettings.invoice.billTemplate || 'Professional') === tmpl ? '#000' : '#f1f5f9',
                           borderWidth: 1.5,
-                          borderColor: (localSettings.invoice.billTemplate || 'Standard') === tmpl ? '#000' : '#e2e8f0'
+                          borderColor: (localSettings.invoice.billTemplate || 'Professional') === tmpl ? '#000' : '#e2e8f0'
                         }}
                       >
                         <Text style={{
                           fontSize: 14,
                           fontWeight: '800',
-                          color: (localSettings.invoice.billTemplate || 'Standard') === tmpl ? '#fff' : '#475569'
+                          color: (localSettings.invoice.billTemplate || 'Professional') === tmpl ? '#fff' : '#475569'
                         }}>
                           {tmpl}
                         </Text>
@@ -1484,7 +1484,7 @@ const SettingsPage = ({ navigation, route }) => {
 
                 <View style={{ marginTop: 16, marginHorizontal: -20, alignItems: 'center' }}>
                   <View style={{ width: '100%', alignItems: 'center' }}>
-                    {(localSettings.invoice.billTemplate || 'Standard') === 'Standard' ? (
+                    {(localSettings.invoice.billTemplate || 'Professional') === 'Standard' ? (
                       <>
                         <View style={{ marginBottom: 20, width: '100%' }}>
                           <Text style={[styles.helperTextSmall, { paddingHorizontal: 20, marginBottom: 8 }]}>Intra-State Receipt (CGST + SGST)</Text>

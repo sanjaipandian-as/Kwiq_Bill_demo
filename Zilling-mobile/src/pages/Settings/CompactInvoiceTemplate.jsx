@@ -99,13 +99,23 @@ const CompactInvoiceTemplate = ({ settings, data }) => {
             <View style={styles.compactFooter}>
                 <View style={styles.compactTermsBox}>
                     <Text style={[styles.compactLabel, { fontSize: 9 }]}>Terms & Instructions</Text>
-                    <Text style={[styles.compactFooterText, { marginBottom: 8 }]}>
-                        1. Goods once sold will not be taken back.
-                        2. Interest @18% pa will be charged if not paid within due date.
-                    </Text>
+                    {settings.invoice.termsAndConditions && (
+                        <Text style={[styles.compactFooterText, { marginBottom: 2 }]}>{settings.invoice.termsAndConditions}</Text>
+                    )}
+                    {settings.invoice.conditionsText && (
+                        <Text style={styles.compactFooterText}>{settings.invoice.conditionsText}</Text>
+                    )}
                     <Text style={[styles.compactLabel, { fontSize: 9 }]}>Payment Mode: <Text style={{ fontWeight: '400', color: '#334155' }}>{invoice.paymentMode || 'Cash/UPI'}</Text></Text>
 
-                    <View style={{ marginTop: 24, alignItems: 'center' }}>
+                    <View style={{ marginTop: 20, alignItems: 'center' }}>
+                        <Text style={[styles.compactFooterText, { fontWeight: '700', fontSize: 10, fontStyle: 'italic', marginBottom: 2 }]}>
+                            {settings?.invoice?.footerNote || 'Thank you for shopping!'}
+                        </Text>
+                        {isVIP(invoice.customer) && (
+                            <Text style={[styles.compactFooterText, { fontWeight: '700', fontSize: 9, fontStyle: 'italic', color: '#115e59', marginBottom: 4 }]}>
+                                Thank you for your business with us!
+                            </Text>
+                        )}
                         <Text style={[styles.compactFooterText, { fontWeight: '700' }]}>Seal & Signature</Text>
                     </View>
                 </View>
@@ -259,5 +269,11 @@ const styles = StyleSheet.create({
         padding: 8,
     },
 });
+
+const isVIP = (cust) => {
+    if (!cust) return false;
+    const tags = cust.tags || '';
+    return typeof tags === 'string' ? tags.includes('VIP') : (Array.isArray(tags) && tags.includes('VIP'));
+};
 
 export default CompactInvoiceTemplate;

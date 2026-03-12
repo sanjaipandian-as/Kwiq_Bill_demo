@@ -184,6 +184,31 @@ const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceI
             <View style={{ alignItems: 'center', marginTop: 4 }}>
                 <Text style={styles.footerText}>MOBILE NO: {store.contact || store.phone || store.whatsapp || 'N/A'}</Text>
 
+                <View style={{ marginTop: 12, alignItems: 'center' }}>
+                    <Text style={[styles.footerText, { fontSize: 13, textTransform: 'none' }]}>
+                        {settings?.invoice?.footerNote || 'Thank you for shopping!'}
+                    </Text>
+                    {isVIP(invoice.customer) && (
+                        <Text style={[styles.footerText, { fontSize: 12, marginTop: 4, textTransform: 'none', fontStyle: 'italic' }]}>
+                            Thank you for your business with us!
+                        </Text>
+                    )}
+                </View>
+
+                {/* Terms & Conditions Section */}
+                {(settings?.invoice?.showTerms !== false) && (
+                    <View style={{ width: '100%', marginTop: 10, paddingHorizontal: 4 }}>
+                        <View style={styles.dashedLine} />
+                        <Text style={[styles.infoText, { fontSize: 10, marginBottom: 4, textAlign: 'left' }]}>TERMS & CONDITIONS:</Text>
+                            {settings?.invoice?.termsAndConditions ? (
+                                <Text style={[styles.itemText, { fontSize: 10, marginBottom: 2, textAlign: 'left', width: '100%' }]}>{settings.invoice.termsAndConditions}</Text>
+                            ) : null}
+                            {settings?.invoice?.conditionsText ? (
+                                <Text style={[styles.itemText, { fontSize: 10, textAlign: 'left', width: '100%' }]}>{settings.invoice.conditionsText}</Text>
+                            ) : null}
+                    </View>
+                )}
+
                 {/* Formal Details (Only for Invoice Mode) */}
                 {(data?.mode === 'invoice' || settings?.invoice?.mode === 'invoice') && (
                     <View style={{ width: '100%', marginTop: 8 }}>
@@ -204,7 +229,6 @@ const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceI
                         <View style={[styles.dashedLine, { marginVertical: 8 }]} />
                     </View>
                 )}
-
             </View>
 
             <View style={{ height: 20 }} />
