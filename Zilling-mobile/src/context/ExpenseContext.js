@@ -30,7 +30,7 @@ export const ExpenseProvider = ({ children }) => {
                 return;
             }
             try {
-                const data = db.getAllSync('SELECT * FROM expenses ORDER BY date DESC');
+                const data = await db.getAllAsync('SELECT * FROM expenses ORDER BY date DESC');
                 setExpenses((data || []).map(normalizeExpense));
             } catch (err) {
                 console.error('Failed to load expenses:', err);
@@ -45,7 +45,7 @@ export const ExpenseProvider = ({ children }) => {
     const fetchExpenses = async () => {
         setLoading(true);
         try {
-            const data = db.getAllSync('SELECT * FROM expenses ORDER BY date DESC');
+            const data = await db.getAllAsync('SELECT * FROM expenses ORDER BY date DESC');
             setExpenses((data || []).map(normalizeExpense));
         } finally {
             setLoading(false);
@@ -85,7 +85,7 @@ export const ExpenseProvider = ({ children }) => {
             const createdAt = new Date().toISOString();
 
             // 1. Instant local save
-            db.runSync(
+            await db.runAsync(
                 `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [id, title, amount, category, date, paymentMethod, localUri, tags, createdAt]
@@ -97,7 +97,7 @@ export const ExpenseProvider = ({ children }) => {
             // 2. Background Upload
             const cloudUrl = await uploadReceiptToCloud(id, localUri);
             if (cloudUrl && cloudUrl !== localUri) {
-                db.runSync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
+                await db.runAsync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
                 setExpenses(prev => prev.map(e => e.id === id ? { ...e, receiptUrl: cloudUrl } : e));
             }
 
@@ -129,7 +129,7 @@ export const ExpenseProvider = ({ children }) => {
             const tags = JSON.stringify(data.tags || []);
             const updatedAt = new Date().toISOString();
 
-            db.runSync(
+            await db.runAsync(
                 `UPDATE expenses SET title = ?, amount = ?, category = ?, date = ?, payment_method = ?, receipt_url = ?, tags = ?, updated_at = ? WHERE id = ?`,
                 [title, amount, category, date, paymentMethod, localUri, tags, updatedAt, id]
             );
@@ -140,7 +140,7 @@ export const ExpenseProvider = ({ children }) => {
             // Background Upload
             const cloudUrl = await uploadReceiptToCloud(id, localUri);
             if (cloudUrl && cloudUrl !== localUri) {
-                db.runSync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
+                await db.runAsync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
                 setExpenses(prev => prev.map(e => e.id === id ? { ...e, receiptUrl: cloudUrl } : e));
             }
 
@@ -171,7 +171,7 @@ export const ExpenseProvider = ({ children }) => {
 
     const deleteExpense = async (id) => {
         try {
-            db.runSync('DELETE FROM expenses WHERE id = ?', [id]);
+            await db.runAsync('DELETE FROM expenses WHERE id = ?', [id]);
             setExpenses(prev => prev.filter(e => e.id !== id));
             triggerAutoSave();
 
@@ -192,7 +192,7 @@ export const ExpenseProvider = ({ children }) => {
         try {
             const cloudUrl = await uploadReceiptToCloud(id, fileUri);
             if (cloudUrl && cloudUrl !== fileUri) {
-                db.runSync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
+                await db.runAsync(`UPDATE expenses SET receipt_url = ? WHERE id = ?`, [cloudUrl, id]);
                 setExpenses(prev => prev.map(e => e.id === id ? { ...e, receiptUrl: cloudUrl } : e));
             }
             return cloudUrl;
@@ -203,9 +203,9 @@ export const ExpenseProvider = ({ children }) => {
 
     const bulkDeleteExpenses = async (ids) => {
         try {
-            ids.forEach(id => {
-                db.runSync('DELETE FROM expenses WHERE id = ?', [id]);
-            });
+            for (const id of ids) {
+                await db.runAsync('DELETE FROM expenses WHERE id = ?', [id]);
+            }
             setExpenses(prev => prev.filter(e => !ids.includes(e.id)));
             triggerAutoSave();
             // [Sync]
@@ -236,11 +236,11 @@ export const ExpenseProvider = ({ children }) => {
             bulkDeleteExpenses,
             bulkUpdateExpenses: async (ids, updates) => {
                 try {
-                    ids.forEach(id => {
+                    for (const id of ids) {
                         const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
                         const values = [...Object.values(updates), id];
-                        db.runSync(`UPDATE expenses SET ${setClauses} WHERE id = ?`, values);
-                    });
+                        await db.runAsync(`UPDATE expenses SET ${setClauses} WHERE id = ?`, values);
+                    }
                     setExpenses(prev => prev.map(e => ids.includes(e.id) ? { ...e, ...updates } : e));
                     triggerAutoSave();
                 } catch (e) { console.error(e); }

@@ -5,7 +5,9 @@ import { exportToDeviceFolders } from '../services/backupservices';
 import { fetchAllTableData } from '../services/database';
 import { BLEPrinter, COMMANDS, ColumnAlignment } from 'react-native-thermal-receipt-printer-image-qr';
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { globalPrintRef } from './printGlobals';
+
 
 const hasIndianScript = (text) => {
     if (!text) return false;
@@ -90,11 +92,14 @@ const ensurePrinterConnected = async (address) => {
         }
     }
 };
-
 const isVIP = (cust) => {
     if (!cust) return false;
     const tags = cust.tags || '';
-    return typeof tags === 'string' ? tags.includes('VIP') : (Array.isArray(tags) && tags.includes('VIP'));
+    if (Array.isArray(tags)) {
+        return tags.some(tag => String(tag).trim().toUpperCase() === 'VIP');
+    }
+    if (typeof tags !== 'string') return false;
+    return tags.split(',').map(tag => tag.trim().toUpperCase()).includes('VIP') || tags.toUpperCase().includes('VIP');
 };
 
 const printHybrid = async (content, options = {}, paperFormat = '80mm') => {
@@ -159,17 +164,22 @@ const printHybrid = async (content, options = {}, paperFormat = '80mm') => {
 };
 
 
-export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm', mode = 'customer') => {
+export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm', mode = 'customer', options = {}) => {
     try {
+        if (options.forceAuthorized) {
+            settings = { 
+                ...settings, 
+                invoice: { ...settings.invoice, showBankAndSignature: true } 
+            };
+        }
         const printerAddress = settings?.invoice?.selectedPrinter?.address;
         const template = settings?.invoice?.billTemplate || 'Professional';
 
         // 'Classic' is the SettingsContext default value for the bill template selector.
         // It maps to the Professional thermal layout (clean column format).
         // 'Professional' also routes here. Only 'Standard' uses the plain ESC/POS path below.
-        // For Invoice mode, always use Professional regardless of setting.
-        if (template === 'Professional' || template === 'Classic' || mode === 'invoice') {
-            return await printProfessionalBluetoothReceipt(bill, settings, format, mode);
+        if (template === 'Professional' || template === 'Classic') {
+            return await printProfessionalBluetoothReceipt(bill, settings, format, mode, options);
         }
 
         // ── STANDARD TEMPLATE (only when billTemplate is explicitly 'Standard') ──────────
@@ -432,6 +442,26 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
             receiptBody += center("Thank you for your business with us!");
         }
 
+        // Final Authorized Signatory Footer (absolute bottom)
+        if (settings?.invoice?.showBankAndSignature) {
+            receiptBody += drawLine('-'); // Divider line
+            receiptBody += "\n\n" + center("_______________________");
+            receiptBody += center("AUTHORIZED SIGNATORY") + "\n";
+        }
+
+        // Optional Bank Details and Authorized Signatory
+        if (settings?.invoice?.showBankAndSignature) {
+            const bank = settings?.bankDetails || {};
+            if (bank.bankName) {
+                receiptBody += drawLine('-');
+                receiptBody += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON + "BANK DETAILS:\n" + COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
+                receiptBody += `Bank: ${bank.bankName}\n`;
+                receiptBody += `A/C: ${bank.accountNumber || ''}\n`;
+                receiptBody += `IFSC: ${bank.ifsc || ''}\n`;
+            }
+            receiptBody += drawLine('-');
+        }
+
         receiptBody += "\n\n\n\n";
 
         // Use Hybrid Printing for multi-language support
@@ -443,8 +473,14 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
     }
 };
 
-export const printProfessionalBluetoothReceipt = async (bill, settings = {}, format = '80mm', mode = 'customer') => {
+export const printProfessionalBluetoothReceipt = async (bill, settings = {}, format = '80mm', mode = 'customer', options = {}) => {
     try {
+        if (options.forceAuthorized) {
+            settings = { 
+                ...settings, 
+                invoice: { ...settings.invoice, showBankAndSignature: true } 
+            };
+        }
         const printerAddress = settings?.invoice?.selectedPrinter?.address;
         const store = settings?.store || {};
         const items = bill.cart || bill.items || [];
@@ -636,8 +672,8 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
 
         printData += center("MOBILE NO: " + (store.contact || store.phone || store.whatsapp || 'N/A'));
 
-        // Formal Footer Section (Only for Invoices)
-        if (mode === 'invoice') {
+        // Formal Footer Section (Only if toggled ON)
+        if (settings?.invoice?.showBankAndSignature) {
             const bank = settings?.bankDetails || {};
             if (bank.bankName) {
                 printData += drawLine('-');
@@ -690,6 +726,13 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         printData += "\n" + center(footerNoteProf);
         if (vip) {
             printData += center("Thank you for your business with us!");
+        }
+
+        // Final Authorized Signatory Footer (bottom-most row)
+        if (settings?.invoice?.showBankAndSignature) {
+            printData += drawLine('-'); // Divider line
+            printData += "\n\n" + center("_______________________");
+            printData += center("AUTHORIZED SIGNATORY") + "\n";
         }
 
         // Signatory (Only for Invoices)
@@ -976,6 +1019,13 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                         Thank you for your business with us!
                     </div>
                     ` : ''}
+
+                    ${settings?.invoice?.showBankAndSignature ? `
+                    <div style="margin-top: 15px; border-top: 1px dashed #000; padding-top: 25px; text-align: center;">
+                        <div style="margin-bottom: 5px; opacity: 0.5;">____________________________</div>
+                        <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">AUTHORIZED SIGNATORY</div>
+                    </div>
+                    ` : ''}
                 </div>
             </body>
         </html>
@@ -1168,6 +1218,13 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 ${vip ? `
                 <div style="font-weight: 900; font-size: 11px; margin-top: 4px; font-style: italic;">
                     Thank you for your business with us!
+                </div>
+                ` : ''}
+
+                ${settings?.invoice?.showBankAndSignature ? `
+                <div style="margin-top: 15px; border-top: 1px dashed #000; padding-top: 25px; text-align: center;">
+                    <div style="margin-bottom: 5px; opacity: 0.5;">____________________________</div>
+                    <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">AUTHORIZED SIGNATORY</div>
                 </div>
                 ` : ''}
             </div>
@@ -1447,9 +1504,11 @@ const generateClassicHTML = (bill, settings, colors) => {
     const storeAddress = store.address || {};
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
+    const vip = isVIP(customer);
     const customerName = bill.customerName || customer.fullName || customer.name || '';
     const isInter = bill.taxType === 'inter';
     const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+
     const currency = settings?.defaults?.currency || '₹';
     const bank = settings?.bankDetails || {};
     const { showLogo = true } = settings?.invoice || {};
@@ -2218,8 +2277,7 @@ export const testPrinter = async (settings = {}) => {
     const storeName = settings?.store?.name || "KWIQ BILL";
 
     if (!printerAddress) {
-        Alert.alert("No Printer Connected", "Please pair and connect a thermal printer in Settings first.");
-        return;
+        return false;
     }
 
     try {
@@ -2278,14 +2336,14 @@ export const testPrinter = async (settings = {}) => {
         footer += "\n\n\n\n";
         await BLEPrinter.printText(footer);
 
-        Alert.alert("Success", "Test receipt sent successfully!");
+        return true;
     } catch (error) {
         console.error('Test print error:', error);
-        Alert.alert('Test Failed', 'Unable to communicate with the printer. Please check power and Bluetooth.');
+        throw error;
     }
 };
 
-export const printReceipt = async (bill, arg2, arg3, arg4) => {
+export const printReceipt = async (bill, arg2, arg3, arg4, options = {}) => {
     let settings = {};
     let mode = 'customer';
     let format = '80mm';
@@ -2319,14 +2377,9 @@ export const printReceipt = async (bill, arg2, arg3, arg4) => {
         if (format === '80mm' || format === '58mm') {
             if (settings?.invoice?.selectedPrinter?.address) {
                 // Using Bluetooth ESC/POS thermal printing natively
-                if (mode === 'invoice') {
-                    // This creates a formal invoice look on thermal paper without a preview dialog
-                    // Force professional template for formal invoices as requested
-                    await printProfessionalBluetoothReceipt(bill, settings, format, mode);
-                } else {
-                    // Standard bill receipts respect the user's template setting (Standard/Professional)
-                    await printBluetoothReceipt(bill, settings, format, mode);
-                }
+                // Respect the selected thermal template (Standard/Professional)
+                // via overrideSettings passed down from the preview screen.
+                await printBluetoothReceipt(bill, settings, format, mode, options);
             } else {
                 // Inform user why "bluetooth section" or printing is not working
                 Alert.alert(
@@ -2447,11 +2500,12 @@ export const printMultipleReceipts = async (bills, arg2, arg3) => {
 
 let isSharingInProgress = false;
 
-export const shareReceiptPDF = async (bill, settings = {}) => {
+
+export const shareReceiptPDF = async (bill, settings = {}, mode = 'invoice') => {
     if (isSharingInProgress) return;
     isSharingInProgress = true;
     try {
-        const html = generateReceiptHTML(bill, settings);
+        const html = generateReceiptHTML(bill, settings, mode);
         const { uri } = await Print.printToFileAsync({ html });
         await shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
     } catch (error) {
@@ -2461,6 +2515,198 @@ export const shareReceiptPDF = async (bill, settings = {}) => {
         isSharingInProgress = false;
     }
 };
+
+/**
+ * Generates a combined PDF containing both the Bill (Thermal format) 
+ * and the Invoice (A4 format).
+ */
+export const shareCombinedReceiptPDF = async (bill, settings = {}) => {
+    if (isSharingInProgress) return;
+    isSharingInProgress = true;
+    try {
+        // 1. Generate Thermal Bill HTML
+        const thermalSettings = {
+            ...settings,
+            invoice: {
+                ...settings.invoice,
+                paperSize: settings?.invoice?.billPaperSize || '80mm'
+            }
+        };
+        const thermalHTML = generateReceiptHTML(bill, thermalSettings, 'customer');
+
+        // 2. Generate A4 Invoice HTML
+        const a4Settings = {
+            ...settings,
+            invoice: {
+                ...settings.invoice,
+                paperSize: 'A4'
+            }
+        };
+        const a4HTML = generateReceiptHTML(bill, a4Settings, 'invoice');
+
+        // 3. Combine them
+        const combine = (htmls) => {
+            let combinedStyles = "";
+            let combinedBody = "";
+
+            htmls.forEach((html, index) => {
+                const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/);
+                const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/);
+                if (styleMatch) combinedStyles += styleMatch[1] + "\n";
+                if (bodyMatch) {
+                    const pageBreak = (index < htmls.length - 1) ? '<div style="page-break-after: always; height: 0; overflow: hidden;"></div>' : '';
+                    combinedBody += `<div class="invoice-page">${bodyMatch[1]}</div>${pageBreak}`;
+                }
+            });
+
+            return `
+            <html>
+                <head>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+                    <style>
+                        ${combinedStyles}
+                        .invoice-page { position: relative; width: 100%; }
+                        @media print { .invoice-page { page-break-inside: avoid; } }
+                    </style>
+                </head>
+                <body>${combinedBody}</body>
+            </html>`;
+        };
+
+        const finalHTML = combine([thermalHTML, a4HTML]);
+        const { uri } = await Print.printToFileAsync({ html: finalHTML });
+        await shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+
+    } catch (error) {
+        console.error('Combined Share error:', error);
+        Alert.alert('Error', 'Failed to generate combined PDF');
+    } finally {
+        isSharingInProgress = false;
+    }
+};
+
+/**
+ * "Download" Logic: On Android, uses SAF to save directly to a folder.
+ * On iOS, uses the share sheet (which includes Save to Files).
+ */
+export const saveReceiptPDF = async (bill, settings = {}, mode = 'invoice') => {
+    if (isSharingInProgress) return;
+    isSharingInProgress = true;
+    try {
+        const html = generateReceiptHTML(bill, settings, mode);
+        const { uri } = await Print.printToFileAsync({ html });
+        
+        const fileName = `Invoice_${bill.weekly_sequence || bill.id || Date.now()}.pdf`;
+
+        if (Platform.OS === 'android') {
+            const SAF = FileSystem.StorageAccessFramework;
+            
+            if (SAF) {
+                // Try to use a previously saved URI or request Downloads/Documents
+                let rootUri = await AsyncStorage.getItem('@pdf_download_uri');
+                
+                if (rootUri) {
+                    try {
+                        await SAF.readDirectoryAsync(rootUri);
+                    } catch (e) {
+                        rootUri = null;
+                    }
+                }
+
+                if (!rootUri) {
+                    const permissions = await SAF.requestDirectoryPermissionsAsync();
+                    if (permissions.granted) {
+                        rootUri = permissions.directoryUri;
+                        await AsyncStorage.setItem('@pdf_download_uri', rootUri);
+                    }
+                }
+
+                if (rootUri) {
+                    const targetUri = await SAF.createFileAsync(rootUri, fileName, 'application/pdf');
+                    const content = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+                    await FileSystem.writeAsStringAsync(targetUri, content, { encoding: FileSystem.EncodingType.Base64 });
+                    Alert.alert('Success', `Invoice saved to device: ${fileName}`);
+                    return;
+                }
+            } else {
+                console.warn('StorageAccessFramework is undefined in expo-file-system. Falling back to share sheet.');
+            }
+        }
+
+
+        // Fallback for iOS or if SAF permission denied
+        await shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    } catch (error) {
+        console.error('Download error:', error);
+        Alert.alert('Error', 'Failed to download receipt');
+    } finally {
+        isSharingInProgress = false;
+    }
+};
+
+export const saveCombinedReceiptPDF = async (bill, settings = {}) => {
+    if (isSharingInProgress) return;
+    isSharingInProgress = true;
+    try {
+        // Reuse combined logic... (extracting to a helper would be cleaner, but let's keep it simple for now)
+        const thermalSettings = { ...settings, invoice: { ...settings.invoice, paperSize: settings?.invoice?.billPaperSize || '80mm' } };
+        const thermalHTML = generateReceiptHTML(bill, thermalSettings, 'customer');
+        const a4Settings = { ...settings, invoice: { ...settings.invoice, paperSize: 'A4' } };
+        const a4HTML = generateReceiptHTML(bill, a4Settings, 'invoice');
+
+        const combine = (htmls) => {
+            let combinedStyles = "";
+            let combinedBody = "";
+            htmls.forEach((html, index) => {
+                const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/);
+                const bodyMatch = html.match(/<body>([\s\S]*?)<\/body>/);
+                if (styleMatch) combinedStyles += styleMatch[1] + "\n";
+                if (bodyMatch) {
+                    const pageBreak = (index < htmls.length - 1) ? '<div style="page-break-after: always; height: 0; overflow: hidden;"></div>' : '';
+                    combinedBody += `<div class="invoice-page">${bodyMatch[1]}</div>${pageBreak}`;
+                }
+            });
+            return `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0" /><style>${combinedStyles}.invoice-page { width: 100%; } @media print { .invoice-page { page-break-inside: avoid; } }</style></head><body>${combinedBody}</body></html>`;
+        };
+
+        const finalHTML = combine([thermalHTML, a4HTML]);
+        const { uri } = await Print.printToFileAsync({ html: finalHTML });
+        const fileName = `Combined_Invoice_${bill.weekly_sequence || bill.id || Date.now()}.pdf`;
+
+        if (Platform.OS === 'android') {
+            const SAF = FileSystem.StorageAccessFramework;
+            if (SAF) {
+                let rootUri = await AsyncStorage.getItem('@pdf_download_uri');
+                if (rootUri) { try { await SAF.readDirectoryAsync(rootUri); } catch (e) { rootUri = null; } }
+                if (!rootUri) {
+                    const permissions = await SAF.requestDirectoryPermissionsAsync();
+                    if (permissions.granted) {
+                        rootUri = permissions.directoryUri;
+                        await AsyncStorage.setItem('@pdf_download_uri', rootUri);
+                    }
+                }
+
+                if (rootUri) {
+                    const targetUri = await SAF.createFileAsync(rootUri, fileName, 'application/pdf');
+                    const content = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+                    await FileSystem.writeAsStringAsync(targetUri, content, { encoding: FileSystem.EncodingType.Base64 });
+                    Alert.alert('Success', `Combined Invoice saved: ${fileName}`);
+                    return;
+                }
+            } else {
+                console.warn('StorageAccessFramework is undefined. Falling back to share sheet.');
+            }
+        }
+
+        await shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    } catch (error) {
+        console.error('Combined Download error:', error);
+        Alert.alert('Error', 'Failed to download combined receipt');
+    } finally {
+        isSharingInProgress = false;
+    }
+};
+
 
 /**
  * Bulk Print/Share Logic

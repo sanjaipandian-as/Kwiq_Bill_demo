@@ -8,6 +8,13 @@ import services, { API } from '../services/api';
 import { useNetwork } from './NetworkContext';
 import { useToast } from './ToastContext';
 import { getUserSpecificKey, SETTINGS_KEY } from '../utils/storageKeys';
+import CryptoJS from 'crypto-js';
+
+const SENSITIVE_FIELDS = [
+    { section: 'bankDetails', fields: ['accountName', 'accountNumber', 'ifsc', 'bankName', 'branch'] },
+    { section: 'user', fields: ['fullName', 'mobile', 'email'] },
+    { section: 'store', fields: ['name', 'legalName', 'contact', 'email', 'gstin', 'address', 'fssai', 'pan'] }
+];
 
 const SettingsContext = createContext();
 
@@ -154,11 +161,59 @@ export const SettingsProvider = ({ children, user }) => {
         }
     };
 
+    /**
+     * Encrypts or Decrypts sensitive fields in the settings object for secure cloud/local storage.
+     */
+    const processSensitiveFields = (data, email, mode = 'encrypt') => {
+        if (!data || !email) return data;
+        const processed = JSON.parse(JSON.stringify(data)); // Deep clone
+
+        SENSITIVE_FIELDS.forEach(({ section, fields }) => {
+            if (processed[section]) {
+                fields.forEach(field => {
+                    const value = processed[section][field];
+                    if (value) {
+                        try {
+                            if (mode === 'encrypt') {
+                                // Only encrypt if not already encrypted
+                                const strValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                                if (!strValue.startsWith('U2FsdGVkX1')) {
+                                    processed[section][field] = CryptoJS.AES.encrypt(strValue, email).toString();
+                                }
+                            } else {
+                                // Only decrypt if it looks like a ciphertext
+                                if (typeof value === 'string' && value.startsWith('U2FsdGVkX1')) {
+                                    const bytes = CryptoJS.AES.decrypt(value, email);
+                                    const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                                    if (decrypted) {
+                                        try {
+                                            // Try parsing as JSON in case it was a nested object (like address)
+                                            processed[section][field] = (decrypted.startsWith('{') || decrypted.startsWith('[')) 
+                                                ? JSON.parse(decrypted) 
+                                                : decrypted;
+                                        } catch (e) {
+                                            processed[section][field] = decrypted;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (err) {
+                            console.warn(`[Crypto] Failed to ${mode} field ${section}.${field}:`, err.message);
+                        }
+                    }
+                });
+            }
+        });
+        return processed;
+    };
+
     const loadSettings = async () => {
         try {
             const saved = await AsyncStorage.getItem(settingsKey);
             if (saved) {
-                setSettings(JSON.parse(saved));
+                const parsed = JSON.parse(saved);
+                const decrypted = processSensitiveFields(parsed, user?.email, 'decrypt');
+                setSettings(decrypted);
             } else if (settingsKey !== SETTINGS_KEY) {
                 // Fallback attempt: if new user-specific key is empty, check global key
                 // but only if it's the SAME email (safety). 
@@ -311,7 +366,8 @@ export const SettingsProvider = ({ children, user }) => {
                             if (driveResult) {
                                 driveDataLoaded = true;
                                 setSettings(prev => {
-                                    return { ...prev, ...driveResult };
+                                    const decryptedDriveData = processSensitiveFields(driveResult, user?.email, 'decrypt');
+                                    return { ...prev, ...decryptedDriveData };
                                 });
                                 console.log('[SettingsContext] ✅ Background Drive settings loaded');
                             }
@@ -373,8 +429,12 @@ export const SettingsProvider = ({ children, user }) => {
                                     };
                                 }
 
-                                AsyncStorage.setItem(settingsKey, JSON.stringify(updated));
-                                return updated;
+                                // Decrypt before setting to state
+                                const decryptedFinal = processSensitiveFields(updated, user?.email, 'decrypt');
+                                const toSaveLocal = processSensitiveFields(decryptedFinal, user?.email, 'encrypt');
+                                
+                                AsyncStorage.setItem(settingsKey, JSON.stringify(toSaveLocal));
+                                return decryptedFinal;
                             });
                         } else {
                             if (!hasUnlockedUI) setDbProfileComplete(false);
@@ -479,7 +539,9 @@ export const SettingsProvider = ({ children, user }) => {
                     ...updates
                 }
             };
-            AsyncStorage.setItem(settingsKey, JSON.stringify(newSettings));
+            
+            const toPersist = processSensitiveFields(newSettings, user?.email, 'encrypt');
+            AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
 
             (async () => {
                 // Background logo upload if it's the store section and logo changed
@@ -497,10 +559,11 @@ export const SettingsProvider = ({ children, user }) => {
                 }
 
                 const portable = await ensurePortableSettings(finalSettings);
-                const { _id, __v, createdAt, updatedAt, ...cleanPortable } = portable;
+                const toCloud = processSensitiveFields(portable, user?.email, 'encrypt');
+                const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = toCloud;
 
                 try {
-                    await services.settings.updateSettings(cleanPortable);
+                    await services.settings.updateSettings(cleanToCloud);
                     AsyncStorage.setItem('settings_dirty', 'false');
                     setIsSettingsDirty(false);
                 } catch (err) {
@@ -511,7 +574,7 @@ export const SettingsProvider = ({ children, user }) => {
 
                 if (user && user.id) {
                     const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                    syncSettingsToDrive(user, portable)
+                    syncSettingsToDrive(user, toCloud)
                         .then(success => console.log('Background: Drive Sync (Settings Update)', success ? 'Success' : 'Failed'))
                         .catch(err => console.error('Background: Drive Sync Error:', err));
                 }
@@ -526,12 +589,25 @@ export const SettingsProvider = ({ children, user }) => {
     const saveFullSettings = async (fullSettings) => {
         setIsUploading(true);
         try {
-            const updated = { ...fullSettings, lastUpdatedAt: new Date() };
+            const updated = { 
+                ...fullSettings, 
+                lastUpdatedAt: new Date().toISOString() // Standardize ISO string for comparison
+            };
+
+            // Log key fields for diagnostics (Visible in development logs)
+            if (updated.invoice?.termsAndConditions) {
+                console.log(`[SettingsContext] 💾 Saving Terms: ${updated.invoice.termsAndConditions.substring(0, 30)}...`);
+            }
+            if (updated.invoice?.conditionsText) {
+                console.log(`[SettingsContext] 💾 Saving Conditions: ${updated.invoice.conditionsText.substring(0, 30)}...`);
+            }
 
             // 1. Instant Local Update - THIS IS THE MOST IMPORTANT STEP FOR OFFLINE-FIRST
             setSettings(updated);
-            await AsyncStorage.setItem(settingsKey, JSON.stringify(updated));
-            console.log('[SettingsContext] ✅ Local settings saved successfully (Offline-First)');
+            
+            const toPersist = processSensitiveFields(updated, user?.email, 'encrypt');
+            await AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
+            console.log('[SettingsContext] ✅ Local settings saved successfully (Offline-First and Encrypted)');
 
             let finalToSync = updated;
 
@@ -558,29 +634,36 @@ export const SettingsProvider = ({ children, user }) => {
             // 3. Attempt MongoDB & Drive Sync (If offline, we just mark as dirty)
             if (user && user.id) {
                 const portable = await ensurePortableSettings(finalToSync);
-                const { _id, __v, createdAt, updatedAt, ...cleanPortable } = portable;
+                const toCloud = processSensitiveFields(portable, user?.email, 'encrypt');
+                const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = toCloud;
 
+                // A. Try MongoDB Sync (Critical for core profile)
                 try {
-                    console.log('[SettingsContext] Attempting background cloud sync...');
-                    // Try MongoDB
-                    await services.settings.updateSettings(cleanPortable);
+                    console.log('[SettingsContext] Attempting background MongoDB sync (Encrypted)...');
+                    await services.settings.updateSettings(cleanToCloud);
                     console.log('[SettingsContext] ✅ Cloud Sync: MongoDB updated.');
                     setDbProfileComplete(true);
                     await AsyncStorage.setItem('settings_dirty', 'false');
                     setIsSettingsDirty(false);
-
-                    // Try Google Drive
-                    const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                    syncSettingsToDrive(user, portable)
-                        .then(() => console.log('[SettingsContext] ✅ Cloud Sync: Google Drive updated.'))
-                        .catch(e => console.log('[SettingsContext] Drive sync failed (Background).'));
                 } catch (networkErr) {
-                    console.log('[SettingsContext] Cloud sync failed (Device is Offline). Settings marked for retry.');
+                    console.log('[SettingsContext] MongoDB sync failed (Device is Offline/Retry later).');
                     await AsyncStorage.setItem('settings_dirty', 'true');
                     setIsSettingsDirty(true);
+                    if (showToast) showToast("Offline: Saved locally. Cloud sync pending.", "info");
+                }
 
-                    // Inform the user that it's saved locally
-                    if (showToast) showToast("Offline: Saved locally. Sync pending.", "info");
+                // B. Try Google Drive Sync (Critical for cross-device backup)
+                try {
+                    const { syncSettingsToDrive } = require('../services/googleDriveservices');
+                    // We sync the PORTABLE version (with base64 logo if needed) to Drive
+                    const syncSuccess = await syncSettingsToDrive(user, portable);
+                    if (syncSuccess) {
+                        console.log('[SettingsContext] ✅ Drive settings sync completed.');
+                    } else {
+                        throw new Error("Drive service returned failure");
+                    }
+                } catch (driveErr) {
+                    console.log('[SettingsContext] ⚠️ Drive sync failed (Will retry later):', driveErr.message);
                 }
             }
 

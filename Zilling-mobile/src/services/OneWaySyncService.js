@@ -290,15 +290,15 @@ function normalizeExpensePayload(payload) {
  * Ensures a customer exists locally. If not, creates a ghost profile.
  * This prevents dashboard crashes from orphaned invoice→customer relationships.
  */
-function ensureCustomerExists(customerId, customerName) {
+async function ensureCustomerExists(customerId, customerName) {
     if (!customerId) return;
 
     try {
-        const exists = db.getAllSync(`SELECT id FROM customers WHERE id = ?`, [String(customerId)]);
+        const exists = await db.getAllAsync(`SELECT id FROM customers WHERE id = ?`, [String(customerId)]);
         if (exists.length === 0) {
             const now = new Date().toISOString();
             console.log(`[Sync] Auto-creating ghost customer: ${customerName} (${customerId})`);
-            db.runSync(
+            await db.runAsync(
                 `INSERT OR IGNORE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, outstanding, amountPaid, notes, created_at, updated_at, whatsappOptIn, smsOptIn)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
@@ -627,11 +627,11 @@ export const SyncService = {
             const { customers, products, invoices, expenses } = snapshot.data;
             
             // Re-insert logic (simplified for batch)
-            db.withTransactionSync(() => {
+            await db.withTransactionAsync(async () => {
                 if (Array.isArray(customers)) {
                   for (const c of customers) {
                     const nc = normalizeCustomerPayload(c);
-                    db.runSync(
+                    await db.runAsync(
                       `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, amountPaid, whatsappOptIn, smsOptIn, outstanding)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                       [nc.id, nc.name, nc.phone, nc.email, nc.type, nc.gstin, nc.address, nc.source, nc.tags, nc.loyaltyPoints, nc.notes, nc.created_at, nc.updated_at, nc.amountPaid, nc.whatsappOptIn, nc.smsOptIn, nc.outstanding]
@@ -641,7 +641,7 @@ export const SyncService = {
                 if (Array.isArray(products)) {
                   for (const p of products) {
                     const np = normalizeProductPayload(p);
-                    db.runSync(
+                    await db.runAsync(
                       `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                       [np.id, np.name, np.sku, np.category, np.price, np.cost_price, np.stock, np.min_stock, np.unit, np.tax_rate, np.variants, np.variant, np.created_at, np.updated_at]
@@ -651,7 +651,7 @@ export const SyncService = {
                 if (Array.isArray(invoices)) {
                   for (const inv of invoices) {
                     const ni = normalizeInvoicePayload(inv);
-                    db.runSync(
+                    await db.runAsync(
                       `INSERT OR REPLACE INTO invoices (id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, taxType, created_at, updated_at, is_deleted)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                       [ni.id, ni.customer_id, ni.customer_name, ni.date, ni.type, ni.itemsStr, ni.subtotal, ni.tax, ni.discount, ni.total, ni.status, ni.paymentsStr, ni.grossTotal, ni.itemDiscount, ni.additionalCharges, ni.roundOff, ni.amountReceived, ni.internalNotes, ni.taxType, ni.created_at, ni.updated_at, ni.is_deleted]
@@ -661,7 +661,7 @@ export const SyncService = {
                 if (Array.isArray(expenses)) {
                   for (const e of expenses) {
                     const ne = normalizeExpensePayload(e);
-                    db.runSync(
+                    await db.runAsync(
                       `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                       [ne.id, ne.title, ne.amount, ne.category, ne.date, ne.payment_method, ne.receipt_url, ne.tags, ne.created_at, ne.updated_at]
@@ -901,7 +901,7 @@ export const SyncService = {
                 // catch it, log it, and continue — never crash the whole batch.
                 // ═══════════════════════════════════════════════════════════════
                 try {
-                    db.withTransactionSync(() => {
+                    await db.withTransactionAsync(async () => {
                         for (let j = 0; j < envelopes.length; j++) {
                             const envelope = envelopes[j];
                             if (!envelope || envelope._isInvalid) {
@@ -912,7 +912,7 @@ export const SyncService = {
                             if (processedSet.has(envelope.eventId)) continue;
 
                             try {
-                                this.applyEventSync(envelope);
+                                await this.applyEvent(envelope);
                                 newProcessedIds.push(envelope.eventId);
                                 processedSet.add(envelope.eventId);
                                 processedCount++;
@@ -932,7 +932,7 @@ export const SyncService = {
                         const envelope = envelopes[j];
                         if (!envelope || envelope._isInvalid || processedSet.has(envelope.eventId)) continue;
                         try {
-                            this.applyEventSync(envelope);
+                            await this.applyEvent(envelope);
                             newProcessedIds.push(envelope.eventId);
                             processedSet.add(envelope.eventId);
                             processedCount++;
@@ -1148,11 +1148,11 @@ export const SyncService = {
             // 3. WIPE all local data (the nuclear clear)
             onProgress('Clearing local data...', 0.50);
             console.log('[ForceRestore] Clearing all local tables...');
-            db.execSync('DELETE FROM expense_adjustments');
-            db.execSync('DELETE FROM invoices');
-            db.execSync('DELETE FROM expenses');
-            db.execSync('DELETE FROM products');
-            db.execSync('DELETE FROM customers');
+            await db.execAsync('DELETE FROM expense_adjustments');
+            await db.execAsync('DELETE FROM invoices');
+            await db.execAsync('DELETE FROM expenses');
+            await db.execAsync('DELETE FROM products');
+            await db.execAsync('DELETE FROM customers');
 
             const restored = { products: 0, customers: 0, expenses: 0, invoices: 0 };
 
@@ -1161,10 +1161,10 @@ export const SyncService = {
 
             if (customers && Array.isArray(customers) && customers.length > 0) {
                 onProgress(`Restoring ${customers.length} customers...`, 0.55);
-                db.withTransactionSync(() => {
+                await db.withTransactionAsync(async () => {
                     for (const c of customers) {
                         const nc = normalizeCustomerPayload(c);
-                        db.runSync(
+                        await db.runAsync(
                             `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, outstanding, amountPaid, notes, created_at, updated_at, whatsappOptIn, smsOptIn)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                             [nc.id, nc.name, nc.phone, nc.email, nc.type, nc.gstin, nc.address, nc.source, nc.tags, nc.loyaltyPoints, nc.outstanding, nc.amountPaid, nc.notes, nc.created_at, nc.updated_at, nc.whatsappOptIn, nc.smsOptIn]
@@ -1176,10 +1176,10 @@ export const SyncService = {
 
             if (products && Array.isArray(products) && products.length > 0) {
                 onProgress(`Restoring ${products.length} products...`, 0.65);
-                db.withTransactionSync(() => {
+                await db.withTransactionAsync(async () => {
                     for (const p of products) {
                         const np = normalizeProductPayload(p);
-                        db.runSync(
+                        await db.runAsync(
                             `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                             [np.id, np.name, np.sku, np.category, np.price, np.cost_price, np.stock, np.min_stock, np.unit, np.tax_rate, np.variants, np.variant, np.created_at, np.updated_at]
@@ -1191,10 +1191,10 @@ export const SyncService = {
 
             if (expenses && Array.isArray(expenses) && expenses.length > 0) {
                 onProgress(`Restoring ${expenses.length} expenses...`, 0.75);
-                db.withTransactionSync(() => {
+                await db.withTransactionAsync(async () => {
                     for (const e of expenses) {
                         const ne = normalizeExpensePayload(e);
-                        db.runSync(
+                        await db.runAsync(
                             `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                             [ne.id, ne.title, ne.amount, ne.category, ne.date, ne.payment_method, ne.receipt_url, ne.tags, ne.created_at, ne.updated_at]
@@ -1206,13 +1206,13 @@ export const SyncService = {
 
             if (invoices && Array.isArray(invoices) && invoices.length > 0) {
                 onProgress(`Restoring ${invoices.length} invoices...`, 0.85);
-                db.withTransactionSync(() => {
+                await db.withTransactionAsync(async () => {
                     for (const i of invoices) {
                         const ni = normalizeInvoicePayload(i);
                         // Ensure customer exists before inserting invoice (ghost creation)
-                        ensureCustomerExists(ni.customer_id, ni.customer_name);
+                        await ensureCustomerExists(ni.customer_id, ni.customer_name);
 
-                        db.runSync(
+                        await db.runAsync(
                             `INSERT OR REPLACE INTO invoices (
                                 id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments,
                                 created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, is_deleted
@@ -1249,19 +1249,9 @@ export const SyncService = {
     },
 
     /**
-     * Apply a single event to the local state/DB (async wrapper for backward compat)
+     * Apply a single event to the local state/DB
      */
     async applyEvent(event) {
-        return this.applyEventSync(event);
-    },
-
-    /**
-     * Synchronous version of applyEvent - used inside withTransactionSync for speed
-     * 
-     * FORTIFICATION: Uses strict schema parsers, ghost customer creation,
-     * idempotent inserts (INSERT OR REPLACE), and absolute stock values.
-     */
-    applyEventSync(event) {
         const { type, payload } = event;
 
         try {
@@ -1270,10 +1260,10 @@ export const SyncService = {
                 const inv = normalizeInvoicePayload(payload);
 
                 // ─── GOLDEN RULE #3: Ensure customer exists (ghost creation) ───
-                ensureCustomerExists(inv.customer_id, inv.customer_name);
+                await ensureCustomerExists(inv.customer_id, inv.customer_name);
 
                 // ─── GOLDEN RULE #2: Idempotent INSERT OR REPLACE ───
-                db.runSync(
+                await db.runAsync(
                     `INSERT OR REPLACE INTO invoices (
                         id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, 
                         created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes,
@@ -1298,7 +1288,7 @@ export const SyncService = {
                     for (const item of inv.items) {
                         const productId = item.productId || item.id;
                         if (productId) {
-                            db.runSync(`UPDATE products SET stock = stock - ? WHERE id = ?`, [parseInt(item.quantity) || 0, productId]);
+                            await db.runAsync(`UPDATE products SET stock = stock - ? WHERE id = ?`, [parseInt(item.quantity) || 0, productId]);
                         }
                     }
                 }
@@ -1310,7 +1300,7 @@ export const SyncService = {
                         const total = inv.total;
                         const outstandingDelta = Math.max(0, total - received);
 
-                        db.runSync(
+                        await db.runAsync(
                             `UPDATE customers SET 
                                 loyaltyPoints = loyaltyPoints + 1,
                                 amountPaid = amountPaid + ?,
@@ -1326,7 +1316,7 @@ export const SyncService = {
             } else if (type === EventTypes.PRODUCT_CREATED) {
                 // ─── Strict Schema Parse + Idempotent Insert ───
                 const p = normalizeProductPayload(payload);
-                db.runSync(
+                await db.runAsync(
                     `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [p.id, p.name, p.sku, p.category, p.price, p.cost_price, p.stock, p.min_stock, p.unit, p.tax_rate, p.variants, p.variant, p.created_at, p.updated_at]
@@ -1335,7 +1325,7 @@ export const SyncService = {
             } else if (type === EventTypes.PRODUCT_UPDATED) {
                 // ─── GOLDEN RULE #3: Use absolute stock value from the event ───
                 const p = normalizeProductPayload(payload);
-                db.runSync(
+                await db.runAsync(
                     `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [p.id, p.name, p.sku, p.category, p.price, p.cost_price, p.stock, p.min_stock, p.unit, p.tax_rate, p.variants, p.variant, p.created_at, p.updated_at]
@@ -1344,7 +1334,7 @@ export const SyncService = {
             } else if (type === EventTypes.CUSTOMER_CREATED) {
                 // ─── Idempotent: INSERT OR REPLACE handles duplicates ───
                 const c = normalizeCustomerPayload(payload);
-                db.runSync(
+                await db.runAsync(
                     `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, outstanding, amountPaid, notes, created_at, updated_at, whatsappOptIn, smsOptIn)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [c.id, c.name, c.phone, c.email, c.type, c.gstin, c.address, c.source, c.tags, c.loyaltyPoints, c.outstanding, c.amountPaid, c.notes, c.created_at, c.updated_at, c.whatsappOptIn, c.smsOptIn]
@@ -1352,7 +1342,7 @@ export const SyncService = {
 
             } else if (type === EventTypes.CUSTOMER_UPDATED) {
                 const c = normalizeCustomerPayload(payload);
-                db.runSync(
+                await db.runAsync(
                     `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, outstanding, amountPaid, notes, created_at, updated_at, whatsappOptIn, smsOptIn)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [c.id, c.name, c.phone, c.email, c.type, c.gstin, c.address, c.source, c.tags, c.loyaltyPoints, c.outstanding, c.amountPaid, c.notes, c.created_at, c.updated_at, c.whatsappOptIn, c.smsOptIn]
@@ -1361,7 +1351,7 @@ export const SyncService = {
             } else if (type === EventTypes.EXPENSE_CREATED) {
                 // ─── Idempotent: INSERT OR REPLACE ───
                 const e = normalizeExpensePayload(payload);
-                db.runSync(
+                await db.runAsync(
                     `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [e.id, e.title, e.amount, e.category, e.date, e.payment_method, e.receipt_url, e.tags, e.created_at, e.updated_at]
@@ -1371,11 +1361,11 @@ export const SyncService = {
                 const { expenseId, delta, reason } = payload;
                 // Adjustment tracking — this is append-only, not idempotent inherently.
                 // But event dedup at the caller level ensures we never double-apply.
-                db.runSync(
+                await db.runAsync(
                     `INSERT INTO expense_adjustments (expense_id, delta, reason, created_at) VALUES (?, ?, ?, ?)`,
                     [expenseId, parseFloat(delta) || 0, reason || '', new Date().toISOString()]
                 );
-                db.runSync(
+                await db.runAsync(
                     `UPDATE expenses SET amount = amount + ? WHERE id = ?`,
                     [parseFloat(delta) || 0, expenseId]
                 );
@@ -1387,7 +1377,7 @@ export const SyncService = {
                     for (const item of items) {
                         const productId = item.productId || item.id;
                         if (productId) {
-                            db.runSync(`UPDATE products SET stock = stock + ? WHERE id = ?`, [parseInt(item.quantity) || 0, productId]);
+                            await db.runAsync(`UPDATE products SET stock = stock + ? WHERE id = ?`, [parseInt(item.quantity) || 0, productId]);
                         }
                     }
                 }
@@ -1399,7 +1389,7 @@ export const SyncService = {
                         const total = parseFloat(payload.total) || 0;
                         const outstandingDelta = Math.max(0, total - received);
 
-                        db.runSync(
+                        await db.runAsync(
                             `UPDATE customers SET 
                                 loyaltyPoints = MAX(0, loyaltyPoints - 1),
                                 amountPaid = amountPaid - ?,
@@ -1411,31 +1401,31 @@ export const SyncService = {
                         console.log('[Sync] Customer restore skipped:', custErr.message);
                     }
                 }
-                db.runSync(`DELETE FROM invoices WHERE id = ?`, [payload.id]);
+                await db.runAsync(`DELETE FROM invoices WHERE id = ?`, [payload.id]);
 
             } else if (type === EventTypes.CUSTOMER_DELETED) {
-                db.runSync(`DELETE FROM customers WHERE id = ?`, [payload.id]);
+                await db.runAsync(`DELETE FROM customers WHERE id = ?`, [payload.id]);
 
             } else if (type === EventTypes.PRODUCT_DELETED) {
-                db.runSync(`DELETE FROM products WHERE id = ?`, [payload.id]);
+                await db.runAsync(`DELETE FROM products WHERE id = ?`, [payload.id]);
 
             } else if (type === EventTypes.EXPENSE_UPDATED) {
                 const e = normalizeExpensePayload(payload);
-                db.runSync(
+                await db.runAsync(
                     `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [e.id, e.title, e.amount, e.category, e.date, e.payment_method, e.receipt_url, e.tags, e.created_at, e.updated_at]
                 );
 
             } else if (type === EventTypes.EXPENSE_DELETED) {
-                db.runSync(`DELETE FROM expenses WHERE id = ?`, [payload.id]);
+                await db.runAsync(`DELETE FROM expenses WHERE id = ?`, [payload.id]);
 
             } else if (type === EventTypes.INVOICE_UPDATED) {
                 const inv = normalizeInvoicePayload(payload);
                 // Ensure customer exists for updated invoice too
-                ensureCustomerExists(inv.customer_id, inv.customer_name);
+                await ensureCustomerExists(inv.customer_id, inv.customer_name);
 
-                db.runSync(
+                await db.runAsync(
                     `INSERT OR REPLACE INTO invoices (
                         id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments,
                         created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, is_deleted
@@ -1450,18 +1440,18 @@ export const SyncService = {
 
             } else if (type === EventTypes.INVOICE_STATUS_UPDATED) {
                 if (payload.is_deleted !== undefined) {
-                    db.runSync(`UPDATE invoices SET is_deleted = ?, updated_at = ? WHERE id = ?`, [payload.is_deleted ? 1 : 0, payload.updated_at, payload.id]);
+                    await db.runAsync(`UPDATE invoices SET is_deleted = ?, updated_at = ? WHERE id = ?`, [payload.is_deleted ? 1 : 0, payload.updated_at, payload.id]);
                 }
                 if (payload.status) {
-                    db.runSync(`UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?`, [payload.status, payload.updated_at, payload.id]);
+                    await db.runAsync(`UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?`, [payload.status, payload.updated_at, payload.id]);
                 }
 
             } else if (type === EventTypes.PRODUCT_STOCK_ADJUSTED) {
                 // ─── GOLDEN RULE #3: Use ABSOLUTE stock value, never stock = stock - qty ───
                 if (payload.minStock !== undefined) {
-                    db.runSync(`UPDATE products SET stock = ?, min_stock = ? WHERE id = ?`, [parseInt(payload.stock) || 0, parseInt(payload.minStock) || 0, payload.id]);
+                    await db.runAsync(`UPDATE products SET stock = ?, min_stock = ? WHERE id = ?`, [parseInt(payload.stock) || 0, parseInt(payload.minStock) || 0, payload.id]);
                 } else {
-                    db.runSync(`UPDATE products SET stock = ? WHERE id = ?`, [parseInt(payload.stock) || 0, payload.id]);
+                    await db.runAsync(`UPDATE products SET stock = ? WHERE id = ?`, [parseInt(payload.stock) || 0, payload.id]);
                 }
             }
         } catch (e) {

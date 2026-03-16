@@ -193,6 +193,19 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
 
             <View style={styles.tpDashedLine} />
 
+            {settings?.invoice?.showBankAndSignature && settings?.bankDetails?.bankName && (
+                <>
+                    <Text style={[styles.tpTextBold, { marginTop: 4 }]}>BANK DETAILS:</Text>
+                    <Text style={styles.tpText}>Bank: {settings.bankDetails.bankName}</Text>
+                    <Text style={styles.tpText}>A/C: {settings.bankDetails.accountNumber || ''}</Text>
+                    <Text style={styles.tpText}>IFSC: {settings.bankDetails.ifsc || ''}</Text>
+                    <View style={styles.tpDashedLine} />
+                    <View style={{ marginTop: 20, alignItems: 'flex-end', paddingRight: 5 }}>
+                        <Text style={styles.tpText}>AUTHORIZED SIGNATORY</Text>
+                    </View>
+                </>
+            )}
+
             {settings?.invoice?.showTerms !== false && (settings?.invoice?.termsAndConditions || settings?.invoice?.conditionsText) && (
                 <>
                     <Text style={[styles.tpTextBold, { marginTop: 4 }]}>TERMS & CONDITIONS:</Text>

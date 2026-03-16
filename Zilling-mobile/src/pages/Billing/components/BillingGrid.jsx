@@ -22,7 +22,7 @@ const NumberInput = ({ value, onChange, min = 0, style = {}, prefix = null }) =>
 
     const handleCommit = () => {
         const num = parseFloat(localVal);
-        if (!isNaN(num) && num >= min) {
+        if (!isNaN(num) && isFinite(num) && num >= min && num <= 999999) {
             onChange(num);
         } else {
             setLocalVal(String(value));
@@ -165,7 +165,7 @@ const BillingGrid = ({
                     <View style={styles.cardRight}>
                         <View style={styles.qtyContainer}>
                             <TouchableOpacity
-                                onPress={(e) => { e.stopPropagation(); updateQuantity(item.id, (item.quantity || 1) - 1); }}
+                                onPress={(e) => { e.stopPropagation(); updateQuantity(item.id, Math.max(0.01, (item.quantity || 1) - 1)); }}
                                 style={styles.qtyAction}
                             >
                                 <Minus size={14} color="#000" />
@@ -187,14 +187,14 @@ const BillingGrid = ({
                         </View>
                         <View style={styles.totalWrapper}>
                             <Text style={styles.totalLabel}>Amount:</Text>
-                            <Text style={styles.itemTotal}>₹{(item.total || 0).toFixed(0)}</Text>
+                            <Text style={styles.itemTotal}>₹{(item.total || 0).toFixed(2)}</Text>
                         </View>
                     </View>
                 </View>
 
                 {item.discount > 0 && (
                     <View style={styles.discountBadge}>
-                        <Text style={styles.discountBadgeText}>-₹{item.discount.toFixed(0)} OFF</Text>
+                        <Text style={styles.discountBadgeText}>-₹{item.discount.toFixed(2)} OFF</Text>
                     </View>
                 )}
 
@@ -281,7 +281,10 @@ const BillingGrid = ({
 
                     <FlatList
                         data={cart}
-                        keyExtractor={(item, index) => (item.id && item.id !== 'null' ? item.id : `cart-item-${index}`)}
+                        keyExtractor={(item, index) => {
+                            const stableId = item.id || item._dbId || item.sku;
+                            return stableId ? String(stableId) : `cart-item-${index}`;
+                        }}
                         renderItem={renderItem}
                         contentContainerStyle={{ paddingBottom: 20 }}
                         ListEmptyComponent={

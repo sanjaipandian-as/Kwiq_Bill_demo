@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Linking, TouchableOpacity, SafeAreaView, Dimensions, Animated, Modal, Image, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Linking, TouchableOpacity, SafeAreaView, Dimensions, Animated, Modal, Image, ScrollView, DeviceEventEmitter } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,6 +44,14 @@ const TrialGuard = ({ children }) => {
             daysRemaining,
             type: user.plan === 'free' ? 'trial' : 'plan'
         });
+
+        const sub = DeviceEventEmitter.addListener('TRIAL_EXPIRED_EVENT', () => {
+             setStatus(prev => ({ ...prev, expired: true }));
+        });
+
+        return () => {
+             if (sub) sub.remove();
+        };
     }, [user]);
 
     const handleManualRefresh = async () => {

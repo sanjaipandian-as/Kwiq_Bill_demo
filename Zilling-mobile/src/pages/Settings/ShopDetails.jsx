@@ -306,7 +306,7 @@ const ShopDetails = () => {
             <View style={styles.infoBox}>
                 <ShieldCheck size={20} color="#000" />
                 <Text style={styles.infoText}>
-                    Personal details are used only for synchronization and security verification.
+                    Personal details are AES-256 encrypted and used only for synchronization and security verification.
                 </Text>
             </View>
 

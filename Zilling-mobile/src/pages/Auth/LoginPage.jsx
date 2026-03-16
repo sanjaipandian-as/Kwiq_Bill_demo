@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ActivityIndicator, Pressable, Image,
-  Dimensions, Animated, StatusBar, SafeAreaView, Platform
+  Dimensions, Animated, StatusBar, SafeAreaView, Platform, ScrollView
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
-import { ShieldCheck, Lock, CloudUpload, Zap, BarChart3 } from 'lucide-react-native';
+import { ShieldCheck, Lock, CloudUpload, CircleGauge, BarChart3 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import BrandLockup from '../../components/ui/BrandLockup';
@@ -82,12 +82,18 @@ export default function LoginPage() {
       }
     } catch (err) {
       setIsSyncing(false);
+      // codes: 12501 (cancelled), 12502 (in progress), 10 (developer error)
       if (err.code === statusCodes.SIGN_IN_CANCELLED) {
-        setError('Login cancelled.');
-      } else if (err.code === statusCodes.DEVELOPER_ERROR) {
-        setError('Config Error. Check SHA-1/Package Name.');
+        // User closed the popup, don't show an error
+        setError(null);
+      } else if (err.code === statusCodes.IN_PROGRESS) {
+        // Already trying to sign in
+        setError('Login already in progress.');
       } else {
-        setError(err.message || 'Login failed.');
+        // For other errors (including DEVELOPER_ERROR), show a more helpful message
+        // but avoid scaring them with SHA-1 talk unless it's likely a persistent issue
+        console.error('Google Sign-In Error:', err);
+        setError('Unable to sign in. Please try again or check your connection.');
       }
     } finally {
       setIsAuthenticating(false);
@@ -117,127 +123,156 @@ export default function LoginPage() {
               { opacity: fadeAnim, transform: [{ translateY: slideUpAnim }] },
             ]}
           >
-            {/* ── HERO: Premium Dark Section ── */}
-            <LinearGradient
-              colors={['#000000', '#121212', '#1a1a1a']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={styles.heroSection}
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
             >
-              <View style={styles.heroDecorCircle1} />
-              <View style={styles.heroDecorCircle2} />
-              <View style={styles.brandRow}>
-                <BrandLockup width={width * 0.75} height={110} variant="light" />
+              {/* ── HERO: Premium Dark Section ── */}
+              <LinearGradient
+                colors={['#000000', '#121212', '#1a1a1a']}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={styles.heroSection}
+              >
+                <View style={styles.heroDecorCircle1} />
+                <View style={styles.heroDecorCircle2} />
+                <View style={styles.brandRow}>
+                  <BrandLockup width={width * 0.75} height={110} variant="light" />
+                </View>
+              </LinearGradient>
+
+              {/* ── MAIN CONTENT: Premium Mono Section ── */}
+              <View style={styles.mainCard}>
+                <View style={styles.welcomeSection}>
+                  {/* <View style={styles.premiumBadge}>
+                    <Text style={styles.premiumBadgeText}>PREMIUM BUSINESS SUITE</Text>
+                  </View> */}
+                  <KwiqBillText width={width * 0.65} height={40} variant="black" />
+                  <Text style={styles.descriptionText}>
+                    The most advanced invoicing & business management ecosystem
+                    for the modern entrepreneur.
+                  </Text>
+                </View>
+
+                {/* Features Highlight */}
+                <View style={styles.featuresContainer}>
+                  <View style={styles.featureItem}>
+                    <LinearGradient
+                      colors={['#F8FAFC', '#F1F5F9']}
+                      style={styles.featureIconBg}
+                    >
+                      <CircleGauge size={20} color="#000000" strokeWidth={2.5} />
+                    </LinearGradient>
+                    <View style={styles.featureTextFull}>
+                      <Text style={styles.featureTitle}>Fast</Text>
+                      <Text style={styles.featureSubtext}>Instant Billing</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.featureItem}>
+                    <LinearGradient
+                      colors={['#F8FAFC', '#F1F5F9']}
+                      style={styles.featureIconBg}
+                    >
+                      <CloudUpload size={20} color="#000000" strokeWidth={2.5} />
+                    </LinearGradient>
+                    <View style={styles.featureTextFull}>
+                      <Text style={styles.featureTitle}>Cloud Sync</Text>
+                      <Text style={styles.featureSubtext}>Always Secure</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.featureItem}>
+                    <LinearGradient
+                      colors={['#F8FAFC', '#F1F5F9']}
+                      style={styles.featureIconBg}
+                    >
+                      <BarChart3 size={20} color="#000000" strokeWidth={2.5} />
+                    </LinearGradient>
+                    <View style={styles.featureTextFull}>
+                      <Text style={styles.featureTitle}>Insights</Text>
+                      <Text style={styles.featureSubtext}>Smart Growth</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.authContainer}>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>GET STARTED</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+
+                  {error && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                  )}
+
+                  {/* Primary Action: Solid Black Google Button */}
+                  <Animated.View style={[styles.btnWrap, { transform: [{ scale: btnScale }] }]}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.googleBtn,
+                        pressed && styles.googleBtnPressed,
+                        isAuthenticating && styles.googleBtnDisabled,
+                      ]}
+                      onPress={handleGoogleLogin}
+                      disabled={isAuthenticating}
+                    >
+                      {isAuthenticating ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <View style={styles.googleIconBg}>
+                            <Image
+                              source={{
+                                uri: 'https://www.google.com/images/branding/googleg/1x/googleg_standard_color_64dp.png',
+                              }}
+                              style={styles.googleIcon}
+                            />
+                          </View>
+                          <Text style={styles.googleBtnText}>Continue with Google</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  </Animated.View>
+
+                  {/* Security Badges: Minimalist */}
+                  <View style={styles.trustBadgeRow}>
+                    <View style={styles.trustBadge}>
+                      <ShieldCheck size={12} color="#94A3B8" />
+                      <Text style={styles.trustBadgeText}>BANK-GRADE SECURITY</Text>
+                    </View>
+                    <View style={styles.badgeDot} />
+                    <View style={styles.trustBadge}>
+                      <Lock size={12} color="#94A3B8" />
+                      <Text style={styles.trustBadgeText}>AES-256 ENCRYPTED</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.policyContainer}>
+                  <Text style={styles.policyText}>By signing in, you agree to our</Text>
+                  <Text style={styles.policyText}>
+                    <Text style={styles.linkText} onPress={() => navigation.navigate('TermsOfService')}>
+                      Terms of Service
+                    </Text>
+                    {' & '}
+                    <Text style={styles.linkText} onPress={() => navigation.navigate('PrivacyPolicy')}>
+                      Privacy Policy
+                    </Text>
+                  </Text>
+                </View>
+
+                {/* ── FOOTER ── */}
+                <View style={styles.footer}>
+                  <View style={styles.footerLine} />
+                  <Text style={styles.footerCopy}>© 2026 Kwiq Bill · v2.0.4</Text>
+                </View>
               </View>
-            </LinearGradient>
-
-            {/* ── MAIN CONTENT: Premium Mono Section ── */}
-            <View style={styles.mainCard}>
-              <View style={styles.welcomeSection}>
-                <View style={styles.darkDivider} />
-                <Text style={styles.welcomeLabel}>Welcome to</Text>
-                <KwiqBillText width={width * 0.58} height={32} variant="black" />
-                <Text style={styles.descriptionText}>
-                  Elevate your business with the most advanced invoicing and
-                  management tool designed for modern entrepreneurs.
-                </Text>
-              </View>
-
-              {/* Features Highlight */}
-              <View style={styles.featuresContainer}>
-                <View style={styles.featureItem}>
-                  <View style={styles.featureIconBg}>
-                    <Zap size={22} color="#000000" />
-                  </View>
-                  <Text style={styles.featureText}>Fast</Text>
-                </View>
-                <View style={styles.featureItem}>
-                  <View style={styles.featureIconBg}>
-                    <CloudUpload size={22} color="#000000" />
-                  </View>
-                  <Text style={styles.featureText}>Cloud Sync</Text>
-                </View>
-                <View style={styles.featureItem}>
-                  <View style={styles.featureIconBg}>
-                    <BarChart3 size={22} color="#000000" />
-                  </View>
-                  <Text style={styles.featureText}>Insights</Text>
-                </View>
-              </View>
-
-              <View style={styles.authContainer}>
-                <View style={styles.dividerRow}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>GET STARTED</Text>
-                  <View style={styles.dividerLine} />
-                </View>
-
-                {error && (
-                  <View style={styles.errorBox}>
-                    <Text style={styles.errorText}>{error}</Text>
-                  </View>
-                )}
-
-                {/* Primary Action: Solid Black Google Button */}
-                <Animated.View style={[styles.btnWrap, { transform: [{ scale: btnScale }] }]}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.googleBtn,
-                      pressed && styles.googleBtnPressed,
-                      isAuthenticating && styles.googleBtnDisabled,
-                    ]}
-                    onPress={handleGoogleLogin}
-                    disabled={isAuthenticating}
-                  >
-                    {isAuthenticating ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <View style={styles.googleIconBg}>
-                          <Image
-                            source={{
-                              uri: 'https://www.google.com/images/branding/googleg/1x/googleg_standard_color_64dp.png',
-                            }}
-                            style={styles.googleIcon}
-                          />
-                        </View>
-                        <Text style={styles.googleBtnText}>Continue with Google</Text>
-                      </>
-                    )}
-                  </Pressable>
-                </Animated.View>
-
-                {/* Security Badges: Minimalist */}
-                <View style={styles.trustBadgeRow}>
-                  <View style={styles.trustBadge}>
-                    <ShieldCheck size={14} color="#64748B" />
-                    <Text style={styles.trustBadgeText}>SECURE</Text>
-                  </View>
-                  <View style={styles.badgeSeparator} />
-                  <View style={styles.trustBadge}>
-                    <Lock size={14} color="#64748B" />
-                    <Text style={styles.trustBadgeText}>ENCRYPTED</Text>
-                  </View>
-                </View>
-              </View>
-
-              <Text style={styles.policyText}>
-                By signing in, you agree to our{' '}
-                <Text style={styles.linkText} onPress={() => navigation.navigate('TermsOfService')}>
-                  Terms of Service
-                </Text>
-                {' & '}
-                <Text style={styles.linkText} onPress={() => navigation.navigate('PrivacyPolicy')}>
-                  Privacy Policy
-                </Text>.
-              </Text>
-            </View>
-
-            {/* ── FOOTER ── */}
-            <View style={styles.footer}>
-              <View style={styles.footerLine} />
-              <Text style={styles.footerCopy}>© 2026 Kwiq Bill · v2.0.4</Text>
-            </View>
+            </ScrollView>
           </Animated.View>
         </View>
       </SafeAreaView>
@@ -260,7 +295,9 @@ const styles = StyleSheet.create({
 
   fullPage: {
     flex: 1,
-    justifyContent: 'space-between',
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
 
   /* ── Hero section ── */
@@ -303,67 +340,90 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 10,
+    paddingBottom: 20,
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
   welcomeSection: {
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 16,
+    marginTop: 10,
   },
-  darkDivider: {
-    width: 40,
-    height: 3,
+  premiumBadge: {
     backgroundColor: '#000000',
-    borderRadius: 2,
-    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 100,
+    marginBottom: 12,
   },
-  welcomeLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#64748B',
-    marginBottom: 2,
-    letterSpacing: 0.5,
+  premiumBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   descriptionText: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#64748B',
     textAlign: 'center',
-    lineHeight: 20,
-    marginTop: 4,
-    paddingHorizontal: 10,
-    fontWeight: '500',
+    lineHeight: 22,
+    marginTop: 8,
+    paddingHorizontal: 20,
+    fontWeight: '600',
   },
   featuresContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    paddingHorizontal: 10,
-    marginBottom: 12,
+    paddingHorizontal: 4,
+    marginBottom: 20,
+    marginTop: 4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 10,
+    elevation: 2,
   },
   featureItem: {
+    flex: 1,
     alignItems: 'center',
-    gap: 4,
+    paddingHorizontal: 4,
   },
   featureIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
-    backgroundColor: '#F8FAFC',
+    width: 48,
+    height: 48,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    marginBottom: 10,
   },
-  featureText: {
+  featureTextFull: {
+    alignItems: 'center',
+  },
+  featureTitle: {
     fontSize: 12,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  featureSubtext: {
+    fontSize: 9,
     fontWeight: '700',
-    color: '#475569',
+    color: '#94A3B8',
+    marginTop: 1,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   authContainer: {
     width: '100%',
@@ -449,8 +509,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
-    gap: 16,
+    marginTop: 20,
+    gap: 12,
   },
   trustBadge: {
     flexDirection: 'row',
@@ -458,29 +518,34 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   trustBadgeText: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: '700',
-    color: '#64748B',
-    letterSpacing: 1,
+    color: '#94A3B8',
+    letterSpacing: 0.8,
   },
-  badgeSeparator: {
-    width: 1,
-    height: 12,
-    backgroundColor: '#E2E8F0',
+  badgeDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#CBD5E1',
   },
 
   /* ── Copy & Policy ── */
+  policyContainer: {
+    marginTop: 20,
+    alignItems: 'center',
+    gap: 2,
+  },
   policyText: {
     fontSize: 11,
     color: '#94A3B8',
     textAlign: 'center',
-    marginTop: 16,
     lineHeight: 16,
+    fontWeight: '600',
   },
   linkText: {
     color: '#000000',
     fontWeight: '800',
-    textDecorationLine: 'underline',
   },
   errorBox: {
     backgroundColor: '#FEF2F2',
@@ -499,8 +564,10 @@ const styles = StyleSheet.create({
   },
   footer: {
     alignItems: 'center',
+    paddingTop: 20,
     paddingBottom: 20,
     paddingHorizontal: 40,
+    marginTop: 'auto',
   },
   footerLine: {
     width: 40,
@@ -510,7 +577,7 @@ const styles = StyleSheet.create({
   },
   footerCopy: {
     fontSize: 11,
-    color: '#CBD5E1',
+    color: '#000000ff',
     fontWeight: '800',
     letterSpacing: 1.2,
     textTransform: 'uppercase',

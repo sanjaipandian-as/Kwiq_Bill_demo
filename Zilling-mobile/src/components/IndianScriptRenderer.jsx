@@ -1,6 +1,7 @@
-import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import React, { forwardRef, useImperativeHandle, useRef, useState, useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import ViewShot from 'react-native-view-shot';
+import QRCode from 'react-native-qrcode-svg';
 import ProfessionalThermalTemplate from '../pages/Settings/ProfessionalThermalTemplate';
 import ThermalInvoiceTemplate from '../pages/Settings/ThermalInvoiceTemplate';
 
@@ -8,6 +9,14 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
     const viewShotRef = useRef(null);
     const [renderData, setRenderData] = useState({ type: 'text', text: '', width: 576, fontSize: 24, font: 'NotoSansTamil' });
     const [isRendering, setIsRendering] = useState(false);
+    const timersRef = useRef([]);
+
+    useEffect(() => {
+        return () => {
+            timersRef.current.forEach(clearTimeout);
+            timersRef.current = [];
+        };
+    }, []);
 
     useImperativeHandle(ref, () => ({
         renderTextToImage: async (text, width = 576, fontSize = 24, font = 'NotoSansTamil') => {
@@ -15,7 +24,7 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                 setRenderData({ type: 'text', text, width, fontSize, font });
                 setIsRendering(true);
 
-                setTimeout(async () => {
+                const timerId = setTimeout(async () => {
                     try {
                         if (viewShotRef.current) {
                             const uri = await viewShotRef.current.capture();
@@ -30,6 +39,7 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                         setIsRendering(false);
                     }
                 }, 300);
+                timersRef.current.push(timerId);
             });
         },
         renderSupportQRs: async (width = 576) => {
@@ -38,7 +48,7 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                 setIsRendering(true);
 
                 // Give it 1.2s to fully load network images before snap
-                setTimeout(async () => {
+                const timerId = setTimeout(async () => {
                     try {
                         if (viewShotRef.current) {
                             const uri = await viewShotRef.current.capture();
@@ -53,6 +63,7 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                         setIsRendering(false);
                     }
                 }, 1200);
+                timersRef.current.push(timerId);
             });
         },
         renderSingleQR: async (title, qrData, width = 576) => {
@@ -61,7 +72,7 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                 setIsRendering(true);
 
                 // Faster load for single QR
-                setTimeout(async () => {
+                const timerId = setTimeout(async () => {
                     try {
                         if (viewShotRef.current) {
                             const uri = await viewShotRef.current.capture();
@@ -76,6 +87,7 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                         setIsRendering(false);
                     }
                 }, 800);
+                timersRef.current.push(timerId);
             });
         },
         renderBillToImage: async (bill, settings, isDetailedFormat = true, width = 576) => {
@@ -84,7 +96,7 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                 setIsRendering(true);
 
                 // Need enough time for the React tree to fully lay out and calculate heights
-                setTimeout(async () => {
+                const timerId = setTimeout(async () => {
                     try {
                         if (viewShotRef.current) {
                             const uri = await viewShotRef.current.capture();
@@ -99,6 +111,7 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                         setIsRendering(false);
                     }
                 }, 1000);
+                timersRef.current.push(timerId);
             });
         }
     }));
@@ -131,25 +144,21 @@ const IndianScriptRenderer = forwardRef((props, ref) => {
                     <View style={{ width: renderData.width, backgroundColor: 'white', paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center' }}>
                         <View style={{ alignItems: 'center' }}>
                             <Text style={styles.qrHeader}>WHATSAPP</Text>
-                            <Image source={{ uri: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" + encodeURIComponent("https://wa.me/917558175156") }} style={{ width: 140, height: 140 }} resizeMode="contain" />
+                            <QRCode value="https://wa.me/917558175156" size={140} />
                         </View>
                         <View style={{ alignItems: 'center' }}>
                             <Text style={styles.qrHeader}>CALL</Text>
-                            <Image source={{ uri: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" + encodeURIComponent("tel:+917558175156") }} style={{ width: 140, height: 140 }} resizeMode="contain" />
+                            <QRCode value="tel:+917558175156" size={140} />
                         </View>
                         <View style={{ alignItems: 'center' }}>
                             <Text style={styles.qrHeader}>EMAIL</Text>
-                            <Image source={{ uri: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" + encodeURIComponent("mailto:support@kwiqbill.com") }} style={{ width: 140, height: 140 }} resizeMode="contain" />
+                            <QRCode value="mailto:support@kwiqbill.com" size={140} />
                         </View>
                     </View>
                 ) : renderData.type === 'single-qr' ? (
                     <View style={{ width: renderData.width, backgroundColor: 'white', paddingVertical: 15, alignItems: 'center' }}>
                         <Text style={[styles.qrHeader, { fontSize: 24, marginBottom: 12 }]}>{renderData.title}</Text>
-                        <Image
-                            source={{ uri: "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" + encodeURIComponent(renderData.qrData) }}
-                            style={{ width: 160, height: 160 }}
-                            resizeMode="contain"
-                        />
+                        <QRCode value={renderData.qrData || ' '} size={160} />
                     </View>
                 ) : renderData.type === 'bill' ? (
                     <View style={{ width: 300, backgroundColor: 'white', padding: 0 }}>

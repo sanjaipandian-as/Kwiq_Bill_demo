@@ -41,7 +41,7 @@ export const CustomerProvider = ({ children }) => {
             const timestamp = new Date().toISOString();
 
             // 2. Physical Save to Device Storage
-            db.runSync(
+            await db.runAsync(
                 `INSERT OR REPLACE INTO customers (id, name, phone, email, gstin, type, tags, address, notes, amountPaid, loyaltyPoints, outstanding, whatsappOptIn, smsOptIn, created_at) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [id, name, phone, email, gstin, type, tags, address, notes, amountPaid, loyaltyPoints, outstanding, whatsappOptIn, smsOptIn, timestamp]
@@ -84,7 +84,7 @@ export const CustomerProvider = ({ children }) => {
             const timestamp = new Date().toISOString();
 
             // 3. Physical Update to Device Storage
-            db.runSync(
+            await db.runAsync(
                 `UPDATE customers SET name = ?, phone = ?, email = ?, gstin = ?, type = ?, tags = ?, address = ?, notes = ?, amountPaid = ?, loyaltyPoints = ?, outstanding = ?, whatsappOptIn = ?, smsOptIn = ?, updated_at = ? WHERE id = ?`,
                 [
                     name,
@@ -129,7 +129,7 @@ export const CustomerProvider = ({ children }) => {
 
     const deleteCustomer = async (id) => {
         try {
-            db.runSync('DELETE FROM customers WHERE id = ?', [id]);
+            await db.runAsync('DELETE FROM customers WHERE id = ?', [id]);
             setCustomers(prev => prev.filter(c => c.id !== id));
 
             // [AutoSave Trigger]
@@ -151,9 +151,9 @@ export const CustomerProvider = ({ children }) => {
         }
     };
 
-    const refreshCustomers = () => {
+    const refreshCustomers = async () => {
         try {
-            const data = db.getAllSync('SELECT * FROM customers ORDER BY created_at DESC');
+            const data = await db.getAllAsync('SELECT * FROM customers ORDER BY created_at DESC');
             setCustomers(data || []);
         } catch (err) {
             console.error('Refresh Error:', err);

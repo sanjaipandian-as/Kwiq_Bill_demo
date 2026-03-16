@@ -1,12 +1,25 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 const PRODUCTION_URL = 'https://kwiq-bill.onrender.com';
-const LOCAL_IP = '10.206.0.78'; // Your machine's current IPv4
+let LOCAL_IP;
+try {
+  // Optional local-env config; if present, it can override the default LOCAL_IP
+  // eslint-disable-next-line global-require
+  const cfg = require('../config/local-env');
+  LOCAL_IP = cfg?.LOCAL_IP;
+} catch {
+  // If local-env isn't present, fall back to environment variable (Expo) or a default
+  LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP;
+}
+if (!LOCAL_IP) {
+  LOCAL_IP = '10.220.176.96';
+}
 const LOCAL_URL = Platform.OS === 'android'
   ? `http://${LOCAL_IP}:5001`
-  : 'http://localhost:5001';
+  : `http://localhost:5001`;
 
 // Toggle this to true when deploying the APK
 const IS_PRODUCTION = false;
@@ -24,7 +37,7 @@ console.log(`[API] Initialized with baseURL: ${BASE_URL} (Mode: ${IS_PRODUCTION 
 
 // Attach token automatically
 API.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem('token');
+  const token = await SecureStore.getItemAsync('token');
   if (token) {
     if (!config.headers) config.headers = {};
     config.headers['Authorization'] = `Bearer ${token}`;
@@ -35,21 +48,53 @@ API.interceptors.request.use(async (config) => {
 });
 
 // Handle 401 Unauthorized and 403 Trial Expired globally
+let unauthorizedCount = 0;
+let lastReset = Date.now();
+
 API.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Reset consecutive 401 counter on success
+    unauthorizedCount = 0;
+    return response;
+  },
   async (error) => {
     // Detailed error logging for debugging "Network Error"
     if (error.message === 'Network Error') {
       console.error(`[API] Network Error connecting to: ${BASE_URL}`);
       console.error('Possible causes: Server not running, IP changed, or device not on same WiFi.');
     } else if (error.response) {
-      console.log(`[API] Error Status: ${error.response.status} for ${error.config.url}`);
+      const sanitizedUrl = error.config?.url ? error.config.url.split('?')[0] : 'unknown_url';
+      console.log(`[API] Error Status: ${error.response.status} for ${sanitizedUrl}`);
     }
 
     if (error.response && error.response.status === 401) {
-      console.warn('Unauthorized request - 401. Clearing token...');
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
+      const now = Date.now();
+      const isAuthRoute = error.config?.url?.includes('/auth/login') || 
+                         error.config?.url?.includes('/auth/google') ||
+                         error.config?.url?.includes('/auth/register');
+
+      if (now - lastReset > 60000) {
+        unauthorizedCount = 1;
+        lastReset = now;
+      } else {
+        unauthorizedCount++;
+      }
+
+      if (unauthorizedCount > 10) {
+        console.warn('Circuit breaker triggered: Too many 401 Unauthorized responses.');
+        return Promise.reject(new Error("Circuit breaker triggered."));
+      }
+
+      if (!isAuthRoute) {
+        const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
+        if (!justLoggedIn) {
+          console.warn('Unauthorized request - 401. Clearing token...');
+          await SecureStore.deleteItemAsync('token').catch(() => {});
+          await AsyncStorage.removeItem('user').catch(() => {});
+        } else {
+          console.log('[API] 401 detected but "just_logged_in" flag is set. Ignoring wipe.');
+        }
+      }
     }
 
     // Handle trial expiration from backend
@@ -58,6 +103,10 @@ API.interceptors.response.use(
       if (message.includes('TRIAL_EXPIRED')) {
         console.warn('Trial expired - API access blocked by server.');
         error.isTrialExpired = true;
+        // Broadcast the real-time server check
+        import('react-native').then(({ DeviceEventEmitter }) => {
+          DeviceEventEmitter.emit('TRIAL_EXPIRED_EVENT');
+        });
       }
     }
 
@@ -123,18 +172,7 @@ export const services = {
   },
   reports: {
     getDashboardStats: async (params) => {
-      try {
-        return await API.get('/reports/dashboard', { params });
-      } catch (e) {
-        return {
-          data: {
-            totalSales: 45230,
-            orders: 124,
-            netProfit: 12400,
-            expenses: 8300
-          }
-        };
-      }
+      return await API.get('/reports/dashboard', { params });
     },
     getCustomerMetrics: (params) => API.get('/reports/customers', { params }),
     getPaymentMethodStats: (params) => API.get('/reports/payments', { params }),
