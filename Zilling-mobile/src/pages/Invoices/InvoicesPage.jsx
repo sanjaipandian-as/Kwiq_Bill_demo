@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   LayoutAnimation,
   UIManager,
+  Switch,
 } from 'react-native';
 
 if (
@@ -56,7 +57,14 @@ import {
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useSettings } from '../../context/SettingsContext';
-import { printReceipt, shareReceiptPDF, printMultipleReceipts } from '../../utils/printUtils';
+import { 
+  printReceipt, 
+  shareReceiptPDF, 
+  printMultipleReceipts,
+  saveReceiptPDF,
+  shareCombinedReceiptPDF,
+  saveCombinedReceiptPDF
+} from '../../utils/printUtils';
 import { useTransactions } from '../../context/TransactionContext';
 import { Card } from '../../components/ui/Card';
 import DetailedInvoiceTemplate from '../Settings/DetailedInvoiceTemplate';
@@ -64,10 +72,18 @@ import ClassicInvoiceTemplate from '../Settings/ClassicInvoiceTemplate';
 import CompactInvoiceTemplate from '../Settings/CompactInvoiceTemplate';
 import MinimalInvoiceTemplate from '../Settings/MinimalInvoiceTemplate';
 import ThermalInvoiceTemplate from '../Settings/ThermalInvoiceTemplate';
+import ProfessionalThermalTemplate from '../Settings/ProfessionalThermalTemplate';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useToast } from '../../context/ToastContext';
 
 import { LinearGradient } from 'expo-linear-gradient';
+
+const safeTax = (val) => Number(val) || 0;
+const safeDateDisplay = (dateStr) => {
+  if (!dateStr) return 'Invalid Date';
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? 'Invalid Date' : d.toLocaleDateString('en-GB');
+};
 
 export default function InvoicesPage() {
   const navigation = useNavigation();
@@ -77,7 +93,13 @@ export default function InvoicesPage() {
   const { db } = require('../../services/database');
   const { settings } = useSettings(); // Get settings for print/share
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
+
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedSearchTerm(searchTerm), 300);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
 
   // Date Filter State - GST Analytics Style
   const [period, setPeriod] = useState('All Time');
@@ -102,10 +124,17 @@ export default function InvoicesPage() {
   const [previewFormatModalVisible, setPreviewFormatModalVisible] = useState(false);
   const [invoiceToPreview, setInvoiceToPreview] = useState(null);
 
+  // Download Modal State
+  const [downloadFormatModalVisible, setDownloadFormatModalVisible] = useState(false);
+  const [invoiceToDownload, setInvoiceToDownload] = useState(null);
+
   // Unified Preview State
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [previewFormat, setPreviewFormat] = useState('A4'); // 'A4' or 'Thermal'
+  const [previewA4Template, setPreviewA4Template] = useState('Classic');
+  const [previewThermalTemplate, setPreviewThermalTemplate] = useState('Professional');
+  const [showBankAndSignature, setShowBankAndSignature] = useState(false);
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({
@@ -123,6 +152,56 @@ export default function InvoicesPage() {
       fetchTransactions();
     }, [])
   );
+
+  const mapInvoiceToBillData = (invoice) => {
+    if (!invoice) return null;
+    return {
+      ...invoice,
+      id: invoice.id,
+      invoiceNo: invoice.invoiceNumber || invoice.id,
+      weekly_sequence: invoice.weekly_sequence,
+      cart: invoice.items || [],
+      items: (invoice.items || []).map(item => ({
+        ...item,
+        taxableValue: item.taxableValue || (item.price * item.quantity),
+        total: item.total || (item.price * item.quantity),
+        cgstAmt: (safeTax(item.taxAmount) / 2).toFixed(2),
+        sgstAmt: (safeTax(item.taxAmount) / 2).toFixed(2),
+        igstAmt: safeTax(item.taxAmount).toFixed(2),
+        cgstRate: (parseFloat(item.taxRate || 0) / 2) + '%',
+        sgstRate: (parseFloat(item.taxRate || 0) / 2) + '%',
+        igstRate: (item.taxRate || '0') + '%'
+      })),
+      customerName: invoice.customerName || 'Guest',
+      totals: {
+        total: invoice.total || 0,
+        subtotal: invoice.subtotal || 0,
+        tax: invoice.tax || 0,
+        cgst: (safeTax(invoice.tax) / 2) || 0,
+        sgst: (invoice.tax / 2) || 0,
+        igst: invoice.tax || 0,
+        discount: invoice.discount || 0,
+        additionalCharges: invoice.additionalCharges || 0,
+        roundOff: invoice.roundOff || 0
+      },
+      customer: {
+        name: invoice.customerName || 'Guest',
+        address: '-',
+        mobile: '-',
+        gstin: '-'
+      },
+      date: invoice.date,
+      time: new Date(invoice.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      total: invoice.total,
+      subtotal: invoice.subtotal || 0,
+      tax: invoice.tax || 0,
+      discount: invoice.discount || 0,
+      additionalCharges: invoice.additionalCharges || 0,
+      roundOff: invoice.roundOff || 0,
+      internalNotes: invoice.internalNotes || '',
+      taxType: invoice.taxType || 'intra'
+    };
+  };
 
   const handlePreview = (invoice) => {
     setInvoiceToPreview(invoice);
@@ -145,11 +224,11 @@ export default function InvoicesPage() {
           ...item,
           taxableValue: item.taxableValue || (item.price * item.quantity),
           total: item.total || (item.price * item.quantity),
-          cgstAmt: (item.taxAmount / 2).toFixed(2),
-          sgstAmt: (item.taxAmount / 2).toFixed(2),
-          igstAmt: (item.taxAmount || 0).toFixed(2),
-          cgstRate: (parseFloat(item.taxRate) / 2) + '%',
-          sgstRate: (parseFloat(item.taxRate) / 2) + '%',
+          cgstAmt: (safeTax(item.taxAmount) / 2).toFixed(2),
+          sgstAmt: (safeTax(item.taxAmount) / 2).toFixed(2),
+          igstAmt: safeTax(item.taxAmount).toFixed(2),
+          cgstRate: (parseFloat(item.taxRate || 0) / 2) + '%',
+          sgstRate: (parseFloat(item.taxRate || 0) / 2) + '%',
           igstRate: (item.taxRate || '0') + '%'
         })),
         customerName: invoice.customerName || 'Guest',
@@ -157,7 +236,7 @@ export default function InvoicesPage() {
           total: invoice.total || 0,
           subtotal: invoice.subtotal || 0,
           tax: invoice.tax || 0,
-          cgst: (invoice.tax / 2) || 0,
+          cgst: (safeTax(invoice.tax) / 2) || 0,
           sgst: (invoice.tax / 2) || 0,
           igst: invoice.tax || 0,
           discount: invoice.discount || 0,
@@ -185,6 +264,9 @@ export default function InvoicesPage() {
       if (format === 'A4' || format === '80mm' || format === '58mm') {
         setPreviewData(billData);
         setPreviewFormat(format === 'A4' ? 'A4' : 'Thermal');
+        setPreviewA4Template(settings?.invoice?.template || 'Classic');
+        setPreviewThermalTemplate(settings?.invoice?.billTemplate || 'Professional');
+        setShowBankAndSignature(settings?.invoice?.showBankAndSignature || false);
         setPreviewVisible(true);
       } else {
         await printReceipt(billData, format, settings, 'invoice');
@@ -197,25 +279,7 @@ export default function InvoicesPage() {
 
   const handleShare = async (invoice) => {
     try {
-      // Map for print utility
-      const billData = {
-        ...invoice,
-        id: invoice.id,
-        weekly_sequence: invoice.weekly_sequence,
-        cart: invoice.items || [],
-        totals: {
-          total: invoice.total || 0,
-          subtotal: invoice.subtotal || 0,
-          tax: invoice.tax || 0,
-          discount: invoice.discount || 0,
-          additionalCharges: invoice.additionalCharges || 0,
-          roundOff: invoice.roundOff || 0
-        },
-        customer: {
-          name: invoice.customerName
-        },
-        date: invoice.date
-      };
+      const billData = mapInvoiceToBillData(invoice);
 
       // Force A4/Template for Invoice Share (Internal Record)
       const invoiceSettings = {
@@ -230,6 +294,40 @@ export default function InvoicesPage() {
     } catch (error) {
       console.error("Share Error:", error);
       showToast("Failed to share invoice", "error");
+    }
+  };
+
+  const handleDownload = (invoice) => {
+    setInvoiceToDownload(invoice);
+    setDownloadFormatModalVisible(true);
+  };
+
+  const executeDownload = async (type) => {
+    try {
+      setDownloadFormatModalVisible(false);
+      if (!invoiceToDownload) return;
+      
+      const billData = mapInvoiceToBillData(invoiceToDownload);
+
+      if (type === 'bill') {
+        // Force Thermal Mode
+        await saveReceiptPDF(billData, { 
+          ...settings, 
+          invoice: { ...settings.invoice, paperSize: settings?.invoice?.billPaperSize || '80mm' } 
+        }, 'customer');
+      } else if (type === 'invoice') {
+        // Force A4 Mode
+        await saveReceiptPDF(billData, { 
+          ...settings, 
+          invoice: { ...settings.invoice, paperSize: 'A4' } 
+        }, 'invoice');
+      } else if (type === 'both') {
+        // Combined PDF
+        await saveCombinedReceiptPDF(billData, settings);
+      }
+    } catch (error) {
+      console.error("Download Error:", error);
+      showToast("Download failed", "error");
     }
   };
 
@@ -302,16 +400,16 @@ export default function InvoicesPage() {
     setEditModalVisible(true);
   };
 
-  const handleInvoicePress = (invoice) => {
+  const handleInvoicePress = async (invoice) => {
     // Lookup customer details if not present
     let fullCustomer = null;
     try {
       if (invoice.customerId) {
-        const res = db.getAllSync('SELECT * FROM customers WHERE id = ?', [invoice.customerId]);
+        const res = await db.getAllAsync('SELECT * FROM customers WHERE id = ?', [invoice.customerId]);
         if (res && res.length > 0) fullCustomer = res[0];
       } else if (invoice.customerName && invoice.customerName !== 'Guest') {
         // Fallback by name
-        const res = db.getAllSync('SELECT * FROM customers WHERE name = ?', [invoice.customerName]);
+        const res = await db.getAllAsync('SELECT * FROM customers WHERE name = ?', [invoice.customerName]);
         if (res && res.length > 0) fullCustomer = res[0];
       }
     } catch (e) { console.log("Cust Lookup Error", e); }
@@ -368,57 +466,59 @@ export default function InvoicesPage() {
   };
 
   // Date filtering logic - GST Analytics Style
-  const filteredInvoices = transactions.filter(inv => {
-    const invId = inv.id || '';
-    const weeklyNo = inv.weekly_sequence?.toString() || '';
-    const customer = inv.customerName || inv.customer || '';
-    const matchesSearch = invId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      weeklyNo.includes(searchTerm) ||
-      customer.toLowerCase().includes(searchTerm.toLowerCase());
-    const rawStatus = inv.status || 'Pending';
-    let status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
-    
-    // Normalize PARTIALLY PAID to just "Partial" to match the tab ID exactly
-    if (status.toUpperCase() === 'PARTIALLY PAID' || status.toUpperCase() === 'PARTIAL') {
-      status = 'Partial';
-    }
+  const filteredInvoices = useMemo(() => {
+    return transactions.filter(inv => {
+      const invId = inv.id || '';
+      const weeklyNo = inv.weekly_sequence?.toString() || '';
+      const customer = inv.customerName || inv.customer || '';
+      const matchesSearch = invId.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        weeklyNo.includes(debouncedSearchTerm) ||
+        customer.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
+      const rawStatus = inv.status || 'Pending';
+      let status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
 
-    const matchesStatusFilter = activeFilter === 'All' || status === activeFilter;
+      // Normalize PARTIALLY PAID to just "Partial" to match the tab ID exactly
+      if (status.toUpperCase() === 'PARTIALLY PAID' || status.toUpperCase() === 'PARTIAL') {
+        status = 'Partial';
+      }
 
-    // Date filtering - GST Analytics Style
-    let matchesDateFilter = true;
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const invDate = new Date(inv.date);
+      const matchesStatusFilter = activeFilter === 'All' || status === activeFilter;
 
-    if (period === 'Today') {
-      matchesDateFilter = invDate >= startOfToday;
-    } else if (period === 'Yesterday') {
-      const yesterday = new Date(startOfToday);
-      yesterday.setDate(yesterday.getDate() - 1);
-      matchesDateFilter = invDate >= yesterday && invDate < startOfToday;
-    } else if (period === 'This Week') {
-      const startOfWeek = new Date(startOfToday);
-      startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay());
-      matchesDateFilter = invDate >= startOfWeek;
-    } else if (period === 'This Month') {
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      matchesDateFilter = invDate >= startOfMonth;
-    } else if (period === 'This Year') {
-      const startOfYear = new Date(now.getFullYear(), 0, 1);
-      matchesDateFilter = invDate >= startOfYear;
-    } else if (period === 'All Time') {
-      matchesDateFilter = true;
-    } else if (period === 'Custom' && selectedCustomDate) {
-      const targetDate = new Date(selectedCustomDate);
-      targetDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(targetDate);
-      endDate.setDate(targetDate.getDate() + 1);
-      matchesDateFilter = invDate >= targetDate && invDate < endDate;
-    }
+      // Date filtering - GST Analytics Style
+      let matchesDateFilter = true;
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const invDate = new Date(inv.date);
 
-    return matchesSearch && matchesStatusFilter && matchesDateFilter;
-  });
+      if (period === 'Today') {
+        matchesDateFilter = invDate >= startOfToday;
+      } else if (period === 'Yesterday') {
+        const yesterday = new Date(startOfToday);
+        yesterday.setDate(yesterday.getDate() - 1);
+        matchesDateFilter = invDate >= yesterday && invDate < startOfToday;
+      } else if (period === 'This Week') {
+        const startOfWeek = new Date(startOfToday);
+        startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay());
+        matchesDateFilter = invDate >= startOfWeek;
+      } else if (period === 'This Month') {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        matchesDateFilter = invDate >= startOfMonth;
+      } else if (period === 'This Year') {
+        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        matchesDateFilter = invDate >= startOfYear;
+      } else if (period === 'All Time') {
+        matchesDateFilter = true;
+      } else if (period === 'Custom' && selectedCustomDate) {
+        const targetDate = new Date(selectedCustomDate);
+        targetDate.setHours(0, 0, 0, 0);
+        const endDate = new Date(targetDate);
+        endDate.setDate(targetDate.getDate() + 1);
+        matchesDateFilter = invDate >= targetDate && invDate < endDate;
+      }
+
+      return matchesSearch && matchesStatusFilter && matchesDateFilter;
+    });
+  }, [transactions, debouncedSearchTerm, activeFilter, period, selectedCustomDate]);
 
   const getStatusStyle = (status) => {
     switch (status?.toUpperCase()) {
@@ -458,11 +558,11 @@ export default function InvoicesPage() {
           ...item,
           taxableValue: item.taxableValue || (item.price * item.quantity),
           total: item.total || (item.price * item.quantity),
-          cgstAmt: (item.taxAmount / 2).toFixed(2),
-          sgstAmt: (item.taxAmount / 2).toFixed(2),
-          igstAmt: (item.taxAmount || 0).toFixed(2),
-          cgstRate: (parseFloat(item.taxRate) / 2) + '%',
-          sgstRate: (parseFloat(item.taxRate) / 2) + '%',
+          cgstAmt: (safeTax(item.taxAmount) / 2).toFixed(2),
+          sgstAmt: (safeTax(item.taxAmount) / 2).toFixed(2),
+          igstAmt: safeTax(item.taxAmount).toFixed(2),
+          cgstRate: (parseFloat(item.taxRate || 0) / 2) + '%',
+          sgstRate: (parseFloat(item.taxRate || 0) / 2) + '%',
           igstRate: (item.taxRate || '0') + '%'
         })),
         customerName: invoice.customerName || 'Guest',
@@ -470,7 +570,7 @@ export default function InvoicesPage() {
           total: invoice.total || 0,
           subtotal: invoice.subtotal || 0,
           tax: invoice.tax || 0,
-          cgst: (invoice.tax / 2) || 0,
+          cgst: (safeTax(invoice.tax) / 2) || 0,
           sgst: (invoice.tax / 2) || 0,
           igst: invoice.tax || 0,
           discount: invoice.discount || 0,
@@ -498,6 +598,9 @@ export default function InvoicesPage() {
       if (format === 'A4' || format === '80mm' || format === '58mm') {
         setPreviewData(billData);
         setPreviewFormat(format === 'A4' ? 'A4' : 'Thermal');
+        setPreviewA4Template(settings?.invoice?.template || 'Classic');
+        setPreviewThermalTemplate(settings?.invoice?.billTemplate || 'Professional');
+        setShowBankAndSignature(settings?.invoice?.showBankAndSignature || false);
         setPreviewVisible(true);
       } else {
         await printReceipt(billData, format, settings, 'invoice');
@@ -606,7 +709,7 @@ export default function InvoicesPage() {
             <TouchableOpacity onPress={() => handlePrint(item)} style={styles.modernIconAction}>
               <Printer size={16} color="#475569" strokeWidth={2.5} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleShare(item)} style={styles.modernIconAction}>
+            <TouchableOpacity onPress={() => handleDownload(item)} style={styles.modernIconAction}>
               <Download size={16} color="#475569" strokeWidth={2.5} />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => handleDelete(item)} style={styles.modernIconActionDanger}>
@@ -1041,7 +1144,7 @@ export default function InvoicesPage() {
                         >
                           <Calendar size={18} color="#000" />
                           <Text style={styles.dateText}>
-                            {new Date(editingInvoice.date).toLocaleDateString('en-GB')}
+                            {safeDateDisplay(editingInvoice.date)}
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -1050,7 +1153,7 @@ export default function InvoicesPage() {
                         <Input
                           keyboardType="numeric"
                           value={editingInvoice.total?.toString()}
-                          onChangeText={(val) => setEditingInvoice({ ...editingInvoice, total: parseFloat(val) || 0 })}
+                          onChangeText={(val) => setEditingInvoice({ ...editingInvoice, total: Math.max(0, parseFloat(val) || 0) })}
                           placeholder="0.00"
                           style={styles.premiumInput}
                         />
@@ -1307,6 +1410,40 @@ export default function InvoicesPage() {
         </Pressable>
       </Modal>
 
+      {/* --- DOWNLOAD FORMAT MODAL --- */}
+      <Modal visible={downloadFormatModalVisible} animationType="fade" transparent={true}>
+        <Pressable style={styles.modalOverlay} onPress={() => setDownloadFormatModalVisible(false)}>
+          <View style={styles.filterModal}>
+            <View style={styles.modalHeader}>
+              <View style={styles.headerTextSection}>
+                <Text style={styles.modalTitle}>Choose Download Content</Text>
+                <Text style={styles.modalSubtitle}>What would you like to save to device?</Text>
+              </View>
+              <TouchableOpacity onPress={() => setDownloadFormatModalVisible(false)} style={styles.modalCloseBtn}>
+                <X size={16} color="#000" strokeWidth={3} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 16, marginTop: 10 }}>
+              <TouchableOpacity style={styles.statusOption} onPress={() => executeDownload('bill')}>
+                <Printer size={20} color="#000" />
+                <Text style={[styles.statusOptionText, { color: '#000' }]}>Bill (Thermal Format)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.statusOption} onPress={() => executeDownload('invoice')}>
+                <FileText size={20} color="#000" />
+                <Text style={[styles.statusOptionText, { color: '#000' }]}>Invoice (A4 Format)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.statusOption} onPress={() => executeDownload('both')}>
+                <LayoutGrid size={20} color="#000" />
+                <Text style={[styles.statusOptionText, { color: '#000' }]}>Both Bill & Invoice</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
       {/* --- UNIFIED INVOICE PREVIEW MODAL (A4 & Thermal) --- */}
       <Modal
         visible={previewVisible}
@@ -1315,15 +1452,15 @@ export default function InvoicesPage() {
         onRequestClose={() => setPreviewVisible(false)}
       >
         <View style={styles.a4PreviewOverlay}>
-          <View style={[styles.a4PreviewContent, previewFormat === 'Thermal' && { maxWidth: 350 }]}>
+          <SafeAreaView edges={['top']} style={styles.a4PreviewContent}>
             {/* Header */}
             <View style={styles.a4PreviewHeader}>
               <View>
                 <Text style={styles.a4PreviewTitle}>{previewFormat} Preview</Text>
                 <Text style={styles.a4PreviewSubtitle}>
-                  {previewFormat === 'A4' 
-                    ? `Format: ${settings?.invoice?.template || 'Classic'}` 
-                    : `Thermal Receipt Mode`}
+                  {previewFormat === 'A4'
+                    ? `Format: ${previewA4Template}`
+                    : `Format: ${previewThermalTemplate}`}
                 </Text>
               </View>
               <TouchableOpacity
@@ -1334,33 +1471,98 @@ export default function InvoicesPage() {
               </TouchableOpacity>
             </View>
 
+            {/* Template Selector */}
+            <View style={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {previewFormat === 'A4' ? (
+                  ['Classic', 'Detailed', 'Compact', 'Minimal'].map((tmpl) => (
+                    <TouchableOpacity
+                      key={tmpl}
+                      onPress={() => setPreviewA4Template(tmpl)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        borderRadius: 20,
+                        backgroundColor: previewA4Template === tmpl ? '#000' : '#f1f5f9',
+                        borderWidth: 1.5,
+                        borderColor: previewA4Template === tmpl ? '#000' : '#e2e8f0',
+                      }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: previewA4Template === tmpl ? '#fff' : '#64748b' }}>
+                        {tmpl}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                ) : (
+                  ['Professional', 'Standard'].map((tmpl) => (
+                    <TouchableOpacity
+                      key={tmpl}
+                      onPress={() => setPreviewThermalTemplate(tmpl)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        borderRadius: 20,
+                        backgroundColor: previewThermalTemplate === tmpl ? '#000' : '#f1f5f9',
+                        borderWidth: 1.5,
+                        borderColor: previewThermalTemplate === tmpl ? '#000' : '#e2e8f0',
+                      }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: previewThermalTemplate === tmpl ? '#fff' : '#64748b' }}>
+                        {tmpl}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </ScrollView>
+            </View>
+
+
+
             {/* Template Rendering */}
             <ScrollView
               style={styles.a4PreviewScroll}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.a4PreviewScrollContent}
             >
-              <View style={[styles.templateWrapper, previewFormat === 'Thermal' && { paddingVertical: 10 }]}>
-                {(() => {
-                  if (previewFormat === 'Thermal') {
-                    return <ThermalInvoiceTemplate settings={settings} data={previewData} taxType={previewData?.taxType || 'intra'} />;
-                  }
+              <View style={[styles.templateWrapper, previewFormat === 'Thermal' && { paddingVertical: 10, alignSelf: 'center', width: 'auto', minWidth: 300 }]}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={{ flexGrow: 1 }}>
+                  <ScrollView showsVerticalScrollIndicator={true} maximumZoomScale={5} minimumZoomScale={0.5} bouncesZoom={true} contentContainerStyle={{ flexGrow: 1 }}>
+                    <View style={{ width: '100%', minWidth: previewFormat === 'A4' ? 600 : '100%', padding: previewFormat === 'A4' ? 10 : 0 }}>
+                      {(() => {
+                        const overrideSettings = {
+                          ...settings,
+                          invoice: {
+                            ...settings?.invoice,
+                            template: previewA4Template,
+                            billTemplate: previewThermalTemplate,
+                            showBankAndSignature: showBankAndSignature
+                          }
+                        };
 
-                  const template = settings?.invoice?.template || 'Classic';
-                  const props = { settings, data: previewData };
+                        if (previewFormat === 'Thermal') {
+                          if (previewThermalTemplate === 'Professional') {
+                            return <ProfessionalThermalTemplate settings={overrideSettings} data={previewData} taxType={previewData?.taxType || 'intra'} />;
+                          }
+                          return <ThermalInvoiceTemplate settings={overrideSettings} data={previewData} taxType={previewData?.taxType || 'intra'} />;
+                        }
 
-                  switch (template) {
-                    case 'Detailed':
-                      return <DetailedInvoiceTemplate {...props} />;
-                    case 'Compact':
-                      return <CompactInvoiceTemplate {...props} />;
-                    case 'Minimal':
-                      return <MinimalInvoiceTemplate {...props} />;
-                    case 'Classic':
-                    default:
-                      return <ClassicInvoiceTemplate {...props} />;
-                  }
-                })()}
+                        const props = { settings: overrideSettings, data: previewData };
+
+                        switch (previewA4Template) {
+                          case 'Detailed':
+                            return <DetailedInvoiceTemplate {...props} />;
+                          case 'Compact':
+                            return <CompactInvoiceTemplate {...props} />;
+                          case 'Minimal':
+                            return <MinimalInvoiceTemplate {...props} />;
+                          case 'Classic':
+                          default:
+                            return <ClassicInvoiceTemplate {...props} />;
+                        }
+                      })()}
+                    </View>
+                  </ScrollView>
+                </ScrollView>
               </View>
 
               <View style={styles.previewFooterInfo}>
@@ -1383,15 +1585,24 @@ export default function InvoicesPage() {
               <TouchableOpacity
                 onPress={async () => {
                   const format = previewFormat === 'A4' ? 'A4' : (settings?.invoice?.billPaperSize || '80mm');
-                  await printReceipt(previewData, format, settings, 'invoice');
+                  const overrideSettings = {
+                    ...settings,
+                    invoice: {
+                      ...settings?.invoice,
+                      template: previewA4Template,
+                      billTemplate: previewThermalTemplate,
+                      showBankAndSignature: showBankAndSignature
+                    }
+                  };
+                  await printReceipt(previewData, format, overrideSettings, 'invoice');
                 }}
                 style={styles.a4PrintBtn}
               >
                 <Printer size={18} color="#fff" />
-                <Text style={styles.a4PrintBtnText}>Print {previewFormat}</Text>
+                <Text style={styles.a4PrintBtnText}>Print {previewA4Template !== 'Classic' || previewThermalTemplate !== 'Professional' ? 'Selection' : previewFormat}</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </SafeAreaView>
         </View>
       </Modal>
     </View>
@@ -1987,23 +2198,12 @@ const styles = StyleSheet.create({
   // --- A4 Preview Modal Styles ---
   a4PreviewOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16
+    backgroundColor: '#f1f5f9',
   },
   a4PreviewContent: {
     flex: 1,
     width: '100%',
-    maxWidth: 500,
     backgroundColor: '#f1f5f9',
-    borderRadius: 32,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.4,
-    shadowRadius: 30,
-    elevation: 25
   },
   a4PreviewHeader: {
     flexDirection: 'row',
@@ -2040,7 +2240,7 @@ const styles = StyleSheet.create({
   },
   a4PreviewScrollContent: {
     padding: 20,
-    paddingBottom: 40
+    paddingBottom: 100
   },
   templateWrapper: {
     backgroundColor: '#fff',
@@ -2058,6 +2258,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 24,
+    marginBottom: 20,
     paddingHorizontal: 12
   },
   previewFooterText: {

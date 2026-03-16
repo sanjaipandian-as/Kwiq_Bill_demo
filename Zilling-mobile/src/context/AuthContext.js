@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveUserDetailsToDrive, syncUserDataToDrive, restoreUserDataFromDrive } from '../services/googleDriveservices';
 import { fetchAllTableData, clearDatabase, db, switchUserDatabase } from '../services/database';
 import services from '../services/api';
+import * as SecureStore from 'expo-secure-store';
 
 const AuthContext = createContext(null);
 
@@ -29,7 +30,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       setUser(null);
-      await AsyncStorage.removeItem('token');
+      await SecureStore.deleteItemAsync('token');
       await AsyncStorage.removeItem('user');
       await AsyncStorage.removeItem('just_logged_in');
 
@@ -47,7 +48,7 @@ export const AuthProvider = ({ children }) => {
 
   const refreshUser = useCallback(async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await SecureStore.getItemAsync('token');
       if (!token) return null;
 
       const latestUser = await services.auth.getCurrentUser();
@@ -151,9 +152,9 @@ export const AuthProvider = ({ children }) => {
       }
       // 3. Save secure token
       if (backendToken && backendToken !== idToken) {
-        await AsyncStorage.setItem('token', backendToken);
+        await SecureStore.setItemAsync('token', backendToken);
       } else {
-        await AsyncStorage.removeItem('token');
+        await SecureStore.deleteItemAsync('token');
       }
 
       // Critical: Save user to storage BEFORE sync so SyncService uses the correct user-specific keys.
@@ -172,7 +173,7 @@ export const AuthProvider = ({ children }) => {
 
         if (isSameUser) {
           try {
-            const result = db.getFirstSync('SELECT COUNT(*) as count FROM products');
+            const result = await db.getFirstAsync('SELECT COUNT(*) as count FROM products');
             const { getUserSpecificKey, SETTINGS_KEY } = require('../utils/storageKeys');
             const settingsKey = getUserSpecificKey(SETTINGS_KEY, userData.email);
             const savedSettings = await AsyncStorage.getItem(settingsKey);

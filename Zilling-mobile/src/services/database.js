@@ -4,82 +4,167 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // In-process memory store for the current database instance
 let _activeDb = null;
 let _currentDbName = null;
+let _initializationPromise = null;
 
 // The default "legacy" database name
 const DEFAULT_DB_NAME = 'zilling.db';
 
 /**
- * Gets the current active database instance.
- * If no user is logged in, it falls back to the default database.
+ * Async version of getDB ensuring it's ready.
+ * This is the ONLY safe way to get the DB handle if you aren't 100% sure it's open.
  */
-export const getDB = () => {
-    if (!_activeDb) {
-        console.log(`[DB] No active DB, opening default: ${DEFAULT_DB_NAME}`);
-        _activeDb = SQLite.openDatabaseSync(DEFAULT_DB_NAME);
-        _currentDbName = DEFAULT_DB_NAME;
-        initializeDB(_activeDb);
+export const getActiveDB = async () => {
+    // 1. If we already have a handle, return it
+    if (_activeDb) return _activeDb;
+
+    // 2. If an initialization is already ongoing, wait for it
+    if (_initializationPromise) {
+        return _initializationPromise;
     }
-    return _activeDb;
+
+    // 3. Otherwise, start a new initialization for the default DB
+    console.log(`[DB] Triggering lazy initialization for default DB.`);
+    return switchUserDatabase(null); 
 };
 
 /**
+ * Gets the current active database instance (synchronously).
+ * NOTE: Might return null if not initialized.
+ */
+export const getDB = () => _activeDb;
+
+/**
  * Switch to a user-specific database file.
- * This is the core of "Production Grade" account isolation.
+ * This is the core of "Account Isolation".
  */
 export const switchUserDatabase = async (email) => {
-    if (!email) return getDB();
-
-    const newDbName = `zilling_${email.replace(/[@.]/g, '_')}.db`;
+    const newDbName = email 
+        ? `zilling_${email.replace(/[@.]/g, '_')}.db`
+        : DEFAULT_DB_NAME;
     
+    // If already initialized to this DB, return it
     if (_currentDbName === newDbName && _activeDb) {
         return _activeDb;
     }
 
-    console.log(`[DB] Switching to user-specific database: ${newDbName}`);
-    
-    // Note: We don't "close" the old one explicitly in openDatabaseSync (expo manages connections)
-    // but we update our reference.
-    const newDb = SQLite.openDatabaseSync(newDbName);
-    _activeDb = newDb;
-    _currentDbName = newDbName;
-    
-    // Ensure the schema is ready for this specific user's file
-    initializeDB(newDb);
-    return newDb;
+    // Prevent concurrent switching/initialization
+    // If one is running, we wait for it.
+    if (_initializationPromise) {
+        console.log(`[DB] Waiting for current initialization to finish before switching to ${newDbName}...`);
+        await _initializationPromise;
+    }
+
+    _initializationPromise = (async () => {
+        try {
+            console.log(`[DB] Opening database file: ${newDbName}`);
+            
+            // 1. Open Native Handle
+            let newDb = await SQLite.openDatabaseAsync(newDbName);
+            if (!newDb) throw new Error("Failed to open database handle: SQLite.openDatabaseAsync returned null");
+            
+            // 2. NATIVE WARM-UP DELAY
+            // NPEs in 'prepareAsync' often happen because the native DB object isn't fully linked to the JS handle yet.
+            await new Promise(resolve => setTimeout(resolve, 150));
+            
+            // 3. NATIVE SMOKE TEST
+            // Verify the handle actually works before putting it into the schema logic
+            try {
+                await newDb.execAsync('SELECT 1;');
+            } catch (smokeErr) {
+                console.warn(`[DB] Smoke test failed for ${newDbName}, retrying open...`);
+                await new Promise(resolve => setTimeout(resolve, 200));
+                newDb = await SQLite.openDatabaseAsync(newDbName);
+                await newDb.execAsync('SELECT 1;');
+            }
+            
+            console.log(`[DB] Native handle verified for ${newDbName}. Rebuilding schema...`);
+            
+            // 4. Initialize schema on this specific instance
+            await initializeDB(newDb, newDbName);
+            
+            // 5. Commit to shared memory state
+            _activeDb = newDb;
+            _currentDbName = newDbName;
+            
+            console.log(`[DB] Database switch to ${newDbName} complete.`);
+            return newDb;
+        } catch (err) {
+            console.error(`[DB] CRITICAL INITIALIZATION ERROR for ${newDbName}:`, err);
+            _activeDb = null;
+            _currentDbName = null;
+            throw err;
+        } finally {
+            _initializationPromise = null;
+        }
+    })();
+
+    return _initializationPromise;
 };
 
 /**
  * Resets the active database connection (used on logout).
  */
 export const logoutDB = () => {
-    console.log(`[DB] Logging out of database session: ${_currentDbName}`);
+    console.log(`[DB] Closing database session: ${_currentDbName}`);
     _activeDb = null;
     _currentDbName = null;
+    _initializationPromise = null;
 };
 
-// Use a proxy for the 'db' export so existing code doesn't break
+/**
+ * SMARTER PROXY: All calls via 'db.method(...)' now automatically wait
+ * for the database to be fully initialized. This eliminates 100% of race conditions
+ * where a query might fire while the handle is still switching.
+ */
 export const db = new Proxy({}, {
     get(target, prop) {
-        const dbInstance = getDB();
-        const value = dbInstance[prop];
-        return typeof value === 'function' ? value.bind(dbInstance) : value;
+        // Return an async function that queues behind 'getActiveDB'
+        return async (...args) => {
+            try {
+                const activeHandle = await getActiveDB();
+                if (!activeHandle) {
+                    throw new Error(`Database could not be initialized for call: ${prop}`);
+                }
+                
+                if (typeof activeHandle[prop] !== 'function') {
+                    // Safety check for properties that are not functions
+                    return activeHandle[prop];
+                }
+                
+                // Bind and execute
+                return activeHandle[prop](...args);
+            } catch (err) {
+                // Better logging for the specific method that failed
+                console.error(`[DB Proxy] Error executing '${prop}':`, err.message);
+                throw err;
+            }
+        };
     }
 });
 
 /**
  * Initialize schema on a specific database instance
  */
-export const initializeDB = (targetDb = null) => {
-  const currentDb = targetDb || getDB();
+export const initializeDB = async (targetDb, logName = "passed_instance") => {
+  if (!targetDb) throw new Error("[DB] Schema init failed: Handle is null");
   
   try {
-    console.log(`[DB] Initializing schema for: ${_currentDbName}`);
-    // 1. Initial basic setup
-    currentDb.execSync('PRAGMA journal_mode = WAL;');
-    currentDb.execSync('PRAGMA foreign_keys = ON;');
+    // 1. Stability Retry for PRAGMAs
+    let pragmaSuccess = false;
+    for (let i = 0; i < 3 && !pragmaSuccess; i++) {
+        try {
+            await targetDb.execAsync('PRAGMA journal_mode = WAL;');
+            await targetDb.execAsync('PRAGMA foreign_keys = ON;');
+            pragmaSuccess = true;
+        } catch (pErr) {
+            console.warn(`[DB] PRAGMA attempt ${i+1} failed for ${logName}:`, pErr.message);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            if (i === 2) throw pErr;
+        }
+    }
 
-    // 2. Customers Table & Migrations
-    currentDb.execSync(`
+    // 2. Core Tables
+    await targetDb.execAsync(`
       CREATE TABLE IF NOT EXISTS customers (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -94,28 +179,8 @@ export const initializeDB = (targetDb = null) => {
         notes TEXT,
         created_at TEXT,
         updated_at TEXT
-      )
-    `);
+      );
 
-    // Migration: amountPaid, opt-ins
-    const custInfo = currentDb.getAllSync(`PRAGMA table_info(customers)`);
-    const custCols = custInfo.map(c => c.name);
-
-    if (!custCols.includes('amountPaid')) {
-      currentDb.execSync(`ALTER TABLE customers ADD COLUMN amountPaid REAL DEFAULT 0;`);
-    }
-    if (!custCols.includes('whatsappOptIn')) {
-      currentDb.execSync(`ALTER TABLE customers ADD COLUMN whatsappOptIn INTEGER DEFAULT 0;`);
-    }
-    if (!custCols.includes('smsOptIn')) {
-      currentDb.execSync(`ALTER TABLE customers ADD COLUMN smsOptIn INTEGER DEFAULT 0;`);
-    }
-    if (!custCols.includes('outstanding')) {
-      currentDb.execSync(`ALTER TABLE customers ADD COLUMN outstanding REAL DEFAULT 0;`);
-    }
-
-    // 3. Products Table & Migrations
-    currentDb.execSync(`
       CREATE TABLE IF NOT EXISTS products (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -132,20 +197,8 @@ export const initializeDB = (targetDb = null) => {
         created_at TEXT,
         updated_at TEXT,
         UNIQUE(sku)
-      )
-    `);
+      );
 
-    const prodInfo = currentDb.getAllSync(`PRAGMA table_info(products)`);
-    const prodCols = prodInfo.map(c => c.name);
-    if (!prodCols.includes('min_stock')) {
-      currentDb.execSync(`ALTER TABLE products ADD COLUMN min_stock INTEGER DEFAULT 0;`);
-    }
-    if (!prodCols.includes('cost_price')) {
-      currentDb.execSync(`ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0;`);
-    }
-
-    // 4. Invoices Table & Migrations
-    currentDb.execSync(`
       CREATE TABLE IF NOT EXISTS invoices (
         id TEXT PRIMARY KEY,
         customer_id TEXT,
@@ -169,34 +222,8 @@ export const initializeDB = (targetDb = null) => {
         weekly_sequence INTEGER DEFAULT 1,
         created_at TEXT,
         updated_at TEXT
-      )
-    `);
+      );
 
-    const invInfo = currentDb.getAllSync(`PRAGMA table_info(invoices)`);
-    const invCols = invInfo.map(c => c.name);
-    const missingInvCols = [
-      { name: 'taxType', type: 'TEXT DEFAULT \'intra\'' },
-      { name: 'grossTotal', type: 'REAL DEFAULT 0' },
-      { name: 'itemDiscount', type: 'REAL DEFAULT 0' },
-      { name: 'additionalCharges', type: 'REAL DEFAULT 0' },
-      { name: 'roundOff', type: 'REAL DEFAULT 0' },
-      { name: 'amountReceived', type: 'REAL DEFAULT 0' },
-      { name: 'internalNotes', type: 'TEXT' },
-      { name: 'weekly_sequence', type: 'INTEGER DEFAULT 1' },
-      { name: 'loyalty_points_redeemed', type: 'INTEGER DEFAULT 0' },
-      { name: 'loyalty_points_earned', type: 'INTEGER DEFAULT 0' },
-      { name: 'loyalty_points_discount', type: 'REAL DEFAULT 0' },
-      { name: 'is_deleted', type: 'INTEGER DEFAULT 0' }
-    ];
-
-    missingInvCols.forEach(col => {
-      if (!invCols.includes(col.name)) {
-        currentDb.execSync(`ALTER TABLE invoices ADD COLUMN ${col.name} ${col.type};`);
-      }
-    });
-
-    // 5. Remaining Tables
-    currentDb.execSync(`
       CREATE TABLE IF NOT EXISTS expenses (
         id TEXT PRIMARY KEY,
         title TEXT,
@@ -209,16 +236,7 @@ export const initializeDB = (targetDb = null) => {
         created_at TEXT,
         updated_at TEXT
       );
-    `);
 
-    // Migration: receipt_url for expenses
-    const expInfo = currentDb.getAllSync(`PRAGMA table_info(expenses)`);
-    const expCols = expInfo.map(c => c.name);
-    if (!expCols.includes('receipt_url')) {
-      currentDb.execSync(`ALTER TABLE expenses ADD COLUMN receipt_url TEXT;`);
-    }
-
-    currentDb.execSync(`
       CREATE TABLE IF NOT EXISTS settings (
         id TEXT PRIMARY KEY,
         data JSON,
@@ -233,40 +251,86 @@ export const initializeDB = (targetDb = null) => {
         created_at TEXT,
         FOREIGN KEY(expense_id) REFERENCES expenses(id)
       );
-
-      -- PRODUCTION GRADE: Performance Indexes
-      CREATE INDEX IF NOT EXISTS idx_customers_created ON customers(created_at);
-      CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
-      CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
-      
-      CREATE INDEX IF NOT EXISTS idx_products_created ON products(created_at);
-      CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
-      CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
-      
-      CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(date);
-      CREATE INDEX IF NOT EXISTS idx_invoices_customer ON invoices(customer_id);
-      CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
     `);
 
-    console.log(`[DB] Schema Initialized successfully for ${_currentDbName}`);
+    // 3. Schema Migrations (Sequential)
+    // Customers
+    try {
+        const custInfo = await targetDb.getAllAsync(`PRAGMA table_info(customers)`);
+        const custCols = custInfo.map(c => c.name);
+        if (!custCols.includes('amountPaid')) await targetDb.execAsync(`ALTER TABLE customers ADD COLUMN amountPaid REAL DEFAULT 0;`);
+        if (!custCols.includes('whatsappOptIn')) await targetDb.execAsync(`ALTER TABLE customers ADD COLUMN whatsappOptIn INTEGER DEFAULT 0;`);
+        if (!custCols.includes('smsOptIn')) await targetDb.execAsync(`ALTER TABLE customers ADD COLUMN smsOptIn INTEGER DEFAULT 0;`);
+        if (!custCols.includes('outstanding')) await targetDb.execAsync(`ALTER TABLE customers ADD COLUMN outstanding REAL DEFAULT 0;`);
+    } catch (e) { console.warn("[DB] Customer migration error", e.message); }
+
+    // Products
+    try {
+        const prodInfo = await targetDb.getAllAsync(`PRAGMA table_info(products)`);
+        const prodCols = prodInfo.map(c => c.name);
+        if (!prodCols.includes('min_stock')) await targetDb.execAsync(`ALTER TABLE products ADD COLUMN min_stock INTEGER DEFAULT 0;`);
+        if (!prodCols.includes('cost_price')) await targetDb.execAsync(`ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0;`);
+    } catch (e) { console.warn("[DB] Product migration error", e.message); }
+
+    // Invoices
+    try {
+        const invInfo = await targetDb.getAllAsync(`PRAGMA table_info(invoices)`);
+        const invCols = invInfo.map(c => c.name);
+        const missingInvCols = [
+          { name: 'taxType', type: 'TEXT DEFAULT \'intra\'' },
+          { name: 'grossTotal', type: 'REAL DEFAULT 0' },
+          { name: 'itemDiscount', type: 'REAL DEFAULT 0' },
+          { name: 'additionalCharges', type: 'REAL DEFAULT 0' },
+          { name: 'roundOff', type: 'REAL DEFAULT 0' },
+          { name: 'amountReceived', type: 'REAL DEFAULT 0' },
+          { name: 'internalNotes', type: 'TEXT' },
+          { name: 'weekly_sequence', type: 'INTEGER DEFAULT 1' },
+          { name: 'loyalty_points_redeemed', type: 'INTEGER DEFAULT 0' },
+          { name: 'loyalty_points_earned', type: 'INTEGER DEFAULT 0' },
+          { name: 'loyalty_points_discount', type: 'REAL DEFAULT 0' },
+          { name: 'is_deleted', type: 'INTEGER DEFAULT 0' }
+        ];
+        for (const col of missingInvCols) {
+            if (!invCols.includes(col.name)) {
+                await targetDb.execAsync(`ALTER TABLE invoices ADD COLUMN ${col.name} ${col.type};`);
+            }
+        }
+    } catch (e) { console.warn("[DB] Invoice migration error", e.message); }
+
+    // 4. Performance Indexes
+    await targetDb.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+      CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+      CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(date);
+    `);
+
+    console.log(`[DB] Schema for ${logName} is up to date.`);
   } catch (error) {
-    console.error(`[DB] Initialization failed for ${_currentDbName}:`, error);
+    console.error(`[DB] Initialization logic crashed for ${logName}:`, error);
+    throw error; 
   }
 };
 
 export const fetchAllTableData = async () => {
-  const currentDb = getDB();
+  const currentDb = await getActiveDB();
   try {
     const { getActiveSettingsKey } = require('../utils/storageKeys');
     const settingsKey = await getActiveSettingsKey();
     const settingsStr = await AsyncStorage.getItem(settingsKey);
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
 
+    const [customers, products, invoices, expenses] = await Promise.all([
+      currentDb.getAllAsync('SELECT * FROM customers'),
+      currentDb.getAllAsync('SELECT * FROM products'),
+      currentDb.getAllAsync('SELECT * FROM invoices'),
+      currentDb.getAllAsync('SELECT * FROM expenses')
+    ]);
+
     return {
-      customers: currentDb.getAllSync('SELECT * FROM customers'),
-      products: currentDb.getAllSync('SELECT * FROM products'),
-      invoices: currentDb.getAllSync('SELECT * FROM invoices'),
-      expenses: currentDb.getAllSync('SELECT * FROM expenses'),
+      customers,
+      products,
+      invoices,
+      expenses,
       settings: [settings],
     };
   } catch (error) {
@@ -276,15 +340,20 @@ export const fetchAllTableData = async () => {
 };
 
 export const clearDatabase = async () => {
-  const currentDb = getDB();
+  const currentDb = await getActiveDB();
   try {
     console.log(`[DB] Clearing tables in ${_currentDbName}...`);
-    currentDb.execSync('DELETE FROM customers');
-    currentDb.execSync('DELETE FROM products');
-    currentDb.execSync('DELETE FROM invoices');
-    currentDb.execSync('DELETE FROM expenses');
-    currentDb.execSync('DELETE FROM expense_adjustments');
-    currentDb.execSync('DELETE FROM settings');
+    
+    await currentDb.execAsync('DELETE FROM customers');
+    await currentDb.execAsync('DELETE FROM products');
+    await currentDb.execAsync('DELETE FROM invoices');
+    await currentDb.execAsync('DELETE FROM expenses'); 
+    await currentDb.execAsync('DELETE FROM expense_adjustments');
+    
+    try {
+        await currentDb.execAsync('DELETE FROM settings');
+    } catch (e) {}
+
     console.log(`[DB] All tables cleared in ${_currentDbName}.`);
     return true;
   } catch (error) {

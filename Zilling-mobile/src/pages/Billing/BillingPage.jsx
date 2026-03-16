@@ -796,7 +796,7 @@ export default function BillingPage({ navigation, route }) {
     }
   };
 
-  const handleSavePrint = async (format = '80mm', copyCount = 1) => {
+  const handleSavePrint = async (format = '80mm', copyCount = 1, isAuthorizedBill = false) => {
     if (currentBill.cart.length === 0) {
       showToast("Cart is empty!", "error");
       return;
@@ -895,10 +895,16 @@ export default function BillingPage({ navigation, route }) {
       // 3. Print multiple copies if requested
       for (let i = 0; i < copyCount; i++) {
         await printReceipt(billDataToPrint, thermalFormat, settings, 'customer');
-        if (i < copyCount - 1) {
+        if (i < copyCount - 1 || isAuthorizedBill) {
           // Robust delay between prints
           await new Promise(r => setTimeout(r, 800));
         }
+      }
+
+      // 4. Print one Authorized Signatory Bill if toggled
+      if (isAuthorizedBill) {
+        await printReceipt(billDataToPrint, thermalFormat, settings, 'customer', { forceAuthorized: true });
+        await new Promise(r => setTimeout(r, 500));
       }
 
       showToast("Invoice finalized and printed.", "success", 4000, null, "Invoice Completed");

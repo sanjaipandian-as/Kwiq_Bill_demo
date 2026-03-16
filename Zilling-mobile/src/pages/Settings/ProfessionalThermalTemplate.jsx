@@ -209,8 +209,8 @@ const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceI
                     </View>
                 )}
 
-                {/* Formal Details (Only for Invoice Mode) */}
-                {(data?.mode === 'invoice' || settings?.invoice?.mode === 'invoice') && (
+                {/* Formal Details (Only if Toggle ON) */}
+                {settings?.invoice?.showBankAndSignature && (
                     <View style={{ width: '100%', marginTop: 8 }}>
                         {settings?.bankDetails?.bankName && (
                             <View style={{ borderTopWidth: 1, borderTopColor: '#000', borderStyle: 'dashed', paddingTop: 4 }}>

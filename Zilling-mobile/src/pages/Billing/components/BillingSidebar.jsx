@@ -45,12 +45,13 @@ const BillingSidebar = ({
 
     const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
     const [printCopyCount, setPrintCopyCount] = useState(1);
+    const [isAuthorizedEnabled, setIsAuthorizedEnabled] = useState(false);
     const currentDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     const selectedBillTemplate = settings?.invoice?.billTemplate || 'Classic';
 
     const generateAndExportBill = async (size) => {
         if (onSavePrint) {
-            await onSavePrint(size, printCopyCount);
+            await onSavePrint(size, printCopyCount, isAuthorizedEnabled);
         }
     };
 
@@ -316,6 +317,24 @@ const BillingSidebar = ({
                     </TouchableOpacity>
                 </View>
             </View>
+            
+            {/* Authorized Signatory Toggle */}
+            <TouchableOpacity 
+                style={styles.authorizedToggleCard}
+                onPress={() => setIsAuthorizedEnabled(!isAuthorizedEnabled)}
+                activeOpacity={0.8}
+            >
+                <View style={styles.toggleTextSection}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Award size={14} color="#000" />
+                        <Text style={styles.toggleLabel}>Print Authorized Copy</Text>
+                    </View>
+                    <Text style={styles.toggleSubLabel}>Adds extra duplicate with signatory section</Text>
+                </View>
+                <View style={[styles.switchTrack, isAuthorizedEnabled && styles.switchTrackActive]}>
+                    <View style={[styles.switchThumb, isAuthorizedEnabled && styles.switchThumbActive]} />
+                </View>
+            </TouchableOpacity>
 
             <View style={styles.finalActions}>
                 {/* Printer Status Indicator */}
@@ -651,6 +670,65 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         color: '#000',
         letterSpacing: 0.5
+    },
+    // Authorized Toggle Styles
+    authorizedToggleCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#fff',
+        paddingHorizontal: 20,
+        paddingVertical: 18,
+        borderRadius: 24,
+        marginBottom: 20,
+        borderWidth: 1.5,
+        borderColor: '#f1f5f9',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 2
+    },
+    toggleTextSection: {
+        flex: 1,
+        marginRight: 15
+    },
+    toggleLabel: {
+        fontSize: 14,
+        fontWeight: '900',
+        color: '#1e293b',
+        letterSpacing: -0.2
+    },
+    toggleSubLabel: {
+        fontSize: 11,
+        color: '#94a3b8',
+        fontWeight: '600',
+        marginTop: 4
+    },
+    switchTrack: {
+        width: 44,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#e2e8f0',
+        padding: 2,
+        justifyContent: 'center'
+    },
+    switchTrackActive: {
+        backgroundColor: '#000'
+    },
+    switchThumb: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#fff',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 2
+    },
+    switchThumbActive: {
+        transform: [{ translateX: 20 }]
     }
 });
 

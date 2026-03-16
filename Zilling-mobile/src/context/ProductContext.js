@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { triggerAutoSave } from '../services/autosaveService';
 import { db } from '../services/database';
+const { SyncService, EventTypes } = require('../services/OneWaySyncService');
 
 const ProductContext = createContext();
 export const useProducts = () => useContext(ProductContext);
@@ -37,7 +38,7 @@ export const ProductProvider = ({ children }) => {
         return;
       }
       try {
-        const data = db.getAllSync('SELECT * FROM products ORDER BY name ASC');
+        const data = await db.getAllAsync('SELECT * FROM products ORDER BY name ASC');
         setProducts(data || []);
       } catch (err) {
         console.error('Failed to load products:', err);
@@ -51,7 +52,7 @@ export const ProductProvider = ({ children }) => {
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const data = db.getAllSync('SELECT * FROM products ORDER BY name ASC');
+      const data = await db.getAllAsync('SELECT * FROM products ORDER BY name ASC');
       setProducts(data || []);
     } finally {
       setLoading(false);
@@ -64,7 +65,7 @@ export const ProductProvider = ({ children }) => {
       const sku = data.sku || data.barcode || "";
 
       const normalizedVariants = normalizeVariants(data.variants);
-      db.runSync(
+      await db.runAsync(
         `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, data.name, sku, data.category, data.price, data.costPrice || 0, data.stock || 0, data.minStock || 0, data.unit, data.tax_rate, JSON.stringify(normalizedVariants), data.variant || null, new Date().toISOString()]
@@ -86,10 +87,13 @@ export const ProductProvider = ({ children }) => {
       // [Sync]
       let synced = false;
       try {
-        const { SyncService, EventTypes } = require('../services/OneWaySyncService');
         synced = await SyncService.createAndUploadEvent(EventTypes.PRODUCT_CREATED, newProduct);
       } catch (e) {
         console.log('Sync Add Product Error:', e);
+        // Rollback on failure
+        await db.runAsync(`DELETE FROM products WHERE id = ?`, [id]);
+        setProducts(prev => prev.filter(p => p.id !== id));
+        throw new Error('Sync failed. Product creation rolled back.');
       }
 
       return { ...newProduct, synced };
@@ -111,7 +115,14 @@ export const ProductProvider = ({ children }) => {
       const costPrice = parseFloat(data.cost_price || data.costPrice || 0) || 0;
       const minStock = parseInt(data.minStock ?? data.min_stock ?? 0) || 0;
 
-      db.runSync(
+      // GET OLD FOR ROLLBACK
+      let oldProductData = null;
+      try {
+        const dbRes = await db.getAllAsync('SELECT * FROM products WHERE id = ?', [id]);
+        if (dbRes && dbRes.length > 0) oldProductData = dbRes[0];
+      } catch (err) {}
+
+      await db.runAsync(
         `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, cost_price = ?, stock = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
         [
           data.name,
@@ -143,11 +154,8 @@ export const ProductProvider = ({ children }) => {
       triggerAutoSave();
 
       // [Sync Event] — build finalProduct from data directly.
-      // IMPORTANT: do NOT depend on products.find() because React state
-      // may still hold the old snapshot at this point in the async call.
       let synced = false;
       try {
-        const { SyncService, EventTypes } = require('../services/OneWaySyncService');
         const finalProduct = {
           ...data,
           id,
@@ -163,6 +171,19 @@ export const ProductProvider = ({ children }) => {
         synced = await SyncService.createAndUploadEvent(EventTypes.PRODUCT_UPDATED, finalProduct);
       } catch (e) {
         console.log('Sync Update Product Error:', e);
+        // Rollback on failure
+        if (oldProductData) {
+          await db.runAsync(
+            `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, cost_price = ?, stock = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
+            [
+              oldProductData.name, oldProductData.sku, oldProductData.category, oldProductData.price, 
+              oldProductData.cost_price, oldProductData.stock, oldProductData.min_stock, oldProductData.unit, 
+              oldProductData.tax_rate, oldProductData.variants, oldProductData.variant, oldProductData.updated_at, id
+            ]
+          );
+          setProducts(prev => prev.map(p => p.id === id ? oldProductData : p));
+        }
+        throw new Error('Sync failed. Product update rolled back.');
       }
       return synced;
     } catch (err) {
@@ -173,7 +194,7 @@ export const ProductProvider = ({ children }) => {
 
   const deleteProduct = async (id) => {
     try {
-      db.runSync('DELETE FROM products WHERE id = ?', [id]);
+      await db.runAsync('DELETE FROM products WHERE id = ?', [id]);
       setProducts(prev => prev.filter(p => p.id !== id));
 
       // [AutoSave]
@@ -181,7 +202,6 @@ export const ProductProvider = ({ children }) => {
 
       // [Sync]
       try {
-        const { SyncService, EventTypes } = require('../services/OneWaySyncService');
         SyncService.createAndUploadEvent(EventTypes.PRODUCT_DELETED, { id });
       } catch (e) {
         console.log('Sync Delete Product Error:', e);
@@ -196,7 +216,7 @@ export const ProductProvider = ({ children }) => {
     if (!ids || ids.length === 0) return;
     try {
       const placeholders = ids.map(() => '?').join(',');
-      db.runSync(`DELETE FROM products WHERE id IN (${placeholders})`, ids);
+      await db.runAsync(`DELETE FROM products WHERE id IN (${placeholders})`, ids);
 
       setProducts(prev => prev.filter(p => !ids.includes(p.id)));
 
@@ -205,7 +225,6 @@ export const ProductProvider = ({ children }) => {
 
       // [Sync]
       try {
-        const { SyncService, EventTypes } = require('../services/OneWaySyncService');
         ids.forEach(id => {
           SyncService.createAndUploadEvent(EventTypes.PRODUCT_DELETED, { id });
         });
@@ -221,10 +240,10 @@ export const ProductProvider = ({ children }) => {
   const updateStock = async (id, newStock, newMinStock = null) => {
     try {
       if (newMinStock !== null) {
-        db.runSync('UPDATE products SET stock = ?, min_stock = ? WHERE id = ?', [newStock, newMinStock, id]);
+        await db.runAsync('UPDATE products SET stock = ?, min_stock = ? WHERE id = ?', [newStock, newMinStock, id]);
         setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: newStock, minStock: newMinStock, min_stock: newMinStock } : p));
       } else {
-        db.runSync('UPDATE products SET stock = ? WHERE id = ?', [newStock, id]);
+        await db.runAsync('UPDATE products SET stock = ? WHERE id = ?', [newStock, id]);
         setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: newStock } : p));
       }
 
@@ -233,7 +252,6 @@ export const ProductProvider = ({ children }) => {
 
       // [Sync]
       try {
-        const { SyncService, EventTypes } = require('../services/OneWaySyncService');
         const payload = { id, stock: newStock };
         if (newMinStock !== null) payload.minStock = newMinStock;
 
@@ -251,7 +269,6 @@ export const ProductProvider = ({ children }) => {
     setLoading(true);
     try {
       const productsToInsert = [];
-      const { SyncService, EventTypes } = require('../services/OneWaySyncService');
 
       // 1. Prepare data with IDs
       for (const p of productsArray) {

@@ -1,6 +1,6 @@
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { db } from './database';
 import { generateUUID } from '../utils/crypto';
 import { getUserSpecificKey, SETTINGS_KEY } from '../utils/storageKeys';
@@ -846,20 +846,36 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
  * Sync Settings to Drive (User-specific folder)
  */
 export const syncSettingsToDrive = async (user, settings) => {
-  if (!user || !user.id || !settings) return;
+  if (!user || !user.id || !settings) {
+    console.log('[DriveSync] Aborting sync: Missing user or settings data.');
+    return;
+  }
 
   try {
     const accessToken = await getAccessToken();
+    if (!accessToken) {
+      console.log('[DriveSync] Aborting sync: No Google access token available.');
+      return false;
+    }
+
     const rootName = 'Kwiqbill';
     const backupName = 'kwiq bill backup';
+
+    console.log('[DriveSync] Starting sync to Google Drive...');
 
     // 1. Ensure Folder Structure Exists
     const rootId = await getOrCreateFolder(accessToken, rootName);
     const folderId = await getOrCreateFolder(accessToken, backupName, rootId);
 
-    // 2. Wrap settings in array for backwards compat
+    // 2. Prepare Payload
     // CLONE settings to avoid mutating state passed in
     const settingsToSave = JSON.parse(JSON.stringify(settings));
+    
+    // Log the key fields being saved (for verification)
+    console.log('[DriveSync] Saving settings. Invoice template:', settingsToSave.invoice?.template);
+    if (settingsToSave.invoice?.conditionsText) {
+        console.log('[DriveSync] Including conditions text:', settingsToSave.invoice.conditionsText.substring(0, 20) + '...');
+    }
 
     // CHECK FOR LOGO UPLOAD
     if (settingsToSave.store && settingsToSave.store.logo) {
@@ -1126,23 +1142,41 @@ export const fetchSettingsFromDrive = async (user) => {
     const localSettings = localSaved ? JSON.parse(localSaved) : {};
     const existingLogo = localSettings.store?.logo || null;
  
-    const merged = {
-      ...localSettings,
-      ...driveSettings,
-      store: {
-        ...(localSettings.store || {}),
-        ...(driveSettings.store || {}),
-        logo: existingLogo, // Logo comes from DB only
-      },
-      tax: { ...(localSettings.tax || {}), ...(driveSettings.tax || {}) },
-      invoice: { ...(localSettings.invoice || {}), ...(driveSettings.invoice || {}) },
-      defaults: { ...(localSettings.defaults || {}), ...(driveSettings.defaults || {}) },
-      bankDetails: {
-        accountName: '', accountNumber: '', ifsc: '', bankName: '', branch: '',
-        ...(localSettings.bankDetails || {}),
-        ...driveBank,
-      },
-    };
+    // MERGE STRATEGY: Only overwrite local settings if Drive is actually NEWER
+    // or if local settings are essentially empty (new device).
+    const localTime = localSettings.lastUpdatedAt ? new Date(localSettings.lastUpdatedAt).getTime() : 0;
+    const driveTime = driveSettings.lastUpdatedAt ? new Date(driveSettings.lastUpdatedAt).getTime() : 0;
+    
+    console.log(`[DriveSettings] Comparing Timestamps - Local: ${localSettings.lastUpdatedAt || 'never'}, Drive: ${driveSettings.lastUpdatedAt || 'never'}`);
+
+    // If local is newer, we DON'T want to overwrite with old drive data.
+    // However, if we're on a fresh install (no store name), we should definitely take the Drive data.
+    const isLocalFresh = !localSettings.store?.name;
+    
+    let merged;
+    if (driveTime > localTime || isLocalFresh) {
+      console.log('[DriveSettings] Drive data is newer or local is empty. Applying cloud preferences.');
+      merged = {
+        ...localSettings,
+        ...driveSettings,
+        store: {
+          ...(localSettings.store || {}),
+          ...(driveSettings.store || {}),
+          logo: existingLogo, // Logo comes from DB only
+        },
+        tax: { ...(localSettings.tax || {}), ...(driveSettings.tax || {}) },
+        invoice: { ...(localSettings.invoice || {}), ...(driveSettings.invoice || {}) },
+        defaults: { ...(localSettings.defaults || {}), ...(driveSettings.defaults || {}) },
+        bankDetails: {
+          accountName: '', accountNumber: '', ifsc: '', bankName: '', branch: '',
+          ...(localSettings.bankDetails || {}),
+          ...driveBank,
+        },
+      };
+    } else {
+      console.log('[DriveSettings] Local data is newer than Drive. Keeping local and skipping overwrite.');
+      return localSettings;
+    }
  
     await AsyncStorage.setItem(settingsKey, JSON.stringify(merged));
     console.log('[DriveSettings] ✅ Settings fetched from Drive and merged.');

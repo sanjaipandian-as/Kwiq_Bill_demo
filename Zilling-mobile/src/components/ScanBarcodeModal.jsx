@@ -9,6 +9,7 @@ import {
     Vibration,
     Animated
 } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Maximize2, X, Camera, AlertCircle } from 'lucide-react-native';
 import { useProducts } from '../context/ProductContext';
@@ -18,6 +19,7 @@ import { useToast } from '../context/ToastContext';
 export default function ScanBarcodeModal({ visible, onClose, onScanned, isInline, paused }) {
     const { products } = useProducts();
     const { showToast } = useToast();
+    const isFocused = useIsFocused();
 
     // Camera State
     const [permission, requestPermission] = useCameraPermissions();
@@ -95,7 +97,7 @@ export default function ScanBarcodeModal({ visible, onClose, onScanned, isInline
         }
     };
 
-    if (!visible) return null;
+    if (!visible || !isFocused) return null;
 
     if (!permission) {
         // Loading permission status
