@@ -8,7 +8,7 @@ const userSchema = mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-mongoose.connect('mongodb+srv://kaviraja:kaviraja6002@billingsoftware.00lfdzf.mongodb.net/BillingSoftware?retryWrites=true&w=majority')
+mongoose.connect('')
     .then(async () => {
         const user = await User.findOne({ email: 'sanjaipandian.as@gmail.com' });
         console.log("DB USER:", user);
