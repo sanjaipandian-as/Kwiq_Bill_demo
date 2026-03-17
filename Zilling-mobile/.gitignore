@@ -2,7 +2,7 @@
 
 # dependencies
 node_modules/
-
+.env
 # Expo
 .expo/
 dist/
@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# local development config
+src/config/local-env.js
