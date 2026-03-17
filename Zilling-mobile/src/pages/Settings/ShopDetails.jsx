@@ -54,17 +54,34 @@ const ShopDetails = () => {
     });
 
     const [saving, setSaving] = useState(false);
+    const [showErrors, setShowErrors] = useState(false);
 
     const handleChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
+        // Clear error for this field if user starts typing
+        if (showErrors) setShowErrors(false);
     };
 
     const isStep1Valid = () => {
-        return formData.storeName?.trim() && formData.contact?.trim();
+        return (
+            formData.storeName?.trim() &&
+            formData.legalName?.trim() &&
+            formData.contact?.trim() &&
+            formData.email?.trim()
+        );
     };
 
     const isStep2Valid = () => {
-        return formData.city?.trim() && formData.state?.trim();
+        const baseValid = (
+            formData.street?.trim() &&
+            formData.city?.trim() &&
+            formData.state?.trim() &&
+            formData.pincode?.trim()
+        );
+        if (formData.gstEnabled) {
+            return baseValid && formData.gstin?.trim();
+        }
+        return baseValid;
     };
 
     const isStep3Valid = () => {
@@ -79,8 +96,12 @@ const ShopDetails = () => {
     };
 
     const handleNext = () => {
-        if (currentStep < 3) {
+        if (canProceed()) {
             setCurrentStep(currentStep + 1);
+            setShowErrors(false);
+        } else {
+            setShowErrors(true);
+            Alert.alert('Incomplete Form', 'Please fill in all mandatory fields before proceeding.');
         }
     };
 
@@ -92,7 +113,8 @@ const ShopDetails = () => {
 
     const handleComplete = async () => {
         if (!isStep3Valid()) {
-            Alert.alert('Required Fields', 'Please fill in your name and mobile number.');
+            setShowErrors(true);
+            Alert.alert('Required Fields', 'Please fill in all mandatory fields marked with * before finalizing.');
             return;
         }
 
@@ -157,7 +179,7 @@ const ShopDetails = () => {
         <View style={styles.formContainer}>
             <View style={styles.inputWrapper}>
                 <Text style={styles.inputLabel}>Store Display Name *</Text>
-                <View style={styles.inputFieldContainer}>
+                <View style={[styles.inputFieldContainer, showErrors && !formData.storeName?.trim() && styles.errorInput]}>
                     <Store size={20} color="#000" style={styles.inputIcon} />
                     <TextInput
                         style={styles.input}
@@ -167,11 +189,12 @@ const ShopDetails = () => {
                         placeholderTextColor="#94a3b8"
                     />
                 </View>
+                {showErrors && !formData.storeName?.trim() && <Text style={styles.errorText}>Store name is required</Text>}
             </View>
 
             <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Legal Business Name</Text>
-                <View style={styles.inputFieldContainer}>
+                <Text style={styles.inputLabel}>Legal Business Name *</Text>
+                <View style={[styles.inputFieldContainer, showErrors && !formData.legalName?.trim() && styles.errorInput]}>
                     <Building2 size={20} color="#000" style={styles.inputIcon} />
                     <TextInput
                         style={styles.input}
@@ -181,11 +204,12 @@ const ShopDetails = () => {
                         placeholderTextColor="#94a3b8"
                     />
                 </View>
+                {showErrors && !formData.legalName?.trim() && <Text style={styles.errorText}>Legal business name is required</Text>}
             </View>
 
             <View style={styles.inputWrapper}>
                 <Text style={styles.inputLabel}>Contact Number *</Text>
-                <View style={styles.inputFieldContainer}>
+                <View style={[styles.inputFieldContainer, showErrors && !formData.contact?.trim() && styles.errorInput]}>
                     <Phone size={20} color="#000" style={styles.inputIcon} />
                     <TextInput
                         style={styles.input}
@@ -196,12 +220,13 @@ const ShopDetails = () => {
                         placeholderTextColor="#94a3b8"
                     />
                 </View>
+                {showErrors && !formData.contact?.trim() && <Text style={styles.errorText}>Contact number is required</Text>}
             </View>
 
             <View style={styles.row}>
                 <View style={[styles.col, styles.inputWrapper]}>
-                    <Text style={styles.inputLabel}>Email Address</Text>
-                    <View style={styles.inputFieldContainer}>
+                    <Text style={styles.inputLabel}>Email Address *</Text>
+                    <View style={[styles.inputFieldContainer, showErrors && !formData.email?.trim() && styles.errorInput]}>
                         <Mail size={18} color="#000" style={styles.inputIcon} />
                         <TextInput
                             style={styles.input}
@@ -213,6 +238,7 @@ const ShopDetails = () => {
                             placeholderTextColor="#94a3b8"
                         />
                     </View>
+                    {showErrors && !formData.email?.trim() && <Text style={styles.errorText}>Email address is required</Text>}
                 </View>
             </View>
         </View>
@@ -221,8 +247,8 @@ const ShopDetails = () => {
     const renderStep2 = () => (
         <View style={styles.formContainer}>
             <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Street Address</Text>
-                <View style={styles.inputFieldContainer}>
+                <Text style={styles.inputLabel}>Street Address *</Text>
+                <View style={[styles.inputFieldContainer, showErrors && !formData.street?.trim() && styles.errorInput]}>
                     <MapPin size={20} color="#000" style={styles.inputIcon} />
                     <TextInput
                         style={styles.input}
@@ -232,41 +258,45 @@ const ShopDetails = () => {
                         placeholderTextColor="#94a3b8"
                     />
                 </View>
+                {showErrors && !formData.street?.trim() && <Text style={styles.errorText}>Street address is required</Text>}
             </View>
 
             <View style={styles.row}>
                 <View style={styles.col}>
                     <Text style={styles.inputLabel}>City *</Text>
                     <TextInput
-                        style={[styles.input, styles.standaloneInput]}
+                        style={[styles.input, styles.standaloneInput, showErrors && !formData.city?.trim() && styles.errorInput]}
                         value={formData.city}
                         onChangeText={(v) => handleChange('city', v)}
                         placeholder="City"
                         placeholderTextColor="#94a3b8"
                     />
+                    {showErrors && !formData.city?.trim() && <Text style={styles.errorText}>City is required</Text>}
                 </View>
                 <View style={styles.col}>
                     <Text style={styles.inputLabel}>State *</Text>
                     <TextInput
-                        style={[styles.input, styles.standaloneInput]}
+                        style={[styles.input, styles.standaloneInput, showErrors && !formData.state?.trim() && styles.errorInput]}
                         value={formData.state}
                         onChangeText={(v) => handleChange('state', v)}
                         placeholder="State"
                         placeholderTextColor="#94a3b8"
                     />
+                    {showErrors && !formData.state?.trim() && <Text style={styles.errorText}>State is required</Text>}
                 </View>
             </View>
 
             <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Pincode</Text>
+                <Text style={styles.inputLabel}>Pincode *</Text>
                 <TextInput
-                    style={[styles.input, styles.standaloneInput]}
+                    style={[styles.input, styles.standaloneInput, showErrors && !formData.pincode?.trim() && styles.errorInput]}
                     value={formData.pincode}
                     onChangeText={(v) => handleChange('pincode', v)}
                     placeholder="123456"
                     keyboardType="numeric"
                     placeholderTextColor="#94a3b8"
                 />
+                {showErrors && !formData.pincode?.trim() && <Text style={styles.errorText}>Pincode is required</Text>}
             </View>
 
             <View style={styles.gstSection}>
@@ -286,15 +316,16 @@ const ShopDetails = () => {
 
                 {formData.gstEnabled && (
                     <View style={styles.gstInputContainer}>
-                        <Text style={styles.inputLabel}>GSTIN Number</Text>
+                        <Text style={styles.inputLabel}>GSTIN Number *</Text>
                         <TextInput
-                            style={[styles.input, styles.standaloneInput, styles.monoInput]}
+                            style={[styles.input, styles.standaloneInput, styles.monoInput, showErrors && !formData.gstin?.trim() && styles.errorInput]}
                             value={formData.gstin}
                             onChangeText={(v) => handleChange('gstin', v.toUpperCase())}
                             placeholder="22AAAAA0000A1Z5"
                             autoCapitalize="characters"
                             placeholderTextColor="#94a3b8"
                         />
+                        {showErrors && !formData.gstin?.trim() && <Text style={styles.errorText}>GSTIN is required when tax is enabled</Text>}
                     </View>
                 )}
             </View>
@@ -313,24 +344,26 @@ const ShopDetails = () => {
             <View style={styles.inputWrapper}>
                 <Text style={styles.inputLabel}>Account Owner Name *</Text>
                 <TextInput
-                    style={[styles.input, styles.standaloneInput]}
+                    style={[styles.input, styles.standaloneInput, showErrors && !formData.fullName?.trim() && styles.errorInput]}
                     value={formData.fullName}
                     onChangeText={(v) => handleChange('fullName', v)}
                     placeholder="e.g. John Doe"
                     placeholderTextColor="#94a3b8"
                 />
+                {showErrors && !formData.fullName?.trim() && <Text style={styles.errorText}>Owner name is required</Text>}
             </View>
 
             <View style={styles.inputWrapper}>
                 <Text style={styles.inputLabel}>Owner Mobile Number *</Text>
                 <TextInput
-                    style={[styles.input, styles.standaloneInput]}
+                    style={[styles.input, styles.standaloneInput, showErrors && !formData.mobile?.trim() && styles.errorInput]}
                     value={formData.mobile}
                     onChangeText={(v) => handleChange('mobile', v)}
                     placeholder="+91 98765 43210"
                     keyboardType="phone-pad"
                     placeholderTextColor="#94a3b8"
                 />
+                {showErrors && !formData.mobile?.trim() && <Text style={styles.errorText}>Mobile number is required</Text>}
             </View>
 
             <View style={styles.consentContainer}>
@@ -431,9 +464,8 @@ const ShopDetails = () => {
                             {currentStep < 3 ? (
                                 <TouchableOpacity
                                     activeOpacity={0.8}
-                                    style={[styles.nextBtn, !canProceed() && styles.disabledBtn]}
+                                    style={[styles.nextBtn]}
                                     onPress={handleNext}
-                                    disabled={!canProceed()}
                                 >
                                     <Text style={styles.nextText}>Continue</Text>
                                     <ChevronRight size={20} color="#fff" />
@@ -441,9 +473,9 @@ const ShopDetails = () => {
                             ) : (
                                 <TouchableOpacity
                                     activeOpacity={0.8}
-                                    style={[styles.completeBtn, (!canProceed() || saving) && styles.disabledBtn]}
+                                    style={[styles.completeBtn, saving && styles.disabledBtn]}
                                     onPress={handleComplete}
-                                    disabled={!canProceed() || saving}
+                                    disabled={saving}
                                 >
                                     {saving ? (
                                         <ActivityIndicator size="small" color="#fff" />
@@ -536,6 +568,9 @@ const styles = StyleSheet.create({
     completeBtn: { backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 10 },
     nextText: { color: '#fff', fontWeight: '900', fontSize: 15, textTransform: 'uppercase', letterSpacing: 0.5 },
     disabledBtn: { backgroundColor: '#e2e8f0', shadowOpacity: 0, elevation: 0 },
+
+    errorText: { color: '#ef4444', fontSize: 11, fontWeight: '700', marginTop: 4, marginLeft: 2 },
+    errorInput: { borderColor: '#ef4444' },
 
     securityNote: { textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 32, fontWeight: '800', letterSpacing: 0.5 }
 });
