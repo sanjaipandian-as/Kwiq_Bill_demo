@@ -125,14 +125,14 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
 
             // Add variant columns for the template (3 example sets)
             const variantExamples = [
-                { detail: 'Red', costPrice: '140', price: '160', stock: '25' },
-                { detail: 'Blue', costPrice: '145', price: '170', stock: '15' },
-                { detail: 'Green', costPrice: '135', price: '155', stock: '20' },
+                { detail: 'Red', costPrice: '140', price: '160', stock: '25', barcode: 'SKU-RED-001' },
+                { detail: 'Blue', costPrice: '145', price: '170', stock: '15', barcode: 'SKU-BLU-002' },
+                { detail: 'Green', costPrice: '135', price: '155', stock: '20', barcode: 'SKU-GRN-003' },
             ];
             for (let i = 0; i < TEMPLATE_VARIANT_EXAMPLES; i++) {
-                headers.push(`Variant ${i + 1} Detail`, `Variant ${i + 1} Cost Price (₹)`, `Variant ${i + 1} Price (₹)`, `Variant ${i + 1} Stock`);
-                const ex = variantExamples[i] || { detail: '', costPrice: '', price: '', stock: '' };
-                exampleRow.push(ex.detail, ex.costPrice, ex.price, ex.stock);
+                headers.push(`Variant ${i + 1} Detail`, `Variant ${i + 1} Cost Price (₹)`, `Variant ${i + 1} Price (₹)`, `Variant ${i + 1} Stock`, `Variant ${i + 1} Barcode`);
+                const ex = variantExamples[i] || { detail: '', costPrice: '', price: '', stock: '', barcode: '' };
+                exampleRow.push(ex.detail, ex.costPrice, ex.price, ex.stock, ex.barcode);
             }
 
             const ws = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
@@ -268,18 +268,22 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                     const vCostPrice = getVal([`variant${vi}costpricers`, `variant${vi}costprice`, `v${vi}costprice`, `variant${vi}cost`]);
                                     const vPrice = getVal([`variant${vi}pricers`, `variant${vi}price`, `v${vi}price`]);
                                     const vStock = getVal([`variant${vi}stock`, `v${vi}stock`, `variant${vi}qty`]);
+                                    const vBarcode = getVal([`variant${vi}barcode`, `v${vi}barcode`, `variant${vi}sku`, `v${vi}sku`]);
 
                                     // Stop when no variant detail is found
-                                    if (vDetail === undefined && vPrice === undefined && vStock === undefined) break;
+                                    if (vDetail === undefined && vPrice === undefined && vStock === undefined && vBarcode === undefined) break;
 
                                     if (vDetail && vDetail.toString().trim() !== '') {
+                                        const autoSku = `SKU-${Date.now()}-v${vi}`;
+                                        const barcodeVal = vBarcode ? vBarcode.toString().trim() : autoSku;
                                         variants.push({
                                             name: vDetail.toString().trim(),
                                             options: [vDetail.toString().trim()],
                                             cost_price: vCostPrice !== undefined ? parseFloat(vCostPrice) : 0,
                                             price: vPrice !== undefined ? parseFloat(vPrice) : null,
                                             stock: vStock !== undefined ? parseInt(vStock) : 0,
-                                            sku: `SKU-${Date.now()}-v${vi}`,
+                                            sku: barcodeVal,
+                                            barcode: barcodeVal,
                                         });
                                     }
                                     vi++;
@@ -388,14 +392,18 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
 
                 // Map data to format expected by importProducts
                 const mappedBatch = batch.map(item => {
-                    const parsedVariants = (item.variants || []).map(v => ({
-                        name: v.name || '',
-                        options: v.options || [v.name || ''],
-                        cost_price: parseFloat(v.cost_price || 0),
-                        price: v.price !== null && v.price !== undefined ? parseFloat(v.price) : null,
-                        stock: parseInt(v.stock || 0),
-                        sku: v.sku || `SKU-${Date.now()}`,
-                    }));
+                    const parsedVariants = (item.variants || []).map(v => {
+                        const varSku = v.sku || `SKU-${Date.now()}`;
+                        return {
+                            name: v.name || '',
+                            options: v.options || [v.name || ''],
+                            cost_price: parseFloat(v.cost_price || 0),
+                            price: v.price !== null && v.price !== undefined ? parseFloat(v.price) : null,
+                            stock: parseInt(v.stock || 0),
+                            sku: varSku,
+                            barcode: v.barcode || varSku,
+                        };
+                    });
 
                     // If variants exist, auto-sum variant stocks as total stock
                     const variantTotalStock = parsedVariants.length > 0
@@ -514,6 +522,8 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                             contentContainerStyle={s.content}
                             showsVerticalScrollIndicator={true}
                             bounces={true}
+                            nestedScrollEnabled={true}
+                            overScrollMode="always"
                             keyboardShouldPersistTaps="handled"
                         >
 
@@ -589,7 +599,7 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                                 </View>
                                             </View>
                                             <Text style={s.formatCardDesc}>
-                                                For each variant, add 4 columns:
+                                                For each variant, add 5 columns:
                                             </Text>
                                             <View style={s.variantFormatRow}>
                                                 <View style={s.variantFormatItem}>
@@ -608,9 +618,13 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                                     <Text style={s.variantFormatNum}>4</Text>
                                                     <Text style={s.variantFormatLabel}>Variant N Stock</Text>
                                                 </View>
+                                                <View style={s.variantFormatItem}>
+                                                    <Text style={s.variantFormatNum}>5</Text>
+                                                    <Text style={s.variantFormatLabel}>Variant N Barcode</Text>
+                                                </View>
                                             </View>
                                             <Text style={s.variantExample}>
-                                                Example: Variant 1 Detail = "Red", Variant 1 Cost Price = "140", Variant 1 Price = "160" ...
+                                                Example: Variant 1 Detail = "Red", Variant 1 Cost Price = "140", Variant 1 Price = "160", Variant 1 Stock = "25", Variant 1 Barcode = "SKU-RED-001"
                                             </Text>
                                         </View>
                                     </View>
@@ -687,12 +701,9 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                                 <AlertCircle size={16} color="#000" />
                                                 <Text style={s.errorsTitle}>{errors.length} rows skipped</Text>
                                             </View>
-                                            {errors.slice(0, 5).map((err, i) => (
+                                            {errors.map((err, i) => (
                                                 <Text key={i} style={s.errorItem}>• {err}</Text>
                                             ))}
-                                            {errors.length > 5 && (
-                                                <Text style={s.errorMore}>...and {errors.length - 5} more errors</Text>
-                                            )}
                                         </View>
                                     )}
 
@@ -709,9 +720,9 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                         </Text>
                                     </View>
 
-                                    {/* Preview Cards */}
-                                    <Text style={s.previewSectionTitle}>PREVIEW ({Math.min(parsedData.length, 5)} of {parsedData.length})</Text>
-                                    {parsedData.slice(0, 5).map((item, index) => (
+                                    {/* Preview Cards — Show ALL products */}
+                                    <Text style={s.previewSectionTitle}>ALL PRODUCTS ({parsedData.length})</Text>
+                                    {parsedData.map((item, index) => (
                                         <View key={index} style={s.previewCard}>
                                             <View style={s.previewRow}>
                                                 <View style={s.previewIconBox}>
@@ -752,9 +763,6 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                                             )}
                                         </View>
                                     ))}
-                                    {parsedData.length > 5 && (
-                                        <Text style={s.moreItems}>...and {parsedData.length - 5} more products</Text>
-                                    )}
                                 </View>
                             )}
 
@@ -903,7 +911,7 @@ const s = StyleSheet.create({
     subtitle: { fontSize: 13, color: '#646464', fontWeight: '600', marginTop: 2 },
     closeBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#e5e5e5' },
 
-    content: { paddingHorizontal: 20, paddingBottom: 40 },
+    content: { paddingHorizontal: 20, paddingBottom: 60, flexGrow: 1 },
 
 
     // Template Section
@@ -969,14 +977,17 @@ const s = StyleSheet.create({
     // Variant format
     variantFormatRow: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: 6,
         marginBottom: 8,
     },
     variantFormatItem: {
-        flex: 1,
+        minWidth: 55,
+        flexGrow: 1,
+        flexBasis: '17%',
         backgroundColor: '#fff',
         borderRadius: 10,
-        padding: 10,
+        padding: 8,
         alignItems: 'center',
         borderWidth: 1.5,
         borderColor: '#000',

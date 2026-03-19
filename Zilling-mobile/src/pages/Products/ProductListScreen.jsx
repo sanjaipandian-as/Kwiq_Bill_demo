@@ -110,6 +110,55 @@ const SortChip = ({ label, active, onPress }) => (
   </TouchableOpacity>
 );
 
+// ─── Barcode Selection Modal ─────────────────────────────────────────────────────────
+const BarcodeSelectionModal = ({ visible, onClose, data, settings }) => {
+  if (!visible || !data) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={vstyles.overlay}>
+        <TouchableOpacity style={vstyles.backdrop} activeOpacity={1} onPress={onClose} />
+        <View style={vstyles.sheet}>
+          <View style={vstyles.handle} />
+
+          <View style={vstyles.header}>
+            <View>
+              <Text style={vstyles.title}>Select Barcode</Text>
+              <Text style={vstyles.subtitle} numberOfLines={1}>{data.product.name}</Text>
+            </View>
+            <TouchableOpacity style={vstyles.closeBtn} onPress={onClose}>
+              <X size={22} color="#000" strokeWidth={2.5} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={vstyles.body} showsVerticalScrollIndicator={false}>
+            {data.options.map((option, index) => (
+              <TouchableOpacity key={index} style={styles.barcodeOptionCard} onPress={() => {
+                printBarcode(option.name, option.barcode, settings);
+                onClose();
+              }}>
+                <View style={styles.barcodeOptionIcon}>
+                  <Printer size={22} color="#000" strokeWidth={2.5} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.barcodeOptionName} numberOfLines={1}>{option.name}</Text>
+                  <Text style={styles.barcodeOptionVal}>{option.barcode}</Text>
+                </View>
+                <ChevronRight size={18} color="#ccc" />
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity style={[styles.insightDoneBtn, { marginTop: 10 }]} onPress={onClose}>
+              <Text style={styles.insightDoneText}>CANCEL</Text>
+            </TouchableOpacity>
+            <View style={{ height: 30 }} />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 // ─── Variants Modal ─────────────────────────────────────────────────────────
 const VariantsModal = ({ visible, onClose, product, onSave }) => {
   const [variants, setVariants] = useState([]);
@@ -566,6 +615,7 @@ const ProductsListScreen = ({ navigation }) => {
   const [variantsVisible, setVariantsVisible] = useState(false);
   const [variantMarginData, setVariantMarginData] = useState({ variant: null, productName: '' });
   const [variantMarginVisible, setVariantMarginVisible] = useState(false);
+  const [barcodeActionData, setBarcodeActionData] = useState(null);
 
   useEffect(() => { fetchProducts(); }, []);
 
@@ -625,6 +675,37 @@ const ProductsListScreen = ({ navigation }) => {
     newSet.has(id) ? newSet.delete(id) : newSet.add(id);
     if (newSet.size === 0) setSelectionMode(false);
     setSelectedRows(newSet);
+  };
+
+  const handleBarcodeClick = (item) => {
+    let variants = [];
+    try { variants = typeof item.variants === 'string' ? JSON.parse(item.variants) : (item.variants || []); } catch (e) { }
+
+    const options = [];
+    const mainBarcode = item.sku || item.barcode || item.id;
+    if (mainBarcode) {
+      options.push({ name: `${item.name} (Main)`, barcode: mainBarcode });
+    }
+
+    if (Array.isArray(variants)) {
+      variants.forEach((v, i) => {
+        const vbr = v.barcode || v.sku;
+        if (vbr) {
+          options.push({ name: `${item.name} - ${v.name || `Var ${i + 1}`}`, barcode: vbr });
+        }
+      });
+    }
+
+    if (options.length === 0) {
+      showToast("No barcode available to print.", "error");
+      return;
+    }
+
+    if (options.length === 1) {
+      printBarcode(options[0].name, options[0].barcode, settings);
+    } else {
+      setBarcodeActionData({ product: item, options });
+    }
   };
 
   const handleAddNew = () => { setEditingProduct(null); setIsDrawerOpen(true); };
@@ -899,7 +980,7 @@ const ProductsListScreen = ({ navigation }) => {
 
             {/* Actions */}
             <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => printBarcode(item.name, item.sku || item.barcode || item.id, settings)}>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => handleBarcodeClick(item)}>
                 <Printer size={18} color="#000" />
                 <Text style={styles.actionBtnText}>Barcode</Text>
               </TouchableOpacity>
@@ -1090,6 +1171,7 @@ const ProductsListScreen = ({ navigation }) => {
       <ProductDrawer visible={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} onSave={handleSaveProduct} product={editingProduct} />
       <BulkUploadModal visible={bulkUploadVisible} onClose={() => { setBulkUploadVisible(false); fetchProducts(); }} onImport={async (data) => { await importProducts(data); }} />
       <MarginInsightModal visible={insightVisible} onClose={() => setInsightVisible(false)} product={insightProduct} />
+      <BarcodeSelectionModal visible={!!barcodeActionData} data={barcodeActionData} onClose={() => setBarcodeActionData(null)} settings={settings} />
       <VariantsModal
         visible={variantsVisible}
         onClose={() => { setVariantsVisible(false); setVariantsProduct(null); }}
@@ -1356,5 +1438,11 @@ const styles = StyleSheet.create({
   profitAmount: { fontSize: 24, fontWeight: '800', color: '#000' },
   profitIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
   insightDoneBtn: { height: 54, backgroundColor: '#000', borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  insightDoneText: { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.5 }
+  insightDoneText: { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.5 },
+
+  // ─── BARCODE SELECTION MODAL ─────────────
+  barcodeOptionCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fafafa', borderWidth: 1.5, borderColor: '#eee', borderRadius: 16, padding: 14, marginBottom: 10, gap: 14 },
+  barcodeOptionIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#eee' },
+  barcodeOptionName: { fontSize: 14, fontWeight: '800', color: '#000', marginBottom: 2 },
+  barcodeOptionVal: { fontSize: 12, fontWeight: '600', color: '#888', letterSpacing: 0.5 }
 });

@@ -10,8 +10,10 @@ import {
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
+import { APP_VERSION } from '../config/version';
 
 const { width } = Dimensions.get('window');
+
 const MENU_WIDTH = width * 0.82;
 
 const MENU_GROUPS = [
@@ -118,11 +120,7 @@ const SideMenu = ({ isOpen, onClose }) => {
                                 {storeLogo ? (
                                     <Image source={{ uri: storeLogo }} style={styles.avatarImage} />
                                 ) : (
-                                    <View style={styles.avatarCircle}>
-                                        <Text style={styles.avatarText}>
-                                            {settings?.store?.name?.charAt(0) || user?.name?.charAt(0) || 'K'}
-                                        </Text>
-                                    </View>
+                                    <Image source={require('../../assets/kwiq.jpg')} style={styles.avatarImage} />
                                 )}
                             </View>
 
@@ -137,9 +135,9 @@ const SideMenu = ({ isOpen, onClose }) => {
                             </View>
                         </View>
 
-                        <TouchableOpacity 
-                            onPress={onClose} 
-                            activeOpacity={0.7} 
+                        <TouchableOpacity
+                            onPress={onClose}
+                            activeOpacity={0.7}
                             style={styles.closeBtn}
                         >
                             <View style={styles.closeIconWrapper}>
@@ -212,6 +210,10 @@ const SideMenu = ({ isOpen, onClose }) => {
                             <Text style={styles.logoutText}>SIGN OUT</Text>
                             <LogOut size={18} color="#000" strokeWidth={2.5} />
                         </TouchableOpacity>
+                        <View style={styles.versionContainer}>
+                            <Text style={styles.versionText}>KWIQ BILL {APP_VERSION}</Text>
+                        </View>
+
                     </View>
                 </Animated.View>
             </View>
@@ -379,7 +381,19 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         color: '#000',
         letterSpacing: 1.5,
+    },
+    versionContainer: {
+        marginTop: 16,
+        alignItems: 'center',
+        opacity: 0.5,
+    },
+    versionText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#fff',
+        letterSpacing: 2,
     }
 });
+
 
 export default SideMenu;

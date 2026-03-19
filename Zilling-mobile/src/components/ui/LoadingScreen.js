@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, StatusBar, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Zap } from 'lucide-react-native';
 
@@ -54,10 +54,14 @@ const LoadingScreen = ({ message = "Initializing..." }) => {
                     ]}
                 >
                     <LinearGradient
-                        colors={['#2563eb', '#3b82f6']}
+                        colors={['#000000', '#1a1a1a']}
                         style={styles.logoGradient}
                     >
-                        <Zap size={44} color="white" strokeWidth={2.5} />
+                        <Image
+                            source={require('../../../assets/kwiq.png')}
+                            style={{ width: 20, height: 20 }}
+                            resizeMode="contain"
+                        />
                     </LinearGradient>
                 </Animated.View>
 

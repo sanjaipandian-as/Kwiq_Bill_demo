@@ -40,6 +40,20 @@ export const ExpenseProvider = ({ children }) => {
             }
         };
         loadExpenses();
+
+        // ═══════════════════════════════════════════════════════════════
+        // AUTOMATIC REFRESH LISTENER
+        // ═══════════════════════════════════════════════════════════════
+        const { DeviceEventEmitter } = require('react-native');
+        const { SYNC_EVENTS } = require('../services/OneWaySyncService');
+        const refreshSub = DeviceEventEmitter.addListener(SYNC_EVENTS.DATA_UPDATED, () => {
+            console.log('[ExpenseContext] Cloud data updated, refreshing state...');
+            loadExpenses();
+        });
+
+        return () => {
+            refreshSub.remove();
+        };
     }, [user?.id]);
 
     const fetchExpenses = async () => {

@@ -20,6 +20,20 @@ export const CustomerProvider = ({ children }) => {
             setCustomers([]);
         }
         setLoading(false);
+
+        // ═══════════════════════════════════════════════════════════════
+        // AUTOMATIC REFRESH LISTENER
+        // ═══════════════════════════════════════════════════════════════
+        const { DeviceEventEmitter } = require('react-native');
+        const { SYNC_EVENTS } = require('../services/OneWaySyncService');
+        const refreshSub = DeviceEventEmitter.addListener(SYNC_EVENTS.DATA_UPDATED, () => {
+            console.log('[CustomerContext] Cloud data updated, refreshing state...');
+            refreshCustomers();
+        });
+
+        return () => {
+            refreshSub.remove();
+        };
     }, [user?.id]);
 
     const addCustomer = async (data) => {

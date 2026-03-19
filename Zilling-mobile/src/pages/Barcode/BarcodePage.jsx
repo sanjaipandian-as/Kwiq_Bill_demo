@@ -29,13 +29,13 @@ import {
   Type,
   Maximize2
 } from 'lucide-react-native';
-// import Barcode from 'react-native-barcode-svg'; // Commented out in original
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useProducts } from '../../context/ProductContext';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { addToBillingQueue } from '../../services/billingQueue';
 import { useToast } from '../../context/ToastContext';
+import { resolveBarcode, buildCartPayload, sanitizeBarcode } from '../../utils/barcodeUtils';
 
 const { width } = Dimensions.get('window');
 
@@ -153,41 +153,46 @@ export default function BarcodePage() {
     if (scanned) return;
     setScanned(true);
 
+    // SECURITY: Sanitize scanned data before any use (caps length, trims whitespace).
+    // A malformed/oversized QR code payload should not crash or flood the UI.
+    const safeData = sanitizeBarcode(data);
+    if (!safeData) {
+      showToast('Invalid barcode data received.', 'error');
+      setTimeout(() => { setScanned(false); }, 2000);
+      return;
+    }
+
     // Feedback: Sound + Vibration
     Vibration.vibrate();
     playScanSound();
 
-    // 1. Update visual
-    setInputValue(data);
-    setBarcodeValue(data);
+    // Update visual display
+    setInputValue(safeData);
+    setBarcodeValue(safeData);
 
-    // 2. Check if product exists (Check SKU first as it is the DB column)
-    const matchedProduct = products.find(p =>
-      (p.sku && p.sku.toLowerCase() === data.toLowerCase()) ||
-      (p.barcode && p.barcode.toLowerCase() === data.toLowerCase()) ||
-      p.id === data
-    );
+    // ── Variant-aware lookup (Priority: variant.barcode → variant.sku → product.sku → …) ──
+    const { product: matchedProduct, variant: matchedVariant, source } = resolveBarcode(safeData, products);
 
     if (matchedProduct) {
-      // 3. Add to billing queue
-      addToBillingQueue(matchedProduct);
+      // Build a cart-ready payload that carries variant context
+      const cartPayload = buildCartPayload(matchedProduct, matchedVariant);
 
-      // Success Toast
-      showToast(`Added "${matchedProduct.name}" to Billing Queue`, 'success');
+      addToBillingQueue(cartPayload);
 
-      // Auto-resume scanning after delay
-      setTimeout(() => {
-        setScanned(false);
-      }, 1500);
+      const displayName = matchedVariant
+        ? `${matchedProduct.name} (${matchedVariant.name || 'Variant'})`
+        : matchedProduct.name;
 
+      showToast(`Added "${displayName}" to Billing Queue`, 'success');
+
+      // Auto-resume scanning
+      setTimeout(() => { setScanned(false); }, 1500);
     } else {
-      // Error Toast
-      showToast(`Product not found: ${data}`, 'error');
+      // Barcode not found in any product or variant
+      showToast(`No product found for barcode: ${safeData}`, 'error');
 
-      // Auto-resume scanning after delay
-      setTimeout(() => {
-        setScanned(false);
-      }, 2000);
+      // Auto-resume scanning
+      setTimeout(() => { setScanned(false); }, 2000);
     }
   };
 

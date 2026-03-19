@@ -220,6 +220,16 @@ export const initializeDB = async (targetDb, logName = "passed_instance") => {
         internalNotes TEXT,
         taxType TEXT DEFAULT 'intra',
         weekly_sequence INTEGER DEFAULT 1,
+        receptionist_name TEXT,
+        receptionist_id TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS receptionists (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
         created_at TEXT,
         updated_at TEXT
       );
@@ -288,6 +298,8 @@ export const initializeDB = async (targetDb, logName = "passed_instance") => {
           { name: 'loyalty_points_redeemed', type: 'INTEGER DEFAULT 0' },
           { name: 'loyalty_points_earned', type: 'INTEGER DEFAULT 0' },
           { name: 'loyalty_points_discount', type: 'REAL DEFAULT 0' },
+          { name: 'receptionist_name', type: 'TEXT' },
+          { name: 'receptionist_id', type: 'TEXT' },
           { name: 'is_deleted', type: 'INTEGER DEFAULT 0' }
         ];
         for (const col of missingInvCols) {
@@ -319,11 +331,12 @@ export const fetchAllTableData = async () => {
     const settingsStr = await AsyncStorage.getItem(settingsKey);
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
 
-    const [customers, products, invoices, expenses] = await Promise.all([
+    const [customers, products, invoices, expenses, receptionists] = await Promise.all([
       currentDb.getAllAsync('SELECT * FROM customers'),
       currentDb.getAllAsync('SELECT * FROM products'),
       currentDb.getAllAsync('SELECT * FROM invoices'),
-      currentDb.getAllAsync('SELECT * FROM expenses')
+      currentDb.getAllAsync('SELECT * FROM expenses'),
+      currentDb.getAllAsync('SELECT * FROM receptionists')
     ]);
 
     return {
@@ -331,6 +344,7 @@ export const fetchAllTableData = async () => {
       products,
       invoices,
       expenses,
+      receptionists,
       settings: [settings],
     };
   } catch (error) {
@@ -349,6 +363,7 @@ export const clearDatabase = async () => {
     await currentDb.execAsync('DELETE FROM invoices');
     await currentDb.execAsync('DELETE FROM expenses'); 
     await currentDb.execAsync('DELETE FROM expense_adjustments');
+    await currentDb.execAsync('DELETE FROM receptionists');
     
     try {
         await currentDb.execAsync('DELETE FROM settings');

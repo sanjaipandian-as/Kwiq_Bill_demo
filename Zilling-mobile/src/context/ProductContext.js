@@ -11,20 +11,40 @@ export const ProductProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   // Normalization helper for variants
+  // SECURITY: All numeric fields coerced with explicit radix (parseInt base-10) to prevent
+  // octal parsing bugs. Barcode is sanitized to a plain string.
   const normalizeVariants = (variants) => {
-    return (variants || []).map(v => {
-      const computedCost = parseFloat((v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)) || 0;
+    if (!Array.isArray(variants)) return [];
+    return variants.map(v => {
+      if (!v || typeof v !== 'object') return null; // Skip corrupted entries
+      const computedCost = parseFloat(
+        (v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '')
+          ? v.cost_price
+          : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)
+      ) || 0;
+
+      // Resolve stock from whichever field is present
+      const rawStock =
+        (v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock
+        : (v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty
+        : (v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity
+        : 0;
+
+      // Resolve barcode: prefer explicit barcode field, fall back to sku
+      const resolvedBarcode = String(v.barcode || v.sku || '').trim();
+
       return {
         ...v,
-        name: String(v.name || v.detail || ''),
-        sku: String(v.sku || ''),
+        name: String(v.name || v.detail || '').trim(),
+        sku: String(v.sku || '').trim(),
+        barcode: resolvedBarcode,          // ← NEW: per-variant barcode
         cost_price: computedCost,
         costPrice: computedCost,
         price: (v.price !== null && v.price !== undefined && v.price !== '') ? parseFloat(v.price) : null,
-        stock: parseInt((v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock : ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty : ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))) || 0,
+        stock: parseInt(rawStock, 10) || 0, // explicit radix 10
         tax_rate: parseFloat(v.tax_rate || v.taxRate || 0) || 0,
       };
-    });
+    }).filter(Boolean); // Remove any null entries from corrupted data
   };
 
   const { user } = require('./AuthContext').useAuth();
@@ -47,6 +67,20 @@ export const ProductProvider = ({ children }) => {
       }
     };
     loadProducts();
+
+    // ═══════════════════════════════════════════════════════════════
+    // AUTOMATIC REFRESH LISTENER
+    // ═══════════════════════════════════════════════════════════════
+    const { DeviceEventEmitter } = require('react-native');
+    const { SYNC_EVENTS } = require('../services/OneWaySyncService');
+    const refreshSub = DeviceEventEmitter.addListener(SYNC_EVENTS.DATA_UPDATED, () => {
+        console.log('[ProductContext] Cloud data updated, refreshing state...');
+        loadProducts();
+    });
+
+    return () => {
+        refreshSub.remove();
+    };
   }, [user?.id]);
 
   const fetchProducts = async () => {
@@ -282,11 +316,13 @@ export const ProductProvider = ({ children }) => {
           price: parseFloat(p.price || p.sellingPrice || 0),
           cost_price: parseFloat(p.costPrice || p.cost_price || 0),
           stock: parseInt(p.stock || 0),
+          min_stock: parseInt(p.min_stock || p.minStock || 0),
           unit: p.unit || 'pcs',
           tax_rate: parseFloat(p.taxRate || p.tax_rate || 0),
           variants: normalizeVariants(p.variants),
           variant: p.variant || null,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         };
         productsToInsert.push(productObj);
       }
@@ -295,11 +331,11 @@ export const ProductProvider = ({ children }) => {
       await db.withTransactionAsync(async () => {
         for (const p of productsToInsert) {
           await db.runAsync(
-            `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               p.id, p.name, p.sku, p.category, p.price, p.cost_price, p.stock, p.min_stock || 0, p.unit, p.tax_rate,
-              JSON.stringify(p.variants), p.variant, p.created_at
+              JSON.stringify(p.variants), p.variant, p.created_at, p.updated_at
             ]
           );
         }

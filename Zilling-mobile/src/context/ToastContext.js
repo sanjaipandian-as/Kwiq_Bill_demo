@@ -9,9 +9,10 @@ import {
     PanResponder,
     Dimensions,
     StatusBar,
-    Vibration
+    Vibration,
+    Image
 } from 'react-native';
-import { CheckCircle2, AlertCircle, Info, X, AlertTriangle, BellRing, User } from 'lucide-react-native';
+import { CheckCircle2, AlertCircle, Info, X, AlertTriangle, BellRing, User, Contact, Printer, ShieldAlert } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const ToastContext = createContext();
@@ -24,10 +25,10 @@ export const ToastProvider = ({ children }) => {
     const [toasts, setToasts] = useState([]);
     const toastIdRef = useRef(0);
 
-    const showToast = useCallback((message, type = 'success', duration = 3500, action = null, title = null) => {
+    const showToast = useCallback((message, type = 'success', duration = 3500, action = null, title = null, image = null) => {
         const id = toastIdRef.current++;
         setToasts((prev) => {
-            const current = [...prev, { id, message, type, duration, action, title }];
+            const current = [...prev, { id, message, type, duration, action, title, image }];
             // Max 2 toasts to keep it clean
             if (current.length > 2) return current.slice(current.length - 2);
             return current;
@@ -66,7 +67,7 @@ export const ToastProvider = ({ children }) => {
 };
 
 const ToastItem = ({ toast, onRemove }) => {
-    const { message, type, duration, action, title } = toast;
+    const { message, type, duration, action, title, image } = toast;
     const translateY = useRef(new Animated.Value(-120)).current;
     const opacity = useRef(new Animated.Value(0)).current;
     const scale = useRef(new Animated.Value(0.9)).current;
@@ -166,6 +167,8 @@ const ToastItem = ({ toast, onRemove }) => {
             case 'customer': return <User size={20} color="#8b5cf6" strokeWidth={2.5} />;
             case 'black': return <BellRing size={20} color="#000" strokeWidth={2.5} />;
             case 'stock': return <AlertTriangle size={20} color="#f59e0b" strokeWidth={2.5} />;
+            case 'receptionist': return <Contact size={20} color="#10b981" strokeWidth={2.5} />;
+            case 'printer': return <Printer size={20} color="#fff" strokeWidth={2.5} />;
             default: return <BellRing size={20} color="#000" strokeWidth={2.5} />;
         }
     };
@@ -179,6 +182,8 @@ const ToastItem = ({ toast, onRemove }) => {
             case 'info': return '#3b82f6';
             case 'black': return '#000000';
             case 'stock': return '#f59e0b';
+            case 'receptionist': return '#10b981';
+            case 'printer': return '#ffffff';
             default: return '#000000';
         }
     };
@@ -193,31 +198,35 @@ const ToastItem = ({ toast, onRemove }) => {
             ]}
             {...panResponder.panHandlers}
         >
-            <View style={styles.blurContainer}>
+            <View style={[styles.blurContainer, type === 'printer' && styles.printerBlurContainer]}>
                 <View style={styles.content}>
-                    <View style={styles.iconContainer}>
-                        {getIcon()}
-                        <View style={[styles.statusDot, { backgroundColor: getStatusColor() }]} />
+                    <View style={[styles.iconContainer, type === 'printer' && { backgroundColor: '#222', borderColor: '#333', width: 44, height: 44 }]}>
+                        {image ? (
+                            <Image source={typeof image === 'string' ? { uri: image } : image} style={{ width: 34, height: 34, borderRadius: 8 }} />
+                        ) : (
+                            getIcon()
+                        )}
+                        <View style={[styles.statusDot, { backgroundColor: getStatusColor(), borderColor: type === 'printer' ? '#000' : '#fff' }, type === 'printer' && { width: 12, height: 12, borderRadius: 6, bottom: -4, right: -4 }]} />
                     </View>
 
                     <View style={styles.textContainer}>
                         {title && <Text style={[styles.titleText, { color: getStatusColor() }]}>{title}</Text>}
-                        <Text style={styles.messageText}>{message}</Text>
+                        <Text style={[styles.messageText, type === 'printer' && { color: '#fff' }]}>{message}</Text>
                         {action && (
                             <TouchableOpacity
                                 onPress={() => {
                                     action.onPress();
                                     animateOut();
                                 }}
-                                style={[styles.actionBtn, { borderColor: getStatusColor(), borderWidth: 1 }]}
+                                style={[styles.actionBtn, { borderColor: getStatusColor(), borderWidth: 1 }, type === 'printer' && { backgroundColor: '#fff' }]}
                             >
-                                <Text style={styles.actionBtnText}>{action.label}</Text>
+                                <Text style={[styles.actionBtnText, type === 'printer' && { color: '#000' }]}>{action.label}</Text>
                             </TouchableOpacity>
                         )}
                     </View>
 
-                    <TouchableOpacity onPress={animateOut} style={styles.closeBtn}>
-                        <X size={16} color="#64748b" strokeWidth={3} />
+                    <TouchableOpacity onPress={animateOut} style={[styles.closeBtn, type === 'printer' && { backgroundColor: '#333', borderColor: '#444' }]}>
+                        <X size={16} color={type === 'printer' ? '#fff' : '#64748b'} strokeWidth={3} />
                     </TouchableOpacity>
 
                     {/* Duration Progress Bar */}
@@ -226,6 +235,7 @@ const ToastItem = ({ toast, onRemove }) => {
                             style={[
                                 styles.progressBar,
                                 {
+                                    backgroundColor: type === 'printer' ? '#fff' : '#000',
                                     width: progressWidth.interpolate({
                                         inputRange: [0, 100],
                                         outputRange: ['0%', '100%']
@@ -266,6 +276,13 @@ const styles = StyleSheet.create({
         shadowRadius: 15,
         elevation: 12,
         backgroundColor: '#fff',
+    },
+    printerBlurContainer: {
+        backgroundColor: '#000',
+        borderColor: '#333',
+        borderWidth: 2,
+        shadowColor: '#000',
+        elevation: 20,
     },
     content: {
         flexDirection: 'row',
@@ -324,17 +341,21 @@ const styles = StyleSheet.create({
         borderColor: '#eee',
     },
     actionBtn: {
-        marginTop: 6,
-        backgroundColor: '#000',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 8,
+        marginTop: 8,
+        backgroundColor: '#fff',
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        borderRadius: 10,
         alignSelf: 'flex-start',
+        shadowColor: '#fff',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5,
+        shadowRadius: 5,
     },
     actionBtnText: {
         color: '#fff',
         fontSize: 12,
-        fontWeight: '700',
+        fontWeight: '900',
     },
     progressBackground: {
         position: 'absolute',

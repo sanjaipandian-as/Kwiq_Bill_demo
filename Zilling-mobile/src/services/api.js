@@ -15,10 +15,17 @@ try {
   LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP;
 }
 if (!LOCAL_IP) {
-  LOCAL_IP = '10.220.176.96';
+  LOCAL_IP = '10.149.174.96';
 }
+
+// Emulators use 10.0.2.2, but physical phones over USB/WiFi must use the actual IPv4 Address of your PC.
+// Since we detected 10.149.174.96 from your ipconfig, let's force that so physical phones work.
+let androidIp = LOCAL_IP === '127.0.0.1' || LOCAL_IP === 'localhost' || LOCAL_IP === '10.0.2.2' 
+  ? '10.149.174.96' 
+  : LOCAL_IP;
+
 const LOCAL_URL = Platform.OS === 'android'
-  ? `http://${LOCAL_IP}:5001`
+  ? `http://${androidIp}:5001`
   : `http://localhost:5001`;
 
 // Toggle this to true when deploying the APK
@@ -69,9 +76,9 @@ API.interceptors.response.use(
 
     if (error.response && error.response.status === 401) {
       const now = Date.now();
-      const isAuthRoute = error.config?.url?.includes('/auth/login') || 
-                         error.config?.url?.includes('/auth/google') ||
-                         error.config?.url?.includes('/auth/register');
+      const isAuthRoute = error.config?.url?.includes('/auth/login') ||
+        error.config?.url?.includes('/auth/google') ||
+        error.config?.url?.includes('/auth/register');
 
       if (now - lastReset > 60000) {
         unauthorizedCount = 1;
@@ -89,8 +96,8 @@ API.interceptors.response.use(
         const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
         if (!justLoggedIn) {
           console.warn('Unauthorized request - 401. Clearing token...');
-          await SecureStore.deleteItemAsync('token').catch(() => {});
-          await AsyncStorage.removeItem('user').catch(() => {});
+          await SecureStore.deleteItemAsync('token').catch(() => { });
+          await AsyncStorage.removeItem('user').catch(() => { });
         } else {
           console.log('[API] 401 detected but "just_logged_in" flag is set. Ignoring wipe.');
         }

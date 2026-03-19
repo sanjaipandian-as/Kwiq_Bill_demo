@@ -59,6 +59,7 @@ export const AuthProvider = ({ children }) => {
         const updatedUser = {
           ...userData,
           backendId: latestUser.id,
+          role: latestUser.role, // Added role
           trialExpiresAt: latestUser.trialExpiresAt,
           plan: latestUser.plan,
           planExpiresAt: latestUser.planExpiresAt,
@@ -67,7 +68,7 @@ export const AuthProvider = ({ children }) => {
         
         await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
         setUser(updatedUser);
-        console.log('[Auth] User profile refreshed from backend. Plan:', latestUser.plan);
+        console.log('[Auth] User profile refreshed from backend. Role:', latestUser.role, 'Plan:', latestUser.plan);
         return updatedUser;
       }
     } catch (error) {
@@ -145,6 +146,7 @@ export const AuthProvider = ({ children }) => {
       // Update userData with backend ID and trial info if available
       if (authResponse.user) {
         if (authResponse.user.id) userData.backendId = authResponse.user.id;
+        if (authResponse.user.role) userData.role = authResponse.user.role; // Added role
         if (authResponse.user.trialExpiresAt) userData.trialExpiresAt = authResponse.user.trialExpiresAt;
         if (authResponse.user.plan) userData.plan = authResponse.user.plan;
         if (authResponse.user.planExpiresAt) userData.planExpiresAt = authResponse.user.planExpiresAt;

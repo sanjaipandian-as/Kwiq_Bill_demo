@@ -447,6 +447,9 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
             receiptBody += drawLine('-'); // Divider line
             receiptBody += "\n\n" + center("_______________________");
             receiptBody += center("AUTHORIZED SIGNATORY") + "\n";
+            if (bill.receptionist_name) {
+                receiptBody += center("(" + bill.receptionist_name.toUpperCase() + ")");
+            }
         }
 
         // Optional Bank Details and Authorized Signatory
@@ -733,6 +736,9 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
             printData += drawLine('-'); // Divider line
             printData += "\n\n" + center("_______________________");
             printData += center("AUTHORIZED SIGNATORY") + "\n";
+            if (bill.receptionist_name) {
+                printData += center("(" + bill.receptionist_name.toUpperCase() + ")");
+            }
         }
 
         // Signatory (Only for Invoices)
@@ -1024,6 +1030,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                     <div style="margin-top: 15px; border-top: 1px dashed #000; padding-top: 25px; text-align: center;">
                         <div style="margin-bottom: 5px; opacity: 0.5;">____________________________</div>
                         <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">AUTHORIZED SIGNATORY</div>
+                        ${bill.receptionist_name ? `<div style="font-size: 10px; margin-top: 2px;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
                     </div>
                     ` : ''}
                 </div>
@@ -1225,6 +1232,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 <div style="margin-top: 15px; border-top: 1px dashed #000; padding-top: 25px; text-align: center;">
                     <div style="margin-bottom: 5px; opacity: 0.5;">____________________________</div>
                     <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">AUTHORIZED SIGNATORY</div>
+                    ${bill.receptionist_name ? `<div style="font-size: 10px; margin-top: 2px;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
                 </div>
                 ` : ''}
             </div>
@@ -1491,6 +1499,7 @@ const generateDetailedHTML = (bill, settings, colors) => {
                 <div class="col" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; text-align: right;">
                     <div class="bold">For ${store.name || ''}</div>
                     <div style="margin-top: 30px;">Authorised Signatory</div>
+                    ${bill.receptionist_name ? `<div style="font-size: 9px; margin-top: 2px;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
                 </div>
             </div>
         </div>
@@ -2382,11 +2391,7 @@ export const printReceipt = async (bill, arg2, arg3, arg4, options = {}) => {
                 await printBluetoothReceipt(bill, settings, format, mode, options);
             } else {
                 // Inform user why "bluetooth section" or printing is not working
-                Alert.alert(
-                    "Bluetooth Printer Error",
-                    "No Bluetooth Thermal Printer is connected. Please connect one in Settings -> Print & Hardware, or switch your Invoice Paper Size to A4/A5."
-                );
-                return;
+                throw new Error("No Bluetooth Thermal Printer is connected. Please connect one in Settings -> Print & Hardware, or switch your Invoice Paper Size to A4/A5.");
             }
         } else {
             // Using expo-print logic
@@ -2427,7 +2432,7 @@ export const printReceipt = async (bill, arg2, arg3, arg4, options = {}) => {
         }
     } catch (error) {
         console.error('Print error:', error);
-        Alert.alert('Printing Failed', String(error?.message || error || "Unknown Error from Bluetooth Printer"));
+        throw error;
     }
 };
 
@@ -2463,11 +2468,7 @@ export const printMultipleReceipts = async (bills, arg2, arg3) => {
                     }
                 }
             } else {
-                Alert.alert(
-                    "Bluetooth Printer Error",
-                    "No Bluetooth Thermal Printer is connected. Please connect one in Settings -> Print & Hardware, or switch your Invoice Paper Size to A4/A5."
-                );
-                return;
+                throw new Error("No Bluetooth Thermal Printer is connected. Please connect one in Settings -> Print & Hardware, or switch your Invoice Paper Size to A4/A5.");
             }
         } else {
             const combinedHtml = bills.map((bill, index) => {

@@ -4,6 +4,8 @@ import { ShieldCheck, Cloud, CheckCircle2, FileCheck, FileWarning, Info } from '
 import { LinearGradient } from 'expo-linear-gradient';
 import BrandLockup from '../../components/ui/BrandLockup';
 import KwiqLoader from '../../components/ui/KwiqLoader';
+import { APP_VERSION } from '../../config/version';
+
 
 const { width } = Dimensions.get('window');
 
@@ -60,7 +62,7 @@ const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
                 >
                     <SafeAreaView edges={['top']}>
                         <View style={styles.heroContent}>
-                            <BrandLockup width={width * 0.75} height={90} variant="light" />
+                            <BrandLockup width={width * 0.85} height={110} variant="light" />
                         </View>
                     </SafeAreaView>
                 </LinearGradient>
@@ -179,7 +181,8 @@ const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
                             <ShieldCheck size={14} color="#000000" />
                             <Text style={styles.securityTextMono}>BANK-GRADE AES-256 PROTECTION</Text>
                         </View>
-                        <Text style={styles.versionTextMono}>v2.0.4 · SECURE DATA CHANNEL · STABLE</Text>
+                        <Text style={styles.versionTextMono}>{APP_VERSION} · SECURE DATA CHANNEL · STABLE</Text>
+
                     </View>
                 </Animated.View>
             </View>
@@ -235,11 +238,17 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
     },
     heroGradient: {
-        paddingBottom: 60,
+        paddingBottom: 40,
         paddingTop: Platform.OS === 'android' ? 40 : 20,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     heroContent: {
+        width: '100%',
         alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: 10,
+        paddingRight: 25,
     },
     contentWrapper: {
         flex: 1,
@@ -453,18 +462,20 @@ const styles = StyleSheet.create({
     securityRowMono: {
         flexDirection: 'row',
         alignItems: 'center',
+        paddingTop: 8,
         gap: 6,
     },
     securityTextMono: {
         fontSize: 10,
         fontWeight: '900',
         color: '#000000',
+        paddingTop: 1,
         letterSpacing: 1,
     },
     versionTextMono: {
-        fontSize: 10,
+        fontSize: 8,
         fontWeight: '800',
-        color: '#CCCCCC',
+        color: '#272727ff',
         letterSpacing: 0.5,
     },
 

@@ -1,0 +1,103 @@
+# KWIQ BILL: ULTIMATE SECURITY & RECOVERY IMPLEMENTATION PLAN (V3 FINAL)
+
+================================================================================
+PART 1: THE PLAIN ENGLISH FLOW (For Management & Non-Technical Teams)
+================================================================================
+
+Step 1: Setting up the Vault (The First Login)
+When a manager logs into Kwiq Bill for the first time, the app asks them to create a 4-digit PIN to protect their data.
+* Behind the Scenes: Instead of just saving "1234", the app generates a massive, unbreakable password called the "Master Key". It hides this Master Key deep inside the phone's physical hardware chip.
+* The 12 Words: Before letting the manager proceed, the app generates 12 random words. The app forces the manager to write these words down on paper and proves they did it by asking them to tap specific words. This piece of paper is their ultimate offline backup.
+* The Cloud Backup: The app secretly encrypts that Master Key, links it to their permanent Google Account ID, and sends it to your Kwiq Bill server (MongoDB) to hold onto safely. The Google Drive vault is then locked.
+
+Step 2: Daily Operations (Using the App)
+Every morning, the manager opens Kwiq Bill.
+* The 60-Second Rule: If they leave the phone on the counter for 60 seconds, the app automatically locks the screen and wipes the temporary memory. They must type their PIN or scan their Face/Fingerprint to get back in.
+* The 15-Fail Safety Net: If a thief steals the phone and tries to guess the PIN 15 times, the phone detects an attack. It instantly deletes the Master Key from the phone. The Google Drive data remains 100% safe.
+
+Step 3: The Crisis (Forgot PIN or Lost Phone)
+Let's say the manager drops their phone in the ocean. They buy a brand new phone and install Kwiq Bill.
+* The Challenge: The new phone doesn't have the Master Key! Therefore, it cannot read the Google Drive file.
+* The Solution (Self-Service Recovery):
+   1. The manager clicks "Sign in with Google" on the new phone.
+   2. The app realizes they have a hidden backed-up Master Key on your Kwiq Bill MongoDB server.
+   3. The app says: "To prove this is you, we just emailed an 8-character code (like X9T-4BD) to your recovery email/phone number."
+   4. The manager types in X9T-4BD.
+   5. Your server verifies the code is correct, and releases the Master Key back to the phone.
+   6. The new phone instantly unlocks the Google Drive data, asks the manager to create a brand new 4-digit PIN, and business resumes automatically.
+
+Step 4: The Worst Case Scenario (The Deadzone)
+What if the manager lost their phone, their Google account is hacked, and they have no internet connection?
+* The 12-Word Rescue: They click "Offline Recovery." They type the 12 words they wrote down on a piece of paper during Step 1. Those 12 words mathematically rebuild the Master Key purely offline, saving their business data.
+
+
+================================================================================
+PART 2: THE TECHNICAL BLUEPRINT (For Developers)
+================================================================================
+
+Phase 1: Core Vault Crytography & Hardening
+1. Hardware-Backed Master Key: Replace email-based keys with a 256-bit AES random key in `expo-secure-store`.
+2. Advanced PIN Hashing (Argon2id Pathway): Hash Manager PINs using PBKDF2 with a 16-byte random salt and 250,000 iterations. Note: We will evaluate transitioning to Argon2id via `react-native-quick-crypto` once moving off Expo Go to permanently address GPU brute-forcing risks.
+3. HMAC Integrity: Generate an HMAC-SHA256 signature for the Google Drive file to detect MITM tampering.
+4. Certificate Pinning: Implement strict SSL Certificate Pinning via Axios interceptors or native packages to completely neutralize sophisticated MITM attacks utilizing fake infrastructure certificates.
+
+Phase 2: Active Defense Mechanisms
+1. Local Exponential Lockout: 3 fails -> 30s. 5 fails -> 5m. 10 fails -> 24h.
+2. The "Safe" Nuclear Wipe: At 15 failed PIN attempts, the app securely deletes local keys (`SecureStore`) but leaves Drive uncompromised.
+3. Auto-Lock & Memory Wipe: Integrate `<SecurityLock />` wrapping App.js for 60-second inactivity RAM wipe.
+4. Biometric Wrapper: Integrate `expo-local-authentication` (FaceID/Fingerprint) alongside the PIN to prevent shoulder surfing.
+
+Phase 3: Zero-Knowledge Key Escrow Backup (MongoDB)
+1. Anchored Encryption: The Master Key is encrypted using the stable `Google Primary Account ID` (NOT ephemeral Auth Tokens which rotate/deprecate) combined with a hardcoded App Secret.
+2. The `encryptedMasterKeyBackup` is sent to MongoDB.
+3. MongoDB Infrastructure Hardening: The MongoDB cluster must reside in a Private VPC, enforce tight IP Whitelisting, and utilize AES-256 Encryption-at-Rest.
+
+Phase 4: Self-Service Identity Verification
+1. Secondary Channel Setup: User maps a secure secondary SMS or email specifically for the OTP to prevent circular dependency if their Google account is breached.
+2. The OTP Flow: App detects missing vault -> queries backend -> backend sends 8-character alphanumeric OTP -> User enters OTP -> limits to 3 tries per hour -> Master Key returned on success.
+
+Phase 5: The "Offline Deadzone" Fallback (BIP39)
+1. 12-Word Recovery Phrase generated on setup.
+2. Ultra-Critical UX Protocol: The onboarding UI enforces a "Proof of Work" test (e.g., "Tap the 4th word"). It also includes explicit, unskippable red warnings: "Kwiq Bill CANNOT recover your data if you lose this physical backup along with your Google Account."
+
+Phase 6: Maintenance & Auditing
+1. Stale-Key & 90-Day Rotation Handler: Rotation is EVENT-DRIVEN. If the app is uninstalled for 4 months, upon reinstalling and logging in via the old backup key, the app actively detects the "Stale Key" state (> 90 days). It instantly executes a rotation: generates new key -> re-encrypts Drive -> pushes new backup -> deletes old keys. No cron jobs needed.
+2. Centralized Audit Logging: Send silent API calls to MongoDB for tracking `PIN_FAILED`, `PIN_SUCCESS`, and `RECOVERY_INITIATED`.
+3. Instant Email Alerts: Dispatch automated security emails to the primary owner when a recovery event concludes on a new device.
+
+
+================================================================================
+PART 3: SECURITY TEAM MITIGATION REPORT (Engineering Execution)
+================================================================================
+
+This section details the exact code-level actions required to close the 6 edge cases identified by the security team.
+
+1. PBKDF2 Aging -> Argon2id Pathway
+Because the app currently runs in Expo Go (JavaScript environment only), we enforce PBKDF2 at 250,000 iterations to max out mobile CPU and defend against basic attacks.
+FUTURE FIX: Once the app executes a custom native build (`npx expo prebuild`), we will install `react-native-quick-crypto` containing native C++ bindings to fully migrate hashing down to `Argon2id`.
+
+2. Google Auth Token Fragility -> Swap to Stable Anchor
+We will NOT use the ephemeral/expiring OAuth token (`idToken` or `accessToken`) provided by `@react-native-google-signin`. 
+FIX: We will extract `user.user.id`, which is the permanent, static numeric Google Account ID. This unchangeable string guarantees the encryption anchor never deprecates.
+
+3. Missing Certificate Pinning -> Axios SSL Validation
+FIX: We will utilize the public SHA-256 SSL thumbprint of our backend API infrastructure. An Axios interceptor or the `react-native-ssl-public-key-pinning` library will artificially abort any HTTPS request where the server's cert thumbprint does not match our hardcoded array, physically preventing Man-in-the-Middle Wi-Fi attacks.
+
+4. Unprotected MongoDB -> VPC Infrastructure Hardening
+This gap is resolved exclusively through DevOps configuration on the database host (e.g., MongoDB Atlas).
+FIX:
+- Navigate to Network Access. Delete the default `0.0.0.0/0` rule.
+- Explicitly whitelist ONLY the static IP address of the Node.js backend server.
+- Toggle "Encryption at Rest" utilizing an external KMS key or default server-side encryption.
+
+5. The Stale Key Edge Case -> Event-Driven Rotation
+FIX: Key rotation will not rely on background tasks or cron jobs.
+Instead, inside `SecurityService.verifyPin()`, upon successful PIN entry, we calculate:
+`if (Date.now() - savedRotationDate > 90 Days)` 
+If true, the app will instantly execute `generateNewKey()`, `reEncryptDrive()`, and update MongoDB before pushing the dashboard UI. This handles 6-month app uninstalls flawlessly without breaking the vault.
+
+6. Insufficient BIP39 Warning -> UX Proof of Work
+FIX: The React Native setup UI will physically disable the "Create Vault" button (`disabled={true}`). The user must pass a mini-quiz verifying their written phrase (e.g., "Select the 3rd and 9th word" from a list). The button only enables if `word3 === input3`, guaranteeing they have physically recorded the phrase and acknowledged the unskippable red penalty warning.
+
+---
+STATUS: ALL ARCHITECTURAL EDGE CASES RESOLVED. READY FOR CODE EXECUTION.

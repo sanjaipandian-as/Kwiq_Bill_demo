@@ -11,6 +11,14 @@ const DEVICE_ID_KEY = 'device_unique_id';
 const LAST_SNAPSHOT_TIME_KEY = 'last_snapshot_timestamp';
 const SNAPSHOT_THRESHOLD = 50; // Every 50 events, trigger a snapshot
 
+import { DeviceEventEmitter } from 'react-native';
+export const SYNC_EVENTS = {
+    SYNC_STARTED: 'SYNC_STARTED',
+    SYNC_COMPLETED: 'SYNC_COMPLETED',
+    SYNC_PROGRESS: 'SYNC_PROGRESS',
+    DATA_UPDATED: 'DATA_UPDATED' // Generic data changed event
+};
+
 // Event Types
 export const EventTypes = {
     INVOICE_CREATED: 'INVOICE_CREATED',
@@ -28,6 +36,9 @@ export const EventTypes = {
     INVOICE_STATUS_UPDATED: 'INVOICE_STATUS_UPDATED',
     PRODUCT_DELETED: 'PRODUCT_DELETED',
     PRODUCT_STOCK_ADJUSTED: 'PRODUCT_STOCK_ADJUSTED',
+    RECEPTIONIST_CREATED: 'RECEPTIONIST_CREATED',
+    RECEPTIONIST_UPDATED: 'RECEPTIONIST_UPDATED',
+    RECEPTIONIST_DELETED: 'RECEPTIONIST_DELETED',
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -131,10 +142,12 @@ function normalizeVariants(raw) {
     const list = normalizeItems(raw);
     return list.map(v => {
         const computedCost = Number((v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)) || 0;
+        const resolvedBarcode = String(v.barcode || v.sku || '').trim();
         return {
             ...v,
             name: String(v.name || v.detail || ''),
             sku: String(v.sku || ''),
+            barcode: resolvedBarcode,
             price: (v.price !== null && v.price !== undefined && v.price !== '') ? Number(v.price) : null,
             cost_price: computedCost,
             costPrice: computedCost,
@@ -210,6 +223,8 @@ function normalizeInvoicePayload(payload) {
         roundOff: parseFloat(payload.roundOff) || 0,
         amountReceived: parseFloat(payload.amountReceived) || 0,
         internalNotes: payload.internalNotes || '',
+        receptionist_name: payload.receptionist_name || payload.receptionistName || null,
+        receptionist_id: payload.receptionist_id || payload.receptionistId || null,
         is_deleted: payload.is_deleted ? 1 : 0,
     };
 }
@@ -274,6 +289,19 @@ function normalizeExpensePayload(payload) {
         payment_method: payload.payment_method || payload.paymentMethod || '',
         receipt_url: payload.receiptUrl || payload.receipt_url || '',
         tags: JSON.stringify(normalizeItems(payload.tags)),
+        created_at: payload.created_at || new Date().toISOString(),
+        updated_at: payload.updated_at || new Date().toISOString(),
+    };
+}
+
+/**
+ * Normalizes a receptionist payload.
+ */
+function normalizeReceptionistPayload(payload) {
+    return {
+        id: String(payload.id),
+        name: String(payload.name || ''),
+        is_active: payload.is_active !== undefined ? (payload.is_active ? 1 : 0) : 1,
         created_at: payload.created_at || new Date().toISOString(),
         updated_at: payload.updated_at || new Date().toISOString(),
     };
@@ -624,7 +652,7 @@ export const SyncService = {
             // Nuclear wipe and re-insert
             await clearDatabase();
             
-            const { customers, products, invoices, expenses } = snapshot.data;
+            const { customers, products, invoices, expenses, receptionists } = snapshot.data;
             
             // Re-insert logic (simplified for batch)
             await db.withTransactionAsync(async () => {
@@ -668,6 +696,16 @@ export const SyncService = {
                     );
                   }
                 }
+                if (Array.isArray(receptionists)) {
+                  for (const r of receptionists) {
+                    const nr = normalizeReceptionistPayload(r);
+                    await db.runAsync(
+                      `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?)`,
+                      [nr.id, nr.name, nr.is_active, nr.created_at, nr.updated_at]
+                    );
+                  }
+                }
             });
 
             // Update last sync time to the snapshot time
@@ -689,6 +727,7 @@ export const SyncService = {
 
     async syncDown(onProgress = () => { }) {
         try {
+            DeviceEventEmitter.emit(SYNC_EVENTS.SYNC_STARTED);
             const updateStatus = (msg, progress, stats) => {
                 console.log(`[Sync] ${msg}`);
                 onProgress(msg, progress, stats);
@@ -966,6 +1005,16 @@ export const SyncService = {
             const finalMsg = `Sync Complete! Applied ${processedCount} new events. ${failures > 0 ? `(${failures} failed)` : ''}`;
             updateStatus(finalMsg, 0.90, liveStats());
 
+            DeviceEventEmitter.emit(SYNC_EVENTS.SYNC_COMPLETED, {
+                processedCount,
+                failures
+            });
+
+            // If we processed anything, notify all contexts to refresh
+            if (processedCount > 0) {
+                DeviceEventEmitter.emit(SYNC_EVENTS.DATA_UPDATED);
+            }
+
             return {
                 success: failures === 0,
                 processedCount,
@@ -1143,6 +1192,7 @@ export const SyncService = {
                 fetchSnapshot('customers.json'),
                 fetchSnapshot('expenses.json'),
                 fetchSnapshot('invoices.json'),
+                fetchSnapshot('receptionists.json'),
             ]);
 
             // 3. WIPE all local data (the nuclear clear)
@@ -1153,8 +1203,9 @@ export const SyncService = {
             await db.execAsync('DELETE FROM expenses');
             await db.execAsync('DELETE FROM products');
             await db.execAsync('DELETE FROM customers');
+            await db.execAsync('DELETE FROM receptionists');
 
-            const restored = { products: 0, customers: 0, expenses: 0, invoices: 0 };
+            const restored = { products: 0, customers: 0, expenses: 0, invoices: 0, receptionists: 0 };
 
             // 4. Re-insert from snapshots using batched INSERT OR REPLACE
             // GOLDEN RULE #2: Idempotency — all inserts use INSERT OR REPLACE
@@ -1224,6 +1275,21 @@ export const SyncService = {
                             ]
                         );
                         restored.invoices++;
+                    }
+                });
+            }
+
+            if (receptionists && Array.isArray(receptionists) && receptionists.length > 0) {
+                onProgress(`Restoring ${receptionists.length} receptionists...`, 0.90);
+                await db.withTransactionAsync(async () => {
+                    for (const r of receptionists) {
+                        const nr = normalizeReceptionistPayload(r);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
+                             VALUES (?, ?, ?, ?, ?)`,
+                            [nr.id, nr.name, nr.is_active, nr.created_at, nr.updated_at]
+                        );
+                        restored.receptionists++;
                     }
                 });
             }
@@ -1453,6 +1519,24 @@ export const SyncService = {
                 } else {
                     await db.runAsync(`UPDATE products SET stock = ? WHERE id = ?`, [parseInt(payload.stock) || 0, payload.id]);
                 }
+            } else if (type === EventTypes.RECEPTIONIST_CREATED) {
+                const r = normalizeReceptionistPayload(payload);
+                await db.runAsync(
+                    `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?)`,
+                    [r.id, r.name, r.is_active, r.created_at, r.updated_at]
+                );
+
+            } else if (type === EventTypes.RECEPTIONIST_UPDATED) {
+                const r = normalizeReceptionistPayload(payload);
+                await db.runAsync(
+                    `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?)`,
+                    [r.id, r.name, r.is_active, r.created_at, r.updated_at]
+                );
+
+            } else if (type === EventTypes.RECEPTIONIST_DELETED) {
+                await db.runAsync(`DELETE FROM receptionists WHERE id = ?`, [payload.id]);
             }
         } catch (e) {
             console.error(`[Sync] Apply Event Error (${type}):`, e);
@@ -1518,6 +1602,17 @@ export const SyncService = {
                     console.log(`[Sync] Retried & Uploaded: ${item.fileName}`);
                 } catch (e) {
                     console.log(`[Sync] Retry failed for ${item.fileName}`);
+                }
+            }
+
+            // ─── NEW: RETRY SECURITY VAULT SYNC ───
+            if (user) {
+                try {
+                    const { SecurityService } = require('./SecurityService');
+                    await SecurityService.retryPendingSync(user);
+                    console.log('[Sync] Security Vault retry check complete.');
+                } catch (vaultErr) {
+                    console.warn('[Sync] Security Vault retry failed:', vaultErr.message);
                 }
             }
         } catch (e) {

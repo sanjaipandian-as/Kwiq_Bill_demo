@@ -8,12 +8,15 @@ import services, { API } from '../services/api';
 import { useNetwork } from './NetworkContext';
 import { useToast } from './ToastContext';
 import { getUserSpecificKey, SETTINGS_KEY } from '../utils/storageKeys';
+import { SecurityService } from '../services/SecurityService';
 import CryptoJS from 'crypto-js';
 
 const SENSITIVE_FIELDS = [
     { section: 'bankDetails', fields: ['accountName', 'accountNumber', 'ifsc', 'bankName', 'branch'] },
     { section: 'user', fields: ['fullName', 'mobile', 'email'] },
-    { section: 'store', fields: ['name', 'legalName', 'contact', 'email', 'gstin', 'address', 'fssai', 'pan'] }
+    { section: 'store', fields: ['name', 'legalName', 'contact', 'email', 'gstin', 'address', 'fssai', 'pan'] },
+    { section: 'receptionists', fields: ['name'] },
+    { section: 'security', fields: ['managerPin'] }
 ];
 
 const SettingsContext = createContext();
@@ -95,6 +98,11 @@ export const SettingsProvider = ({ children, user }) => {
                 contact: true
             }
         },
+        security: {
+            managerPin: null,
+            lastPinVerifiedAt: null
+        },
+        receptionists: [],
         onboardingCompletedAt: null,
         lastUpdatedAt: null
     });
@@ -169,39 +177,43 @@ export const SettingsProvider = ({ children, user }) => {
         const processed = JSON.parse(JSON.stringify(data)); // Deep clone
 
         SENSITIVE_FIELDS.forEach(({ section, fields }) => {
-            if (processed[section]) {
+            const sectionData = processed[section];
+            if (!sectionData) return;
+
+            // Helper for single object processing
+            const processObject = (obj) => {
                 fields.forEach(field => {
-                    const value = processed[section][field];
-                    if (value) {
-                        try {
-                            if (mode === 'encrypt') {
-                                // Only encrypt if not already encrypted
-                                const strValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-                                if (!strValue.startsWith('U2FsdGVkX1')) {
-                                    processed[section][field] = CryptoJS.AES.encrypt(strValue, email).toString();
-                                }
-                            } else {
-                                // Only decrypt if it looks like a ciphertext
-                                if (typeof value === 'string' && value.startsWith('U2FsdGVkX1')) {
-                                    const bytes = CryptoJS.AES.decrypt(value, email);
-                                    const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                                    if (decrypted) {
-                                        try {
-                                            // Try parsing as JSON in case it was a nested object (like address)
-                                            processed[section][field] = (decrypted.startsWith('{') || decrypted.startsWith('[')) 
-                                                ? JSON.parse(decrypted) 
-                                                : decrypted;
-                                        } catch (e) {
-                                            processed[section][field] = decrypted;
-                                        }
-                                    }
+                    const value = obj[field];
+                    if (!value) return;
+                    try {
+                        if (mode === 'encrypt') {
+                            const strValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                            if (!strValue.startsWith('U2FsdGVkX1')) {
+                                obj[field] = CryptoJS.AES.encrypt(strValue, email).toString();
+                            }
+                        } else {
+                            if (typeof value === 'string' && value.startsWith('U2FsdGVkX1')) {
+                                const bytes = CryptoJS.AES.decrypt(value, email);
+                                const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                                if (decrypted) {
+                                    try {
+                                        obj[field] = (decrypted.startsWith('{') || decrypted.startsWith('[')) 
+                                            ? JSON.parse(decrypted) 
+                                            : decrypted;
+                                    } catch (e) { obj[field] = decrypted; }
                                 }
                             }
-                        } catch (err) {
-                            console.warn(`[Crypto] Failed to ${mode} field ${section}.${field}:`, err.message);
                         }
+                    } catch (err) {
+                        console.warn(`[Crypto] Failed to ${mode} field ${section}.${field}:`, err.message);
                     }
                 });
+            };
+
+            if (Array.isArray(sectionData)) {
+                sectionData.forEach(item => processObject(item));
+            } else {
+                processObject(sectionData);
             }
         });
         return processed;
@@ -310,15 +322,17 @@ export const SettingsProvider = ({ children, user }) => {
             let hasUnlockedUI = false;
 
             if (user && user.id) {
-                // OFFLINE-FIRST: Unblock the UI immediately if local profile is complete
+                // Determine if we should unlock immediately (Offline-First) 
+                // OR wait for alignment (user request).
                 try {
                     const saved = await AsyncStorage.getItem(settingsKey);
                     if (saved) {
                         const local = JSON.parse(saved);
                         if (local.onboardingCompletedAt || !!local.store?.name) {
-                            console.log('[SettingsContext] Local settings verified. Unlocking UI instantly for Offline-First.');
+                            console.log('[SettingsContext] Local settings verified. Preparing to align data...');
                             setDbProfileComplete(!!local.onboardingCompletedAt);
-                            setLoading(false);
+                            
+                            // ─── ALIGNMENT LOGIC (Wait for sync but don't hang too long) ───
                             hasUnlockedUI = true;
                         }
                     }
@@ -326,31 +340,61 @@ export const SettingsProvider = ({ children, user }) => {
                     console.log('Error verifying offline settings:', e);
                 }
 
-                // 2. Run Network Syncs (will occur in background if UI was already unlocked)
+                // 2. Run Network Syncs
                 (async () => {
-                    console.log('[SettingsContext] Beginning background sync process...');
+                    console.log('[SettingsContext] Beginning data alignment & sync process...');
                     let isFreshLogin = false;
                     try {
                         const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
                         if (justLoggedIn === 'true') {
                             isFreshLogin = true;
-                            console.log('[SettingsContext] Skipping syncAllData — user just completed fresh login sync.');
+                            console.log('[SettingsContext] Fresh login sync detected.');
                             await AsyncStorage.removeItem('just_logged_in'); // Consume the flag
 
                             // Only show countdown if the UI is still locked
-                            if (!hasUnlockedUI) {
-                                for (let i = 3; i > 0; i--) {
-                                    setSyncStatus(`Aligning Your Data... (Est. time: ${i}s)`);
-                                    await new Promise(r => setTimeout(r, 1000));
-                                }
-                                setSyncStatus('Data was aligned. Opening app...');
-                                await new Promise(r => setTimeout(r, 600)); // Give the success checkmark time to show
+                            for (let i = 2; i > 0; i--) {
+                                setSyncStatus(`Finalizing Database... (Est. time: ${i}s)`);
+                                await new Promise(r => setTimeout(r, 1000));
                             }
+                            setSyncStatus('Data was aligned. Opening app...');
+                            await new Promise(r => setTimeout(r, 600)); 
                         } else {
-                            await syncAllData(false); // Does syncDown in the background
+                            // IF ALREADY LOGGED IN: Ensure we check cloud but don't wait forever
+                            const syncPromise = syncAllData(false);
+                            
+                            // If local data exists, we show "Aligning" for at least 2 seconds 
+                            // to ensure some progress is visible before navigating to dashboard.
+                            if (hasUnlockedUI) {
+                                setSyncStatus('Checking for recent updates...');
+                                await new Promise(r => setTimeout(r, 1500)); // Visible polish delay
+                                
+                                // Wait at most 4 more seconds for the sync to complete 
+                                // to handle "directly opening" issue on slow networks.
+                                await Promise.race([
+                                    syncPromise,
+                                    new Promise(r => setTimeout(r, 4000))
+                                ]);
+                            } else {
+                                // No local data? MUST wait for sync to finish.
+                                await syncPromise;
+                            }
                         }
                     } catch (e) {
-                        console.warn('[SettingsContext] Background sync check failed:', e.message);
+                        console.warn('[SettingsContext] Alignment check failed:', e.message);
+                    } finally {
+                        // UNLOCK UI ONLY AFTER ALIGNMENT IS COMPLETE (OR TIMED OUT)
+                        setLoading(false);
+                    }
+
+                    // STEP 0: Fetch Security Vault (PIN & Receptionists)
+                    try {
+                        console.log('[SettingsContext] Syncing Security Vault (PIN/Staff)...');
+                        const vaultRecep = await SecurityService.getReceptionists(user);
+                        if (vaultRecep && vaultRecep.length > 0) {
+                            setSettings(prev => ({ ...prev, receptionists: vaultRecep }));
+                        }
+                    } catch (secErr) {
+                        console.warn('[SettingsContext] Security Vault fetch failed:', secErr.message);
                     }
 
                     // STEP 1: Fetch store/bank/tax/invoice settings from Google Drive
@@ -452,10 +496,7 @@ export const SettingsProvider = ({ children, user }) => {
                         }
                     }
 
-                    // Ensure loading is set to false exactly once if it hasn't been already
-                    if (!hasUnlockedUI) {
-                        setLoading(false);
-                    }
+                    // Sync process finished
                 })();
             } else {
                 setDbProfileComplete(false);
@@ -544,6 +585,16 @@ export const SettingsProvider = ({ children, user }) => {
             AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
 
             (async () => {
+                // Background Security Vault Update
+                if (section === 'security' && updates.managerPin) {
+                    try {
+                        await SecurityService.saveVault(user, updates.managerPin, newSettings.receptionists);
+                        console.log('[SettingsContext] Manager PIN saved to Secure Vault');
+                    } catch (secErr) {
+                        console.error('[SettingsContext] Security Vault Save failed:', secErr.message);
+                    }
+                }
+
                 // Background logo upload if it's the store section and logo changed
                 let finalSettings = newSettings;
                 if (section === 'store' && updates.logo && !updates.logo.startsWith('http')) {
@@ -793,6 +844,125 @@ export const SettingsProvider = ({ children, user }) => {
         }
     };
 
+    const addReceptionist = async (name) => {
+        const newReceptionist = {
+            id: `RECEP-${Date.now()}`,
+            name,
+            is_active: 1,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+
+        const updatedReceptionists = [...(settings.receptionists || []), newReceptionist];
+        const updated = {
+            ...settings,
+            receptionists: updatedReceptionists,
+            lastUpdatedAt: new Date().toISOString()
+        };
+
+        // 1. Update Global State
+        setSettings(updated);
+
+        // 2. Drive & Local Vault Save (Primary Secure Storage - NO DATABASE)
+        try {
+            await SecurityService.saveVault(user, settings.security?.managerPin, updatedReceptionists);
+            console.log('[SettingsContext] Receptionist saved to Secure Vault');
+        } catch (e) {
+            console.error('[SettingsContext] Secure Vault Save failed:', e.message);
+        }
+
+        // 3. Fallback Legacy DB/Sync (Keep for backward compatibility with BillingPage queries)
+        try {
+            const { db } = require('../services/database');
+            const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+            await db.runAsync(
+                'INSERT INTO receptionists (id, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+                [newReceptionist.id, newReceptionist.name, newReceptionist.is_active, newReceptionist.created_at, newReceptionist.updated_at]
+            );
+            SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_CREATED, newReceptionist);
+        } catch (e) {
+            console.warn('[SettingsContext] Legacy DB update failed:', e.message);
+        }
+    };
+
+    const updateReceptionist = async (id, name) => {
+        const updatedAt = new Date().toISOString();
+        const updatedReceptionists = settings.receptionists.map(r => r.id === id ? { ...r, name, updated_at: updatedAt } : r);
+        const updated = {
+            ...settings,
+            receptionists: updatedReceptionists,
+            lastUpdatedAt: updatedAt
+        };
+
+        setSettings(updated);
+
+        try {
+            await SecurityService.saveVault(user, settings.security?.managerPin, updatedReceptionists);
+        } catch (e) { console.error('[SettingsContext] Vault update failed:', e); }
+
+        // Update SQLite (Legacy)
+        try {
+            const { db } = require('../services/database');
+            const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+            await db.runAsync('UPDATE receptionists SET name = ?, updated_at = ? WHERE id = ?', [name, updatedAt, id]);
+            SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_UPDATED, { id, name, updated_at: updatedAt });
+        } catch (e) {
+            console.warn('[SettingsContext] Legacy update failed:', e.message);
+        }
+    };
+
+    const toggleReceptionistActive = async (id, isActive) => {
+        const updatedAt = new Date().toISOString();
+        const activeStatus = isActive ? 1 : 0;
+        const updatedReceptionists = settings.receptionists.map(r => r.id === id ? { ...r, is_active: activeStatus, updated_at: updatedAt } : r);
+        const updated = {
+            ...settings,
+            receptionists: updatedReceptionists,
+            lastUpdatedAt: updatedAt
+        };
+
+        setSettings(updated);
+
+        try {
+            await SecurityService.saveVault(user, settings.security?.managerPin, updatedReceptionists);
+        } catch (e) { console.error('[SettingsContext] Vault toggle failed:', e); }
+
+        // Update SQLite (Legacy)
+        try {
+            const { db } = require('../services/database');
+            const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+            await db.runAsync('UPDATE receptionists SET is_active = ?, updated_at = ? WHERE id = ?', [activeStatus, updatedAt, id]);
+            SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_UPDATED, { id, is_active: activeStatus, updated_at: updatedAt });
+        } catch (e) {
+            console.warn('[SettingsContext] Legacy toggle failed:', e.message);
+        }
+    };
+
+    const deleteReceptionist = async (id) => {
+        const updatedReceptionists = settings.receptionists.filter(r => r.id !== id);
+        const updated = {
+            ...settings,
+            receptionists: updatedReceptionists,
+            lastUpdatedAt: new Date().toISOString()
+        };
+
+        setSettings(updated);
+
+        try {
+            await SecurityService.saveVault(user, settings.security?.managerPin, updatedReceptionists);
+        } catch (e) { console.error('[SettingsContext] Vault delete failed:', e); }
+
+        // Update SQLite (Legacy)
+        try {
+            const { db } = require('../services/database');
+            const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+            await db.runAsync('DELETE FROM receptionists WHERE id = ?', [id]);
+            SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_DELETED, { id });
+        } catch (e) {
+            console.warn('[SettingsContext] Legacy delete failed:', e.message);
+        }
+    };
+
     const syncToCloud = async () => {
         if (!user || !user.id) {
             Alert.alert("Cloud Backup", "Please log in with Google to enable Cloud Backup.");
@@ -916,6 +1086,10 @@ export const SettingsProvider = ({ children, user }) => {
             forceResync,
             repairSync,
             deepRepair,
+            addReceptionist,
+            updateReceptionist,
+            toggleReceptionistActive,
+            deleteReceptionist,
             lastEventSyncTime,
             syncStatus,
             loading,
@@ -926,7 +1100,8 @@ export const SettingsProvider = ({ children, user }) => {
             dbProfileComplete,
             syncStats,
             estimatedUploadTime,
-            isConnected
+            isConnected,
+            verifyManagerPin: async (pin) => await SecurityService.verifyPin(pin, user?.email)
         }}>
             {children}
         </SettingsContext.Provider>
