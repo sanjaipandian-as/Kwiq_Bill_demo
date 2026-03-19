@@ -5,13 +5,15 @@ import {
     Trash2,
     PlusCircle,
     Award,
-    FileText,
-    Percent
+    Percent,
+    Contact,
+    FileText
 } from 'lucide-react-native';
 
 const BottomFunctionBar = ({ onFunctionClick, variant = 'fixed' }) => {
     const functions = [
         { key: 'F4', label: 'Remove', icon: Trash2, color: '#ef4444', bg: '#fff1f2' },
+        { key: 'F7', label: 'Staff', icon: Contact, color: '#10b981', bg: '#ecfdf5' },
         { key: 'F8', label: 'Charges', icon: PlusCircle, color: '#8b5cf6', bg: '#f5f3ff' },
         { key: 'F9', label: 'Bill Disc', icon: Tag, color: '#f59e0b', bg: '#fffbeb' },
         { key: 'F12', label: 'Remarks', icon: FileText, color: '#64748b', bg: '#f8fafc' },

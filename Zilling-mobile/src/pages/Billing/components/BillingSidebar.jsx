@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, 
 import { Card } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-import { Calculator, Printer, Scan, Calendar, Save, Plus, Award, HelpCircle, Star, Minus } from 'lucide-react-native';
+import { Calculator, Printer, Scan, Calendar, Save, Plus, Award, HelpCircle, Star, Minus, Contact } from 'lucide-react-native';
 import CalculatorModal from './CalculatorModal';
 
 // Import for PDF Export
@@ -35,7 +35,9 @@ const BillingSidebar = ({
     onConnectPrinter,
     onLoyaltyClick,
     loyaltyPointsRedeemed = 0,
-    remarks = ''
+    remarks = '',
+    receptionist = null,
+    onReceptionistClick
 }) => {
     const isVIP = customer && (
         typeof customer.tags === 'string'
@@ -46,6 +48,7 @@ const BillingSidebar = ({
     const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
     const [printCopyCount, setPrintCopyCount] = useState(1);
     const [isAuthorizedEnabled, setIsAuthorizedEnabled] = useState(false);
+    const activeReceptionists = (settings?.receptionists || []).filter(r => r.is_active === 1);
     const currentDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     const selectedBillTemplate = settings?.invoice?.billTemplate || 'Classic';
 
@@ -94,6 +97,26 @@ const BillingSidebar = ({
                     <Plus size={16} color="#000" />
                 </View>
             </TouchableOpacity>
+
+            {/* Receptionist Section */}
+            {activeReceptionists.length > 0 && (
+                <TouchableOpacity onPress={onReceptionistClick} style={styles.receptionistCard}>
+                    <View style={[styles.customerIcon, { backgroundColor: receptionist ? '#10b981' : '#f1f5f9' }]}>
+                        <Contact size={20} color={receptionist ? '#fff' : '#64748b'} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.labelSmall}>ISSUED BY</Text>
+                        <Text style={[styles.customerNameMain, !receptionist && { color: '#94a3b8' }]}>
+                            {receptionist ? receptionist.name : 'Select Staff'}
+                        </Text>
+                    </View>
+                    {receptionist && (
+                        <View style={styles.verifiedBadge}>
+                            <Award size={10} color="#10b981" />
+                        </View>
+                    )}
+                </TouchableOpacity>
+            )}
 
             {/* Loyalty Points Section - Only visible when customer is selected */}
             {customer && (
@@ -386,6 +409,30 @@ const styles = StyleSheet.create({
     labelSmall: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 1, marginBottom: 4 },
     customerNameMain: { fontSize: 16, fontWeight: '800', color: '#000' },
     addBtnCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+    
+    receptionistCard: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        gap: 12, 
+        backgroundColor: '#fff', 
+        padding: 12, 
+        borderRadius: 20, 
+        borderWidth: 1.5, 
+        borderColor: '#f1f5f9', 
+        marginBottom: 20,
+        marginLeft: 8,
+        marginRight: 8
+    },
+    verifiedBadge: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#ecfdf5',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#d1fae5'
+    },
 
     taxToggleContainer: { marginBottom: 20, paddingHorizontal: 4 },
     taxSwitch: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 12, padding: 4, borderWidth: 1, borderColor: '#f1f5f9' },

@@ -12,6 +12,8 @@ import BrandLockup from '../../components/ui/BrandLockup';
 import KwiqBillText from '../../components/ui/KwiqBillText';
 
 import DataSyncPage from './DataSyncPage';
+import { APP_VERSION } from '../../config/version';
+
 
 const { width, height } = Dimensions.get('window');
 
@@ -266,11 +268,13 @@ export default function LoginPage() {
                   </Text>
                 </View>
 
+
                 {/* ── FOOTER ── */}
                 <View style={styles.footer}>
                   <View style={styles.footerLine} />
-                  <Text style={styles.footerCopy}>© 2026 Kwiq Bill · v2.0.4</Text>
+                  <Text style={styles.footerCopy}>© 2026 Kwiq Bill · {APP_VERSION}</Text>
                 </View>
+
               </View>
             </ScrollView>
           </Animated.View>

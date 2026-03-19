@@ -1188,3 +1188,48 @@ export const fetchSettingsFromDrive = async (user) => {
     return null;
   }
 };
+
+export const syncSecurityVaultToDrive = async (user, vaultData) => {
+  if (!user || !user.email || !vaultData) return false;
+  try {
+    const { getAccessToken, getOrCreateFolder, uploadFileToFolder, encryptContent } = require('./googleDriveservices');
+    const accessToken = await getAccessToken();
+    const folderId = await getOrCreateFolder(accessToken, 'kwiq bill backup', await getOrCreateFolder(accessToken, 'Kwiqbill'));
+    const content = encryptContent(JSON.stringify(vaultData), user.email);
+    await uploadFileToFolder(accessToken, folderId, 'security_vault.json', content);
+    return true;
+  } catch (error) {
+    console.error('[DriveSecure] Vault sync failed:', error.message);
+    return false;
+  }
+};
+
+export const fetchSecurityVaultFromDrive = async (user) => {
+  if (!user || !user.email) return null;
+  try {
+    const { getAccessToken, fetchWithTimeout } = require('./googleDriveservices');
+    const CryptoJS = require('crypto-js');
+    const accessToken = await getAccessToken();
+    const query = `name='security_vault.json' and trashed=false`;
+    const searchRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const searchData = await searchRes.json();
+    const fileId = searchData.files?.[0]?.id;
+    if (!fileId) return null;
+    const contentRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const encryptedText = await contentRes.text();
+    if (encryptedText && encryptedText.trim().startsWith('U2FsdGVkX1')) {
+      const bytes = CryptoJS.AES.decrypt(encryptedText.trim(), user.email);
+      const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+      return JSON.parse(decrypted);
+    }
+    return null;
+  } catch (error) {
+    console.error('[DriveSecure] Vault fetch failed:', error.message);
+    return null;
+  }
+};
+

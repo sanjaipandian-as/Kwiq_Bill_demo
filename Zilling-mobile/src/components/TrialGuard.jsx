@@ -46,11 +46,11 @@ const TrialGuard = ({ children }) => {
         });
 
         const sub = DeviceEventEmitter.addListener('TRIAL_EXPIRED_EVENT', () => {
-             setStatus(prev => ({ ...prev, expired: true }));
+            setStatus(prev => ({ ...prev, expired: true }));
         });
 
         return () => {
-             if (sub) sub.remove();
+            if (sub) sub.remove();
         };
     }, [user]);
 

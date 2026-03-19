@@ -15,6 +15,7 @@ import { Maximize2, X, Camera, AlertCircle } from 'lucide-react-native';
 import { useProducts } from '../context/ProductContext';
 import { addToBillingQueue } from '../services/billingQueue';
 import { useToast } from '../context/ToastContext';
+import { resolveBarcode, buildCartPayload, sanitizeBarcode } from '../utils/barcodeUtils';
 
 export default function ScanBarcodeModal({ visible, onClose, onScanned, isInline, paused }) {
     const { products } = useProducts();
@@ -58,41 +59,39 @@ export default function ScanBarcodeModal({ visible, onClose, onScanned, isInline
     const handleBarCodeScanned = ({ type, data }) => {
         if (scanned || paused) return;
         setScanned(true);
-        console.log(`[Scanner] Scanned: ${data} (${type})`);
+
+        // SECURITY: Sanitize scanned payload before any display or lookup.
+        const safeData = sanitizeBarcode(data);
+        if (!safeData) {
+            showToast('Invalid barcode data received.', 'error');
+            setTimeout(() => setScanned(false), 2000);
+            return;
+        }
 
         // Feedback
-        try {
-            Vibration.vibrate();
-        } catch (e) { }
+        try { Vibration.vibrate(); } catch (e) { }
 
-        // Check if product exists - Normalized check
-        const normalizedData = data.trim().toLowerCase();
-
-        // Debug
-        console.log(`[Scanner] Searching in ${products.length} products...`);
-
-        const matchedProduct = products.find(p => {
-            const sku = (p.sku || '').toLowerCase();
-            const barcode = (p.barcode || '').toLowerCase(); // Ensure barcode field is checked
-            return sku === normalizedData || barcode === normalizedData || p.id.toString() === data;
-        });
+        // ── Variant-aware 5-level lookup ──
+        const { product: matchedProduct, variant: matchedVariant } = resolveBarcode(safeData, products);
 
         if (matchedProduct) {
-            console.log(`[Scanner] Match found: ${matchedProduct.name}`);
+            const cartPayload = buildCartPayload(matchedProduct, matchedVariant);
+
             if (onScanned) {
-                onScanned(matchedProduct);
+                // BillingPage inline scanner: pass resolved payload up
+                onScanned(cartPayload, matchedVariant);
             } else {
-                addToBillingQueue(matchedProduct);
-                showToast(`Added "${matchedProduct.name}"`, 'success');
+                // Standalone: push direct to billing queue
+                addToBillingQueue(cartPayload);
+                const displayName = matchedVariant
+                    ? `${matchedProduct.name} (${matchedVariant.name || 'Variant'})`
+                    : matchedProduct.name;
+                showToast(`Added "${displayName}"`, 'success');
             }
 
-            // Auto-resume
             setTimeout(() => setScanned(false), 1500);
-
         } else {
-            console.log(`[Scanner] No match found for: ${data}`);
-            showToast(`Product not found: ${data}`, 'error');
-            // Auto-resume
+            showToast(`Product not found: ${safeData}`, 'error');
             setTimeout(() => setScanned(false), 2000);
         }
     };

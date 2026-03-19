@@ -51,7 +51,22 @@ export const TransactionProvider = ({ children }) => {
                 setLoading(false);
             }
         };
+
         loadTransactions();
+
+        // ═══════════════════════════════════════════════════════════════
+        // AUTOMATIC REFRESH LISTENER
+        // ═══════════════════════════════════════════════════════════════
+        const { DeviceEventEmitter } = require('react-native');
+        const { SYNC_EVENTS } = require('../services/OneWaySyncService');
+        const refreshSub = DeviceEventEmitter.addListener(SYNC_EVENTS.DATA_UPDATED, () => {
+            console.log('[TransactionContext] Cloud data updated, refreshing state...');
+            loadTransactions();
+        });
+
+        return () => {
+            refreshSub.remove();
+        };
     }, [user?.id]);
 
     const fetchTransactions = async () => {

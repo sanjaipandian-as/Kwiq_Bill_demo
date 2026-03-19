@@ -57,6 +57,7 @@ import {
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useSettings } from '../../context/SettingsContext';
+import { APP_VERSION } from '../../config/version';
 import { 
   printReceipt, 
   shareReceiptPDF, 
@@ -890,7 +891,15 @@ export default function InvoicesPage() {
             <Text style={styles.emptySubtitle}>Try adjusting your filters or search term</Text>
           </View>
         }
+        ListFooterComponent={
+          <View style={{ padding: 40, alignItems: 'center', opacity: 0.5 }}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', letterSpacing: 1.5 }}>KWIQ BILL • {APP_VERSION}</Text>
+            <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', marginTop: 4 }}>POWERED BY ZILLING</Text>
+          </View>
+        }
       />
+
+
 
       {/* --- DETAILS MODAL --- */}
       <Modal visible={isDetailModalVisible} animationType="slide" transparent={true} onRequestClose={() => setDetailModalVisible(false)}>

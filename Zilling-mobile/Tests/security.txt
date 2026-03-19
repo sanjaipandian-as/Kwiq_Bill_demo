@@ -1,0 +1,81 @@
+# Enterprise-Grade Security Implementation Plan
+
+## Overview
+This plan upgrades the data protection of the Kwiq Bill application from "Standard" to "Bank-Grade" by implementing hardware-backed encryption, advanced hashing, and tamper protection.
+
+## The 6-Fix Security Architecture
+
+### Fix 1 — Random Master Encryption Key
+- **Current:** Uses user email as the encryption key (predictable).
+- **Update:** Remove email-based keys. Generate a cryptographically random 256-bit key on first app launch using `crypto.getRandomValues()`. 
+- **Secret:** This key is the "Root of Trust" for all sensitive data.
+
+### Fix 2 — PBKDF2 PIN Hashing
+- **Current:** Raw SHA-256 (vulnerable to high-speed rainbow table attacks).
+- **Update:** Generate a random 16-byte salt. Hash the PIN using PBKDF2 with 100,000 iterations and SHA-256. This turns a simple 4-digit PIN into a computationally expensive target.
+
+### Fix 3 — Move All Crypto Materials to SecureStore
+- **Current:** AsyncStorage (unencrypted "soft" storage).
+- **Update:** Move Master Key, PIN Salt, and Hashed PIN exclusively to `expo-secure-store`. This utilizes the phone's Hardware Security Module (HSM) / Secure Enclave, making key extraction near-impossible even on rooted devices.
+
+### Fix 4 — Exponential Backoff Lockout
+- **Goal:** Prevent manual and automated brute-force attempts.
+- **Schedule:**
+    - 3 failed attempts → lock for 30 seconds
+    - 5 failed attempts → lock for 5 minutes
+    - 7 failed attempts → lock for 30 minutes
+    - 10 failed attempts → lock for 24 hours
+    - 15 failed attempts → **Wipe and reset the vault completely** (Nuclear Option)
+- **Persistence:** Counters are stored in SecureStore to prevent bypass via "Clear App Data".
+
+### Fix 5 — HMAC Vault Integrity Verification
+- **Goal:** Detect if the `security_vault.json` on Google Drive or local cache has been tampered with.
+- **Method:** Generate an HMAC-SHA256 signature using the Master Key. Store it alongside the encrypted data. Reject and alarm if the signature check fails during loading.
+
+### Fix 6 — Secure Memory Handling and Auto-Lock
+- **Background Protection:** Listen to AppState. Immediately clear decrypted vault data from memory and lock the app when it goes to the background.
+- **Inactivity Timer:** Auto-lock after 60 seconds of inactivity inside the app.
+- **Log Hygiene:** Ensure zero sensitive data is printed to the console in production.
+
+---
+
+## Security Layer Comparison Table
+
+| Feature | Current State | Proposed High-Security State (Bank-Grade) |
+| :--- | :--- | :--- |
+| **Master Key** | User Email (Publicly known) | **256-bit Random Secret** |
+| **Key Storage** | Software-based (AsyncStorage) | **Hardware-Backed (SecureStore)** |
+| **PIN Hashing** | SHA-256 (Fast/Crackable) | **PBKDF2 (100k rounds - Slow/Ultra-Secure)** |
+| **Integrity** | None (Blind Decryption) | **HMAC Verification (Detects Tampering)** |
+| **Brute Force** | Unlimited tries | **Exponential Lockout + Nuclear Auto-Reset** |
+| **Data in RAM** | Persistent in global state | **Background Wipe & 60s Auto-Lock** |
+
+## Advanced Hardening (The "10/10" Requirements)
+
+### Fix 7 — Biometric Authentication (FaceID/Fingerprint)
+- **Goal:** Prevent "Shoulder Surfing" (people watching you type your PIN).
+- **Implementation:** Use `expo-local-authentication`. Biometrics will act as a secure wrapper for the Master Key. The key is only released from SecureStore upon a successful biometric match.
+
+### Fix 8 — SecureStore Schema & Namespace
+- **Goal:** Prevent data corruption or logic bypasses in the hardware enclave.
+- **Schema:**
+    - `kwiq.master_key`: 256-bit AES Master Key
+    - `kwiq.hmac_key`: Key for integrity signatures
+    - `kwiq.pin_hash`: PBKDF2 derivative for verification
+    - `kwiq.pin_salt`: 16-byte random salt
+    - `kwiq.lockout_meta`: { attempts: number, last_fail: timestamp }
+
+### Fix 9 — Master Key Rotation & Re-encryption
+- **Goal:** Limit the "Blast Radius" of a theoretically stolen key.
+- **Strategy:** Once every 180 days (or upon user request), generate a new Master Key, decrypt the vault with the old key, re-encrypt with the new key, and update the signature.
+
+### Fix 10 — Certificate Pinning (Optional/Advanced)
+- **Goal:** Prevent Man-in-the-Middle (MITM) attacks on public Wi-Fi.
+- **Action:** Add public key hashes for Google APIs to the network configuration to ensure the app *only* talks to genuine Google servers.
+
+---
+
+## Security Notes:
+1. **Backward Compatibility:** If an existing user logs in, the system will detect the absence of a SecureStore key and generate one automatically on first use.
+2. **Performance:** PBKDF2 100k rounds may take ~1s on older devices; UI will show a professional "Securely Verifying..." state to manage user expectations.
+3. **Storage Limit:** SecureStore is capped at 2KB; we will only store keys and metadata there, keeping the large encrypted staff lists on Drive/AsyncStorage.

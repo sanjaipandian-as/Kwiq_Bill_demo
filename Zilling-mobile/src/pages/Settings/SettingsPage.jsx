@@ -7,6 +7,7 @@ import MinimalInvoiceTemplate from './MinimalInvoiceTemplate';
 import ClassicInvoiceTemplate from './ClassicInvoiceTemplate';
 import ThermalInvoiceTemplate from './ThermalInvoiceTemplate';
 import ProfessionalThermalTemplate from './ProfessionalThermalTemplate';
+import ManagerPinGate from './ManagerPinGate';
 import { BLEPrinter } from 'react-native-thermal-receipt-printer-image-qr';
 import * as Device from 'expo-device';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -59,6 +60,7 @@ import {
   ShieldCheck,
   CheckCircle,
   User,
+  Contact,
   Landmark,
   Fingerprint,
   Crown,
@@ -68,7 +70,8 @@ import {
   Gem,
   Sparkles,
   Menu,
-  Activity
+  Activity,
+  Users
 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
@@ -81,11 +84,18 @@ import { Input } from '../../components/ui/Input';
 import { Card } from '../../components/ui/Card';
 import services from '../../services/api';
 import { testPrinter, resetPrinterConnection } from '../../utils/printUtils';
+import { APP_VERSION } from '../../config/version';
 
 const SettingsPage = ({ navigation, route }) => {
+
   // Trigger clear cache
   const { user, logout, refreshUser } = useAuth();
-  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, backupDataToCloud, forceResync, repairSync, deepRepair, lastEventSyncTime, syncStatus, loading, queueLength, isUploading, isLogoUploading, estimatedUploadTime, isConnected, checkQueueStatus } = useSettings();
+  const {
+    settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, backupDataToCloud,
+    forceResync, repairSync, deepRepair, lastEventSyncTime, syncStatus, loading,
+    queueLength, isUploading, isLogoUploading, estimatedUploadTime, isConnected, checkQueueStatus,
+    addReceptionist, updateReceptionist, toggleReceptionistActive, deleteReceptionist
+  } = useSettings();
   const { fetchCustomers } = useCustomers();
   const { fetchProducts } = useProducts();
   const { fetchTransactions } = useTransactions();
@@ -103,8 +113,14 @@ const SettingsPage = ({ navigation, route }) => {
   const resyncFadeAnim = React.useRef(new Animated.Value(0)).current;
   const [isRepairModalVisible, setIsRepairModalVisible] = useState(false);
   const repairFadeAnim = React.useRef(new Animated.Value(0)).current;
+  const [isPinVerified, setIsPinVerified] = useState(false);
   const [isDiscardModalVisible, setIsDiscardModalVisible] = useState(false);
   const discardFadeAnim = React.useRef(new Animated.Value(0)).current;
+  const [isUserModalVisible, setIsUserModalVisible] = useState(false);
+  const [userModalMode, setUserModalMode] = useState('add');
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [userNameInput, setUserNameInput] = useState('');
+  const userModalFadeAnim = React.useRef(new Animated.Value(0)).current;
 
   // Bluetooth Printer States
   const [pairedDevices, setPairedDevices] = useState([]);
@@ -129,8 +145,9 @@ const SettingsPage = ({ navigation, route }) => {
     { id: 'tax', label: 'Tax', icon: Calculator },
     { id: 'invoice', label: 'Invoices', icon: Layout },
     { id: 'print', label: ' Print ', icon: Printer },
+    { id: 'access', label: 'Users', icon: Users },
     { id: 'backup', label: 'Backups', icon: Save },
-    { id: 'contact', label: 'Contact ( Kwiq Bill Team )', icon: Headset },
+    { id: 'contact', label: 'Contact (KWIQ BILL TEAM)', icon: Headset },
     { id: 'logout', label: 'Logout', icon: LogOut },
   ];
 
@@ -153,6 +170,7 @@ const SettingsPage = ({ navigation, route }) => {
         bankDetails: { ...settings.bankDetails },
         tax: { taxGroups: [], ...settings.tax },
         invoice: { ...settings.invoice },
+        security: { managerPin: null, ...settings.security },
         ...settings
       };
       setLocalSettings(JSON.parse(JSON.stringify(robustSettings)));
@@ -186,6 +204,10 @@ const SettingsPage = ({ navigation, route }) => {
   useEffect(() => {
     if (activeTab === 'print') {
       initBluetooth();
+    }
+    // Reset PIN verification when leaving access tab
+    if (activeTab !== 'access') {
+      setIsPinVerified(false);
     }
   }, [activeTab]);
 
@@ -351,6 +373,35 @@ const SettingsPage = ({ navigation, route }) => {
   const [isMenuExpanded, setIsMenuExpanded] = useState(false);
   const menuExpandAnim = React.useRef(new Animated.Value(0)).current;
 
+
+  const openUserModal = (mode, id = null, initialName = '') => {
+    setUserModalMode(mode);
+    setEditingUserId(id);
+    setUserNameInput(initialName);
+    setIsUserModalVisible(true);
+    Animated.timing(userModalFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  };
+
+  const closeUserModal = () => {
+    Animated.timing(userModalFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
+      setIsUserModalVisible(false);
+      setUserNameInput('');
+      setEditingUserId(null);
+    });
+  };
+
+  const handleUserModalSubmit = () => {
+    if (!userNameInput.trim()) return;
+    if (userModalMode === 'add') {
+      addReceptionist(userNameInput.trim());
+      showToast(`${userNameInput.trim()} has been added.`, "success");
+    } else {
+      updateReceptionist(editingUserId, userNameInput.trim());
+      showToast(`${userNameInput.trim()} has been updated.`, "success");
+    }
+    closeUserModal();
+  };
+
   const toggleSettingsMenu = () => {
     const toValue = isMenuExpanded ? 0 : 1;
     setIsMenuExpanded(!isMenuExpanded);
@@ -439,7 +490,7 @@ const SettingsPage = ({ navigation, route }) => {
       // CRITICAL: Update local state immediately with what we just saved 
       // to prevent the useEffect from reverting it if context propagation is delayed.
       setLocalSettings(JSON.parse(JSON.stringify(payload)));
-      
+
       setUnsavedChanges(false);
       setIsEditing(false);
 
@@ -608,7 +659,106 @@ const SettingsPage = ({ navigation, route }) => {
   );
 
   const renderTabContent = () => {
+
     switch (activeTab) {
+      case 'access':
+        if (!isPinVerified) {
+          return <ManagerPinGate onUnlocked={() => setIsPinVerified(true)} />;
+        }
+        return (
+          <View style={styles.tabContent}>
+            <View style={{ marginBottom: 26, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+              <View style={{ width: 48, height: 48, backgroundColor: '#000', borderRadius: 14, justifyContent: 'center', alignItems: 'center' }}>
+                <Contact size={24} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Personnel Tracking</Text>
+                <Text style={{ fontSize: 20, fontWeight: '900', color: '#000', letterSpacing: -0.4 }}>Receptionist Management</Text>
+                <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '500', lineHeight: 16 }}>
+                  Manage receptionists for bill accountability.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => openUserModal('add')}
+                activeOpacity={0.7}
+                style={{ width: 36, height: 36, backgroundColor: '#000', borderRadius: 10, justifyContent: 'center', alignItems: 'center' }}
+              >
+                <Plus size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <Card style={{ borderRadius: 24, overflow: 'hidden' }}>
+              <View style={{ padding: 20, backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+                <Text style={{ fontSize: 14, fontWeight: '900', color: '#000' }}>ACTIVE STAFF</Text>
+              </View>
+              <View style={{ padding: 12 }}>
+                {(!localSettings?.receptionists || localSettings.receptionists.length === 0) ? (
+                  <View style={{ padding: 40, alignItems: 'center' }}>
+                    <Contact size={40} color="#e2e8f0" strokeWidth={1} style={{ marginBottom: 12 }} />
+                    <Text style={{ fontSize: 13, color: '#94a3b8', fontWeight: '600' }}>No receptionists added yet</Text>
+                  </View>
+                ) : (
+                  localSettings.receptionists.map((recep, idx) => (
+                    <View
+                      key={recep.id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        padding: 16,
+                        borderBottomWidth: idx === localSettings.receptionists.length - 1 ? 0 : 1,
+                        borderBottomColor: '#f1f5f9',
+                        opacity: recep.is_active ? 1 : 0.5
+                      }}
+                    >
+                      <View style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: recep.is_active ? '#f1f5f9' : '#f8fafc',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginRight: 12
+                      }}>
+                        <Contact size={20} color={recep.is_active ? '#000' : '#64748b'} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: '700', color: recep.is_active ? '#000' : '#64748b' }}>{recep.name}</Text>
+                        <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '700' }}>{recep.id}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={() => openUserModal('edit', recep.id, recep.name)}
+                          style={{ padding: 8 }}
+                        >
+                          <Edit2 size={16} color="#64748b" />
+                        </TouchableOpacity>
+                        <Switch
+                          value={recep.is_active === 1}
+                          onValueChange={(val) => toggleReceptionistActive(recep.id, val)}
+                          trackColor={{ false: '#f1f5f9', true: '#000' }}
+                          thumbColor={Platform.OS === 'ios' ? '#fff' : (recep.is_active ? '#fff' : '#f4f3f4')}
+                        />
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            </Card>
+
+            <View style={{ marginTop: 20, padding: 16, backgroundColor: '#f8fafc', borderRadius: 20, borderWidth: 1, borderColor: '#f1f5f9', borderStyle: 'dashed' }}>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <ShieldCheck size={20} color="#64748b" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a', marginBottom: 4 }}>Accountability Policy</Text>
+                  <Text style={{ fontSize: 11, color: '#64748b', lineHeight: 16, fontWeight: '500' }}>
+                    Once added, receptionists cannot be deleted to maintain bill history integrity. You can deactivate them to prevent new bills from being assigned.
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        );
+
       case 'store':
         return (
           <View style={styles.tabContent}>
@@ -2393,7 +2543,7 @@ const SettingsPage = ({ navigation, route }) => {
                       onPress={async () => {
                         const printerAddress = localSettings?.invoice?.selectedPrinter?.address;
                         if (!printerAddress) {
-                          showToast("Please pair and connect a thermal printer in Settings first.", "warning", 4000, null, "No Printer Linked");
+                          showToast("Please pair and connect a thermal printer in Settings first.", "printer", 4000, null, "No Printer Linked", require('../../../assets/animations/PrinterError.gif'));
                           return;
                         }
 
@@ -2401,10 +2551,10 @@ const SettingsPage = ({ navigation, route }) => {
                         try {
                           const success = await testPrinter(localSettings);
                           if (success) {
-                            showToast("Test receipt sent successfully to your printer.", "success", 4000, null, "Print Successful");
+                            showToast("Test receipt sent successfully to your printer.", "printer", 4000, null, "Print Successful", require('../../../assets/animations/PrinterError.gif'));
                           }
                         } catch (err) {
-                          showToast("Unable to communicate with the printer. Check power and connection.", "error", 5000, null, "Transmission Failed");
+                          showToast("Unable to communicate with the printer. Check power and connection.", "printer", 5000, null, "Transmission Failed", require('../../../assets/animations/PrinterError.gif'));
                         } finally {
                           setIsTestingPrinter(false);
                         }
@@ -2967,15 +3117,15 @@ const SettingsPage = ({ navigation, route }) => {
 
               {/* ELITE SUPPORT COMMITMENT TILE */}
               <View
-                style={{ 
+                style={{
                   backgroundColor: '#000',
-                  padding: 24, 
-                  borderRadius: 32, 
-                  elevation: 12, 
-                  shadowColor: '#000', 
-                  shadowOffset: { width: 0, height: 12 }, 
-                  shadowOpacity: 0.25, 
-                  shadowRadius: 24 
+                  padding: 24,
+                  borderRadius: 32,
+                  elevation: 12,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 12 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 24
                 }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 }}>
@@ -3126,122 +3276,122 @@ const SettingsPage = ({ navigation, route }) => {
           <View style={styles.tabContent}>
             {/* NEW PREMIUM HEADER */}
             <View style={{ marginBottom: 32 }}>
-               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                 <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <Fingerprint size={12} color="#64748b" />
-                      <Text style={{ fontSize: 10, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Authenticated Session</Text>
-                    </View>
-                    <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -1 }}>Sign Out</Text>
-                    <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500', marginTop: 4 }}>
-                      Securely end your session on this device.
-                    </Text>
-                 </View>
-                 <View style={{ width: 56, height: 56, backgroundColor: '#fee2e2', borderRadius: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#fecaca' }}>
-                    <LogOut size={28} color="#dc2626" />
-                 </View>
-               </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Fingerprint size={12} color="#64748b" />
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Authenticated Session</Text>
+                  </View>
+                  <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -1 }}>Sign Out</Text>
+                  <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500', marginTop: 4 }}>
+                    Securely end your session on this device.
+                  </Text>
+                </View>
+                <View style={{ width: 56, height: 56, backgroundColor: '#fee2e2', borderRadius: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#fecaca' }}>
+                  <LogOut size={28} color="#dc2626" />
+                </View>
+              </View>
             </View>
 
             {/* SYNC SAFETY DASHBOARD */}
-            <View style={{ 
-                backgroundColor: queueLength > 0 ? '#fffbeb' : '#f0fdf4', 
-                borderRadius: 32, 
-                padding: 24, 
-                marginBottom: 28, 
-                borderWidth: 2, 
-                borderColor: queueLength > 0 ? '#fde68a' : '#bbf7d0',
-                elevation: 4,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 10 },
-                shadowOpacity: 0.05,
-                shadowRadius: 20
+            <View style={{
+              backgroundColor: queueLength > 0 ? '#fffbeb' : '#f0fdf4',
+              borderRadius: 32,
+              padding: 24,
+              marginBottom: 28,
+              borderWidth: 2,
+              borderColor: queueLength > 0 ? '#fde68a' : '#bbf7d0',
+              elevation: 4,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.05,
+              shadowRadius: 20
             }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-                    <View style={{ width: 44, height: 44, backgroundColor: '#fff', borderRadius: 14, justifyContent: 'center', alignItems: 'center', elevation: 2 }}>
-                        {queueLength > 0 ? <ActivityIndicator size="small" color="#d97706" /> : <ShieldCheck size={24} color="#16a34a" />}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#000' }}>
-                            {queueLength > 0 ? 'Data Syncing...' : 'Data Fully Secured'}
-                        </Text>
-                        <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>Cloud Protection</Text>
-                    </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+                <View style={{ width: 44, height: 44, backgroundColor: '#fff', borderRadius: 14, justifyContent: 'center', alignItems: 'center', elevation: 2 }}>
+                  {queueLength > 0 ? <ActivityIndicator size="small" color="#d97706" /> : <ShieldCheck size={24} color="#16a34a" />}
                 </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '900', color: '#000' }}>
+                    {queueLength > 0 ? 'Data Syncing...' : 'Data Fully Secured'}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>Cloud Protection</Text>
+                </View>
+              </View>
 
-                {queueLength > 0 ? (
-                    <View>
-                        <Text style={{ fontSize: 13, color: '#92400e', lineHeight: 20, fontWeight: '600' }}>
-                            You have <Text style={{ fontWeight: '900' }}>{queueLength} pending events</Text> that haven't been uploaded to the cloud yet. Logging out now might lead to temporary data mismatch until you log back in.
-                        </Text>
-                        <View style={{ marginTop: 16, height: 6, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 3, overflow: 'hidden' }}>
-                            <View style={{ width: '40%', height: '100%', backgroundColor: '#f59e0b' }} />
-                        </View>
-                    </View>
-                ) : (
-                    <Text style={{ fontSize: 13, color: '#166534', lineHeight: 20, fontWeight: '600' }}>
-                        All your records are perfectly mirrored in your Google Drive. You can safely sign out and resume on any other device instantly.
-                    </Text>
-                )}
+              {queueLength > 0 ? (
+                <View>
+                  <Text style={{ fontSize: 13, color: '#92400e', lineHeight: 20, fontWeight: '600' }}>
+                    You have <Text style={{ fontWeight: '900' }}>{queueLength} pending events</Text> that haven't been uploaded to the cloud yet. Logging out now might lead to temporary data mismatch until you log back in.
+                  </Text>
+                  <View style={{ marginTop: 16, height: 6, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 3, overflow: 'hidden' }}>
+                    <View style={{ width: '40%', height: '100%', backgroundColor: '#f59e0b' }} />
+                  </View>
+                </View>
+              ) : (
+                <Text style={{ fontSize: 13, color: '#166534', lineHeight: 20, fontWeight: '600' }}>
+                  All your records are perfectly mirrored in your Google Drive. You can safely sign out and resume on any other device instantly.
+                </Text>
+              )}
             </View>
 
             {/* IMPACT STEPS */}
             <View style={{ marginBottom: 32, paddingHorizontal: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 20 }}>Final Security Protocol</Text>
-                
-                <View style={{ gap: 24 }}>
-                    <View style={{ flexDirection: 'row', gap: 16 }}>
-                        <View style={{ width: 44, height: 44, backgroundColor: '#f8fafc', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' }}>
-                            <Database size={18} color="#000" />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Device Memory Purged</Text>
-                            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', marginTop: 2 }}>Clears encrypted local cache to prevent unauthorized physical access to your records.</Text>
-                        </View>
-                    </View>
+              <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 20 }}>Final Security Protocol</Text>
 
-                    <View style={{ flexDirection: 'row', gap: 16 }}>
-                        <View style={{ width: 44, height: 44, backgroundColor: '#f8fafc', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' }}>
-                            <Fingerprint size={18} color="#000" />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Authentication Revoked</Text>
-                            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', marginTop: 2 }}>Ends your session globally and requires re-authentication for any future access.</Text>
-                        </View>
-                    </View>
+              <View style={{ gap: 24 }}>
+                <View style={{ flexDirection: 'row', gap: 16 }}>
+                  <View style={{ width: 44, height: 44, backgroundColor: '#f8fafc', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' }}>
+                    <Database size={18} color="#000" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Device Memory Purged</Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', marginTop: 2 }}>Clears encrypted local cache to prevent unauthorized physical access to your records.</Text>
+                  </View>
                 </View>
+
+                <View style={{ flexDirection: 'row', gap: 16 }}>
+                  <View style={{ width: 44, height: 44, backgroundColor: '#f8fafc', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' }}>
+                    <Fingerprint size={18} color="#000" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#000' }}>Authentication Revoked</Text>
+                    <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', marginTop: 2 }}>Ends your session globally and requires re-authentication for any future access.</Text>
+                  </View>
+                </View>
+              </View>
             </View>
 
             {/* THE BIG ACTION */}
             <View style={{ marginTop: 8 }}>
               <TouchableOpacity
-                  onPress={handleLogout}
-                  activeOpacity={0.8}
-                  style={{
-                    backgroundColor: queueLength > 0 ? '#64748b' : '#000',
-                    paddingVertical: 20,
-                    borderRadius: 28,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 12,
-                    elevation: 8,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 10 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 20
-                  }}
-                >
-                  <LogOut size={20} color="#fff" />
-                  <Text style={{ color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1 }}>
-                    {queueLength > 0 ? 'WAITING FOR SYNC...' : 'SIGN OUT SECURELY'}
-                  </Text>
+                onPress={handleLogout}
+                activeOpacity={0.8}
+                style={{
+                  backgroundColor: queueLength > 0 ? '#64748b' : '#000',
+                  paddingVertical: 20,
+                  borderRadius: 28,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 12,
+                  elevation: 8,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 10 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 20
+                }}
+              >
+                <LogOut size={20} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1 }}>
+                  {queueLength > 0 ? 'WAITING FOR SYNC...' : 'SIGN OUT SECURELY'}
+                </Text>
               </TouchableOpacity>
 
               {queueLength > 0 && (
-                  <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 16, fontWeight: '700' }}>
-                      Logout will be available once all {queueLength} events are in the cloud.
-                  </Text>
+                <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 16, fontWeight: '700' }}>
+                  Logout will be available once all {queueLength} events are in the cloud.
+                </Text>
               )}
             </View>
 
@@ -3710,6 +3860,81 @@ const SettingsPage = ({ navigation, route }) => {
         </View>
       </Modal>
 
+      {/* New Receptionist Modal (Fix for Android Alert.prompt) */}
+      <Modal
+        visible={isUserModalVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closeUserModal}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View
+            style={[
+              styles.modalBackdrop,
+              { opacity: userModalFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+            ]}
+          />
+          <Pressable style={styles.modalPressable} onPress={closeUserModal}>
+            <Animated.View
+              style={[
+                styles.logoutModalContainer,
+                {
+                  transform: [
+                    { scale: userModalFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                    { translateY: userModalFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
+                  ],
+                  opacity: userModalFadeAnim
+                }
+              ]}
+            >
+              <View style={[styles.logoutIconContainer, { backgroundColor: '#f1f5f9', marginBottom: 12 }]}>
+                <Contact size={32} color="#000" />
+              </View>
+
+              <Text style={[styles.logoutModalTitle, { marginBottom: 4 }]}>
+                {userModalMode === 'add' ? 'New Receptionist' : 'Edit Receptionist'}
+              </Text>
+              
+              <View style={{ width: '100%', marginTop: 24, paddingHorizontal: 4 }}>
+                <Text style={[styles.label, { color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }]}>Staff Full Name</Text>
+                <View style={[styles.inputFieldContainer, { backgroundColor: '#f8fafc', borderColor: '#f1f5f9' }]}>
+                  <Contact size={20} color="#94a3b8" style={{ marginRight: 12 }} />
+                  <TextInput
+                    style={[styles.input, { flex: 1, fontSize: 16, fontWeight: '700', color: '#000' }]}
+                    placeholder="Enter name (e.g. John Doe)"
+                    placeholderTextColor="#cbd5e1"
+                    value={userNameInput}
+                    onChangeText={setUserNameInput}
+                    autoFocus
+                  />
+                </View>
+                <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 8, fontWeight: '500' }}>
+                  This name will appear on the authorized signatory section of the bill.
+                </Text>
+              </View>
+
+              <View style={[styles.logoutModalFooter, { marginTop: 32 }]}>
+                <TouchableOpacity
+                  onPress={closeUserModal}
+                  style={styles.logoutModalCancel}
+                >
+                  <Text style={styles.logoutModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={handleUserModalSubmit}
+                  style={[styles.logoutModalConfirm, { backgroundColor: '#000' }]}
+                >
+                  <Text style={styles.logoutModalConfirmText}>
+                    {userModalMode === 'add' ? 'Add Staff' : 'Update'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </Pressable>
+        </View>
+      </Modal>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         enabled={Platform.OS === 'ios'}
@@ -3722,6 +3947,11 @@ const SettingsPage = ({ navigation, route }) => {
           removeClippedSubviews={false}
         >
           {renderTabContent()}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>KWIQ BILL • {APP_VERSION}</Text>
+            <Text style={{ fontSize: 9, color: '#cbd5e1', fontWeight: '700', marginTop: 4 }}>POWERED BY ZILLING</Text>
+          </View>
+
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -3766,12 +3996,12 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: '#fbbf24',
   },
-  unsavedText: { 
-    color: '#fbbf24', 
-    fontSize: 9, 
-    fontWeight: '900', 
-    textTransform: 'uppercase', 
-    letterSpacing: 0.8 
+  unsavedText: {
+    color: '#fbbf24',
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8
   },
   headerActions: { flexDirection: 'row', gap: 10 },
   backBtn: {

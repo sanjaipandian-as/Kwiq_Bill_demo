@@ -20,6 +20,8 @@ import { useExpenses } from '../context/ExpenseContext';
 import { useCustomers } from '../context/CustomerContext';
 import ScanBarcodeModal from '../components/ScanBarcodeModal';
 import { useSettings } from '../context/SettingsContext';
+import { APP_VERSION } from '../config/version';
+
 
 const { width } = Dimensions.get('window');
 
@@ -81,6 +83,8 @@ export default function Dashboard() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [productFilter, setProductFilter] = useState('All');
   const [showProductFilter, setShowProductFilter] = useState(false);
+
+
 
   const metrics = useMemo(() => {
     const now = new Date();
@@ -230,14 +234,14 @@ export default function Dashboard() {
       '3y': '3 Year Pro',
       '5y': '5 Year Professional'
     };
-    
+
     const isFree = user.plan === 'free';
     const expiryDate = isFree ? (user.trialExpiresAt ? new Date(user.trialExpiresAt) : null) : (user.planExpiresAt ? new Date(user.planExpiresAt) : null);
-    
+
     if (!expiryDate || isNaN(expiryDate.getTime())) return null;
 
     const daysRemaining = Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    
+
     return {
       name: planNames[user.plan] || 'Pro Access',
       daysRemaining: Math.max(0, daysRemaining),
@@ -274,10 +278,14 @@ export default function Dashboard() {
               </View>
 
               <View style={styles.rightActions}>
-                {storeLogo && (
-                  <Image source={{ uri: storeLogo }} style={styles.topLogo} resizeMode="contain" />
-                )}
+                <Image
+                  source={storeLogo ? { uri: storeLogo } : require('../../assets/kwiq.png')}
+                  style={styles.topLogo}
+                  resizeMode="contain"
+                />
               </View>
+
+
             </View>
 
             {/* Date Filter Section - Full Width */}
@@ -530,8 +538,15 @@ export default function Dashboard() {
               })}
             </View>
           </View>
+          <View style={{ padding: 40, alignItems: 'center', opacity: 0.5 }}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', letterSpacing: 1.5 }}>KWIQ BILL • {APP_VERSION}</Text>
+            <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', marginTop: 4 }}>POWERED BY ZILLING</Text>
+          </View>
         </View>
       </ScrollView>
+
+
+
 
       <ExpenseModal isOpen={isExpenseModalOpen} onClose={() => setIsExpenseModalOpen(false)} />
 
@@ -578,31 +593,44 @@ export default function Dashboard() {
           </View>
         </Pressable>
       </Modal>
-    </View>
+
+
+    </View >
+
+
+
   );
 }
 
 const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: '#f8fafc' },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   headerWrapper: { backgroundColor: '#fff' },
   headerGradient: { paddingBottom: 40, borderBottomLeftRadius: 40, borderBottomRightRadius: 40 },
-  topBar: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    paddingHorizontal: 20, 
-    paddingTop: 10, 
-    marginBottom: 25 
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    marginBottom: 25
   },
   leftSection: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   greeting: { color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '600' },
   userName: { fontSize: 22, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
   rightActions: { flexDirection: 'row', alignItems: 'center' },
-  hamburger: { 
-    backgroundColor: 'rgba(255,255,255,0.12)', 
-    padding: 10, 
-    borderRadius: 14, 
-    borderWidth: 1, 
+  hamburger: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },

@@ -15,6 +15,7 @@ import { getBillingQueue, clearBillingQueue } from '../../services/billingQueue'
 import { useToast } from '../../context/ToastContext';
 import * as Print from 'expo-print';
 import ScanBarcodeModal from '../../components/ScanBarcodeModal';
+import { resolveBarcode, buildCartPayload, sanitizeBarcode } from '../../utils/barcodeUtils';
 
 // Components
 import BillingGrid from './components/BillingGrid';
@@ -24,6 +25,7 @@ import { DiscountModal, RemarksModal, AdditionalChargesModal, LoyaltyPointsModal
 import CustomerSearchModal from './components/CustomerSearchModal';
 import CustomerCaptureModal from './components/CustomerCaptureModal';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import ReceptionistSelectionModal from './components/ReceptionistSelectionModal';
 
 
 
@@ -76,7 +78,7 @@ export default function BillingPage({ navigation, route }) {
               const printer = await Print.selectPrinterAsync();
               if (printer) {
                 updateSettings('invoice', { selectedPrinter: printer });
-                showToast(`Printer Connected: ${printer.name || 'Selected'}`, 'success');
+                showToast(`Printer Connected: ${printer.name || 'Selected'}`, 'printer');
               }
             } catch (e) {
               console.error("Printer Selection Error:", e);
@@ -132,7 +134,8 @@ export default function BillingPage({ navigation, route }) {
       loyaltyPointsDiscount: 0,
       loyaltyPointsRedeemed: 0,
       status: 'Paid',
-      taxType: settings?.tax?.defaultTaxType || 'intra'
+      taxType: settings?.tax?.defaultTaxType || 'intra',
+      receptionist: null
     }
   ]);
   const [activeBillId, setActiveBillId] = useState(1);
@@ -154,7 +157,8 @@ export default function BillingPage({ navigation, route }) {
     stockLimit: false,
     customerSearch: false,
     customerCapture: false,
-    clearCartConfirm: false
+    clearCartConfirm: false,
+    receptionistSelection: false
   });
 
   // Stock limit message state
@@ -181,63 +185,80 @@ export default function BillingPage({ navigation, route }) {
     ));
   };
 
-  // --- Process Billing Queue (from Barcode Scanner) ---
+  // --- Process Billing Queue (from Barcode Scanner page) ---
+  // SECURITY: Items in queue are validated before being added to cart.
   const processBillingQueue = async () => {
     const queue = await getBillingQueue();
-    if (queue && queue.length > 0) {
-      console.log('[BillingPage] Processing queue:', queue.length);
-      console.log('Force Refresh BillingPage'); // Debug to ensure clean reload
-      // We need to add items sequentially or effectively
-      // Since addItemToCart relies on current scope variables (activeBills, activeBillId), 
-      // we need to be careful. However, we have access to them here.
-      // But `currentBill` is a derived value from `activeBills`. 
-      // We should use setActiveBills with functional update to ensure latest state if we loop.
+    if (!queue || queue.length === 0) return;
 
-      // Better approach: calculate new cart from current state + queue
+    setActiveBills(prevBills => {
+      const targetBillId = activeBillId;
+      return prevBills.map(bill => {
+        if (bill.id !== targetBillId) return bill;
 
-      setActiveBills(prevBills => {
-        const targetBillId = activeBillId; // Capture current ID
-        return prevBills.map(bill => {
-          if (bill.id === targetBillId) {
-            let newCart = [...bill.cart];
+        let newCart = [...bill.cart];
 
-            queue.forEach(product => {
-              // Logic from addItemToCart, simplified for bulk
-              if (!product || !product.id) return; // Skip invalid products
-              const cartItemId = product.id;
-              // Check if exists
-              const existingIndex = newCart.findIndex(i => i.id === cartItemId);
+        queue.forEach(queuedItem => {
+          // Safety: skip malformed queue entries
+          if (!queuedItem || !queuedItem.id) return;
 
-              if (existingIndex >= 0) {
-                const existing = newCart[existingIndex];
-                const newQty = (existing.quantity || 0) + 1;
-                newCart[existingIndex] = {
-                  ...existing,
-                  quantity: newQty,
-                  total: newQty * (existing.price || 0) - (existing.discount || 0)
-                };
-              } else {
-                newCart.push({
-                  ...product,
-                  id: cartItemId,
-                  name: product.name,
-                  quantity: 1,
-                  total: parseFloat(product.price || product.sellingPrice || 0),
-                  discount: 0,
-                  taxRate: product.taxRate || 18,
-                  unit: product.unit || 'pcs'
-                });
-              }
+          // Resolve variant context from queue payload
+          const resolvedVariant = queuedItem._resolvedVariant || null;
+          const variantName = resolvedVariant?.name ||
+            (resolvedVariant?.options && resolvedVariant.options[0]) ||
+            queuedItem.variantName ||
+            null;
+
+          const variantPrice = resolvedVariant &&
+            resolvedVariant.price !== null &&
+            resolvedVariant.price !== undefined
+              ? parseFloat(resolvedVariant.price)
+              : parseFloat(queuedItem.price || queuedItem.sellingPrice || 0);
+
+          // Cart item ID: include variant name to allow separate line items per variant
+          const cartItemId = variantName
+            ? `${queuedItem._dbProductId || queuedItem.id}-${variantName}`
+            : queuedItem.id;
+
+          const displayName = variantName
+            ? `${queuedItem.name.replace(/ - .*$/, '')} - ${variantName}`  // avoid double suffix
+            : queuedItem.name;
+
+          const existingIndex = newCart.findIndex(i => i.id === cartItemId);
+
+          if (existingIndex >= 0) {
+            // Increment quantity for existing cart line
+            const existing = newCart[existingIndex];
+            const newQty = (existing.quantity || 0) + 1;
+            newCart[existingIndex] = {
+              ...existing,
+              quantity: newQty,
+              total: newQty * (existing.price || 0) - (existing.discount || 0),
+            };
+          } else {
+            // New cart line
+            newCart.push({
+              ...queuedItem,
+              id:          cartItemId,
+              _dbId:       queuedItem._dbProductId || queuedItem.id,
+              name:        displayName,
+              variantName: variantName,
+              price:       variantPrice,
+              quantity:    1,
+              total:       variantPrice,
+              discount:    0,
+              taxRate:     parseFloat(queuedItem.tax_rate || queuedItem.taxRate || 0),
+              unit:        queuedItem.unit || 'pcs',
             });
-            return { ...bill, cart: newCart };
           }
-          return bill;
         });
-      });
 
-      await clearBillingQueue();
-      showToast(`${queue.length} items added to your cart.`, 'success', 3000, null, "Cart Updated");
-    }
+        return { ...bill, cart: newCart };
+      });
+    });
+
+    await clearBillingQueue();
+    showToast(`${queue.length} item(s) added to your cart.`, 'success', 3000, null, 'Cart Updated');
   };
 
   // Helper: Calculation Logic (Robust Port from User Snippet)
@@ -419,7 +440,8 @@ export default function BillingPage({ navigation, route }) {
       loyaltyPointsDiscount: 0,
       loyaltyPointsRedeemed: 0,
       status: 'Paid',
-      taxType: settings?.tax?.defaultTaxType || 'intra'
+      taxType: settings?.tax?.defaultTaxType || 'intra',
+      receptionist: null
     };
     setActiveBills([...activeBills, newBill]);
     setActiveBillId(newId);
@@ -441,7 +463,8 @@ export default function BillingPage({ navigation, route }) {
       loyaltyPointsDiscount: 0,
       loyaltyPointsRedeemed: 0,
       status: 'Paid',
-      originalInvoiceId: null
+      originalInvoiceId: null,
+      receptionist: null
     };
 
     if (activeBills.length <= 1) {
@@ -673,15 +696,20 @@ export default function BillingPage({ navigation, route }) {
           const newCart = currentBill.cart.map(item => {
             if (item.id === selectedItemId) {
               const currentUnit = item.unit?.toLowerCase() || 'pcs';
-              const newUnit = currentUnit === 'pcs' ? 'box' : 'pcs';
-              return { ...item, unit: newUnit };
+              const units = ['pcs', 'kg', 'ltr', 'mtr', 'box', 'pkt'];
+              const nextUnit = units[(units.indexOf(currentUnit) + 1) % units.length];
+              return { ...item, unit: nextUnit };
             }
             return item;
           });
           updateCurrentBill({ cart: newCart });
         }
         break;
-      case 'F8': setModals(m => ({ ...m, additionalCharges: true })); break;
+      case 'F7': // Staff Selection
+        setModals(m => ({ ...m, receptionistSelection: true }));
+        break;
+      case 'F8': // Additional Charges
+        setModals(m => ({ ...m, additionalCharges: true })); break;
       case 'F9': setModals(m => ({ ...m, billDiscount: true })); break;
       case 'F10': setModals(m => ({ ...m, loyaltyPoints: true })); break;
       case 'F12': setModals(m => ({ ...m, remarks: true })); break;
@@ -710,7 +738,6 @@ export default function BillingPage({ navigation, route }) {
       }
     }
   };
-
   const handleSaveOnly = async () => {
     if (currentBill.cart.length === 0) {
       alert("Cart is empty!");
@@ -723,6 +750,14 @@ export default function BillingPage({ navigation, route }) {
         label: 'Identify Customer',
         onPress: () => setModals(m => ({ ...m, customerSearch: true }))
       }, "Identification Required");
+      return;
+    }
+
+    // Feature: Mandatory Receptionist Check
+    const activeReceptionists = (settings?.receptionists || []).filter(r => r.is_active === 1);
+    if (activeReceptionists.length > 0 && !currentBill.receptionist) {
+      setModals(m => ({ ...m, receptionistSelection: true }));
+      showToast("Please identify the receptionist for this transaction.", 'receptionist', 3000, null, "Accountability");
       return;
     }
 
@@ -774,14 +809,16 @@ export default function BillingPage({ navigation, route }) {
         loyaltyPointsRedeemed: currentBill.loyaltyPointsRedeemed || 0,
         loyaltyPointsDiscount: currentBill.loyaltyPointsDiscount || 0,
         loyaltyPointsEarned: currentBill.totals.pointsEarned || 0,
+        receptionist_name: currentBill.receptionist?.name || null,
+        receptionist_id: currentBill.receptionist?.id || null,
       };
 
       if (currentBill.originalInvoiceId) {
         payload.id = currentBill.originalInvoiceId;
-        savedBill = await editTransaction(payload);
+        await editTransaction(payload);
         showToast("Invoice details have been updated.", "success", 3500, null, "Invoice Updated");
       } else {
-        savedBill = await addTransaction(payload);
+        await addTransaction(payload);
         showToast("Invoice has been saved to your records.", "success", 3500, null, "Invoice Saved");
       }
 
@@ -816,6 +853,14 @@ export default function BillingPage({ navigation, route }) {
       return;
     }
 
+    // Feature: Mandatory Receptionist Check
+    const activeReceptionists = (settings?.receptionists || []).filter(r => r.is_active === 1);
+    if (activeReceptionists.length > 0 && !currentBill.receptionist) {
+      setModals(m => ({ ...m, receptionistSelection: true }));
+      showToast("Please identify the receptionist for this transaction.", 'receptionist', 3000, null, "Accountability");
+      return;
+    }
+
     try {
       setIsProcessing(true);
       const payload = {
@@ -829,7 +874,6 @@ export default function BillingPage({ navigation, route }) {
             const price = parseFloat(item.price || item.sellingPrice) || 0;
             const qty = parseFloat(item.quantity) || 0;
             const taxRate = parseFloat(item.taxRate) || 0;
-            // Calculate Taxable Value per item
             let taxableValue = price * qty;
             if (isInclusive) {
               taxableValue = (price * qty) / (1 + (taxRate / 100));
@@ -842,7 +886,7 @@ export default function BillingPage({ navigation, route }) {
               name: item.name,
               quantity: qty,
               price: price,
-              taxableValue: taxableValue, // Explicitly send taxable value
+              taxableValue: taxableValue,
               total: parseFloat(item.total) || 0,
               taxRate: taxRate,
               hsn: item.hsn || '',
@@ -871,9 +915,10 @@ export default function BillingPage({ navigation, route }) {
         loyaltyPointsRedeemed: currentBill.loyaltyPointsRedeemed || 0,
         loyaltyPointsDiscount: currentBill.loyaltyPointsDiscount || 0,
         loyaltyPointsEarned: currentBill.totals.pointsEarned || 0,
+        receptionist_name: currentBill.receptionist?.name || null,
+        receptionist_id: currentBill.receptionist?.id || null,
       };
 
-      // 1. Save Transaction (Drive Sync happens inside TransactionContext)
       let savedBill;
       if (currentBill.originalInvoiceId) {
         payload.id = currentBill.originalInvoiceId;
@@ -884,36 +929,50 @@ export default function BillingPage({ navigation, route }) {
 
       if (!savedBill) throw new Error("Failed to save transaction.");
 
-      // 2. Prepare for printing
       const billDataToPrint = {
         ...savedBill,
-        customer: currentBill.customer // Include full customer for printing
+        customer: currentBill.customer 
       };
 
       const thermalFormat = settings?.invoice?.billPaperSize || '80mm';
 
-      // 3. Print multiple copies if requested
       for (let i = 0; i < copyCount; i++) {
-        await printReceipt(billDataToPrint, thermalFormat, settings, 'customer');
+        try {
+          await printReceipt(billDataToPrint, thermalFormat, settings, 'customer');
+        } catch (printErr) {
+          showToast(
+            printErr?.message || "Automatic printing failed. You can retry from the bill history.",
+            "printer",
+            7000,
+            null,
+            "Printing Failed",
+            require('../../../assets/animations/PrinterError.gif')
+          );
+        }
         if (i < copyCount - 1 || isAuthorizedBill) {
-          // Robust delay between prints
           await new Promise(r => setTimeout(r, 800));
         }
       }
 
-      // 4. Print one Authorized Signatory Bill if toggled
       if (isAuthorizedBill) {
-        await printReceipt(billDataToPrint, thermalFormat, settings, 'customer', { forceAuthorized: true });
+        try {
+          await printReceipt(billDataToPrint, thermalFormat, settings, 'customer', { forceAuthorized: true });
+        } catch (printErr) {
+          showToast(
+            printErr?.message || "Automatic printing of authorized copy failed. You can retry from the bill history.",
+            "printer",
+            7000,
+            null,
+            "Printing Failed",
+            require('../../../assets/animations/PrinterError.gif')
+          );
+        }
         await new Promise(r => setTimeout(r, 500));
       }
 
       showToast("Invoice finalized and printed.", "success", 4000, null, "Invoice Completed");
-
-      // Refresh context data
       fetchProducts();
       fetchCustomers();
-
-      // Close the bill tab after everything is done
       closeBill(activeBillId);
 
     } catch (error) {
@@ -931,7 +990,21 @@ export default function BillingPage({ navigation, route }) {
     }
     // This just prints the B&W preview/bill for the customer without closing the tab
     const thermalFormat = settings?.invoice?.billPaperSize || '80mm';
-    await printReceipt(currentBill, thermalFormat, settings, 'customer');
+    try {
+      await printReceipt(currentBill, thermalFormat, settings, 'customer');
+    } catch (error) {
+      showToast(
+        error?.message || "Unable to communicate with the printer. Check power and connection.",
+        "printer",
+        6000,
+        {
+          label: 'SETTINGS',
+          onPress: () => navigation.navigate('Settings', { tab: 'print' })
+        },
+        "Printer Error",
+        require('../../../assets/animations/PrinterError.gif')
+      );
+    }
   };
 
   return (
@@ -1041,6 +1114,16 @@ export default function BillingPage({ navigation, route }) {
               </>
             )}
           </SafeAreaView>
+
+          <ReceptionistSelectionModal
+            visible={modals.receptionistSelection}
+            onClose={() => setModals(m => ({ ...m, receptionistSelection: false }))}
+            onSelect={(recep) => {
+              updateCurrentBill({ receptionist: recep });
+              setModals(m => ({ ...m, receptionistSelection: false }));
+            }}
+            selectedId={currentBill.receptionist?.id}
+          />
         </LinearGradient>
 
         {/* Mode Switcher (Floating) */}
@@ -1170,6 +1253,8 @@ export default function BillingPage({ navigation, route }) {
               remarks={currentBill.remarks || ''}
               onLoyaltyClick={() => setModals(m => ({ ...m, loyaltyPoints: true }))}
               loyaltyPointsRedeemed={currentBill.loyaltyPointsRedeemed || 0}
+              receptionist={currentBill.receptionist}
+              onReceptionistClick={() => setModals(m => ({ ...m, receptionistSelection: true }))}
             />
           )}
         </View>
@@ -1293,8 +1378,6 @@ export default function BillingPage({ navigation, route }) {
           )
         }
 
-        {/* Scanner Modal removed from here: it's now rendered INLINE inside styles.content */}
-
         <ConfirmationModal
           isOpen={modals.clearCartConfirm}
           onClose={() => setModals(m => ({ ...m, clearCartConfirm: false }))}
@@ -1328,8 +1411,8 @@ export default function BillingPage({ navigation, route }) {
           </View>
         )}
 
-      </KeyboardAvoidingView >
-    </View >
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
