@@ -44,9 +44,15 @@ const checkSubscription = asyncHandler(async (req, res, next) => {
         }
     }
 
-    // 4. Update last active
-    user.lastActive = now;
-    await user.save();
+    // Fix #11: Throttle lastActive updates to once per 5 minutes
+    // Prevents a DB write on literally every API call
+    const FIVE_MINUTES = 5 * 60 * 1000;
+    const lastActiveTime = user.lastActive ? new Date(user.lastActive).getTime() : 0;
+    if (now.getTime() - lastActiveTime > FIVE_MINUTES) {
+        user.lastActive = now;
+        // Fire-and-forget — don't block the request for a non-critical field
+        user.save().catch(err => console.warn('[Trial] lastActive save failed:', err.message));
+    }
 
     next();
 });

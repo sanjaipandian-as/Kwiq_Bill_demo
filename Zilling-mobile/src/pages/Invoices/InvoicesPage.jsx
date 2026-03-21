@@ -894,7 +894,7 @@ export default function InvoicesPage() {
         ListFooterComponent={
           <View style={{ padding: 40, alignItems: 'center', opacity: 0.5 }}>
             <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', letterSpacing: 1.5 }}>KWIQ BILL • {APP_VERSION}</Text>
-            <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', marginTop: 4 }}>POWERED BY ZILLING</Text>
+            <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', marginTop: 4 }}>POWERED BY ZIPPY</Text>
           </View>
         }
       />

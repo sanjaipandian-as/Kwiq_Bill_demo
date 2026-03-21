@@ -4,24 +4,114 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { db } from './database';
 import { generateUUID } from '../utils/crypto';
 import { getUserSpecificKey, SETTINGS_KEY } from '../utils/storageKeys';
-const CryptoJS = require('crypto-js');
+import CryptoJS from 'crypto-js';
+import * as SecureStore from 'expo-secure-store';
+
+// ═══════════════════════════════════════════════════════════════
+// Fix #6: Strengthen Drive encryption — derive key with PBKDF2
+// instead of using raw email. Backward-compatible decryption.
+// ═══════════════════════════════════════════════════════════════
+const DRIVE_SALT_KEY = 'kwiq.drive_enc_salt';
+const DRIVE_ENC_ITERATIONS = 20000;
+
+// Fix #6: In-memory cache for the derived key to prevent expensive re-calculation (2800ms lag)
+let _cachedDerivedKey = null;
+let _cachedEmail = null;
+let _cachedSalt = null;
 
 /**
- * Helper: Encrypt content using a key (usually user email)
+ * Get or create a per-device encryption salt for Drive backups.
+ * Stored in SecureStore (hardware-backed on Android).
  */
-const encryptContent = (content, key) => {
-  if (!content || !key) return content;
+export const getDriveEncSalt = async () => {
   try {
-    if (!CryptoJS || !CryptoJS.AES) {
-      console.warn('[Crypto] CryptoJS not fully initialized. Skipping encryption.');
-      return content;
+    let salt = await SecureStore.getItemAsync(DRIVE_SALT_KEY);
+    if (!salt) {
+      console.log('[Crypto] Generating new Drive encryption salt...');
+      salt = CryptoJS.lib.WordArray.random(16).toString(CryptoJS.enc.Hex);
+      await SecureStore.setItemAsync(DRIVE_SALT_KEY, salt);
     }
-    return CryptoJS.AES.encrypt(content, key).toString();
+    return salt;
   } catch (e) {
-    console.error('[Crypto] Encryption fatal error - using fallback (plain data):', e.message);
-    // Safety check: ensure at least plain data flows through
-    return content;
+    console.error('[Crypto] SecureStore salt access failed, falling back to unstable salt:', e.message);
+    return 'kwiq.unstable.fallback.salt';
   }
+};
+
+/**
+ * Derive a strong encryption key from user email + salt using PBKDF2
+ */
+export const deriveEncryptionKey = (email, salt) => {
+  if (!email || !salt) return email;
+  
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Return from cache if we already did this for the same user+salt
+  if (_cachedDerivedKey && _cachedEmail === normalizedEmail && _cachedSalt === salt) {
+    console.log('[Crypto] Using cached security key (0ms).');
+    return _cachedDerivedKey;
+  }
+
+  console.log(`[Crypto] Deriving security key for ${normalizedEmail} (20k iterations)...`);
+  const start = Date.now();
+  const key = CryptoJS.PBKDF2(normalizedEmail, salt, {
+    keySize: 256 / 32,
+    iterations: DRIVE_ENC_ITERATIONS,
+    hasher: CryptoJS.algo.SHA256
+  }).toString(CryptoJS.enc.Hex);
+  
+  // Update cache
+  _cachedDerivedKey = key;
+  _cachedEmail = normalizedEmail;
+  _cachedSalt = salt;
+
+  console.log(`[Crypto] Key derived in ${Date.now() - start}ms.`);
+  return key;
+};
+
+/**
+ * Helper: Encrypt content using a PBKDF2-derived key from user email
+ * Fix #12: Throws on failure instead of silently saving plain data
+ */
+export const encryptContent = (content, key) => {
+  if (!content || !key) {
+    throw new Error('[Crypto] Cannot encrypt: content or key is missing.');
+  }
+  if (!CryptoJS || !CryptoJS.AES) {
+    throw new Error('[Crypto] CryptoJS not fully initialized. Encryption aborted.');
+  }
+  return CryptoJS.AES.encrypt(content, key).toString();
+};
+
+/**
+ * Helper: Decrypt content — tries PBKDF2-derived key first, falls back to raw email
+ * for backward compatibility with old backups.
+ */
+export const decryptContent = (encryptedText, email, keyOrSalt) => {
+  if (!encryptedText || !email) return null;
+  
+  // Attempt 1: Try PBKDF2-derived key (new backups)
+  if (keyOrSalt) {
+    try {
+      // If keyOrSalt is a 64-char hex string, it's already a derived key
+      const derivedKey = (typeof keyOrSalt === 'string' && keyOrSalt.length === 64)
+          ? keyOrSalt 
+          : deriveEncryptionKey(email, keyOrSalt);
+          
+      const bytes = CryptoJS.AES.decrypt(encryptedText, derivedKey);
+      const result = bytes.toString(CryptoJS.enc.Utf8);
+      if (result && result.length > 0) return result;
+    } catch (e) { /* Fall through to legacy */ }
+  }
+
+  // Attempt 2: Try raw email as key (legacy backups)
+  try {
+    const bytes = CryptoJS.AES.decrypt(encryptedText, email);
+    const result = bytes.toString(CryptoJS.enc.Utf8);
+    if (result && result.length > 0) return result;
+  } catch (e) { /* Decryption failed */ }
+
+  return null;
 };
 
 /**
@@ -117,28 +207,17 @@ export const checkStoreBrandingStatus = async (user) => {
   if (!user || !user.id) return { error: 'No user ID' };
   try {
     const accessToken = await getAccessToken();
-    const rootName = 'Kwiqbill';
-    const backupName = 'kwiq bill backup';
+    const backupName = 'Kwiq Bill Backup';
 
-    // 1. Find root folder
-    const rootQuery = `name='${rootName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    const rootRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(rootQuery)}&fields=files(id)`, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    const rootData = await rootRes.json();
-    const rootId = rootData.files?.[0]?.id;
-
-    if (!rootId) return { folderExists: false, logoExists: false };
-
-    // 2. Find backup folder
-    const folderQuery = `name='${backupName}' and '${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    // 1. Find the top-level backup folder directly
+    const folderQuery = `name='${backupName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     const folderRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(folderQuery)}&fields=files(id)`, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     const folderData = await folderRes.json();
     const folderId = folderData.files?.[0]?.id;
 
-    if (!folderId) return { folderExists: true, backupFolderExists: false, logoExists: false };
+    if (!folderId) return { folderExists: false, backupFolderExists: false, logoExists: false };
 
     // 2. Find logo
     const logoQuery = `name='store_logo.jpg' and '${folderId}' in parents and trashed=false`;
@@ -189,9 +268,12 @@ export const getOrCreateFolder = async (accessToken, folderName, parentId = null
   );
   const searchData = await searchRes.json();
 
+  console.log(`[Drive] Searching for folder: ${folderName} (Parent: ${parentId || 'Root'})`);
   if (searchData.files && searchData.files.length > 0) {
+    console.log(`[Drive] Folder found: ${folderName} (${searchData.files[0].id})`);
     return searchData.files[0].id; // Return existing folder ID
   }
+  console.log(`[Drive] Folder not found: ${folderName}, creating...`);
 
   // 2. Create folder if not found
   const metadata = {
@@ -214,6 +296,7 @@ export const getOrCreateFolder = async (accessToken, folderName, parentId = null
     }
   );
   const createData = await createRes.json();
+  console.log(`[Drive] Folder created: ${folderName} (${createData.id})`);
   return createData.id;
 };
 
@@ -372,15 +455,19 @@ export const syncUserDataToDrive = async (user, allData) => {
 
   try {
     const accessToken = await getAccessToken();
-    const rootName = 'Kwiqbill';
-    const backupName = 'kwiq bill backup';
+    const backupName = 'Kwiq Bill Backup';
 
-    // 1. Ensure Root Folder Exists
-    const rootId = await getOrCreateFolder(accessToken, rootName);
-    // 2. Ensure Backup Folder Exists inside Root
-    const folderId = await getOrCreateFolder(accessToken, backupName, rootId);
+    // 1. Ensure Top-level Backup Folder Exists
+    const folderId = await getOrCreateFolder(accessToken, backupName);
 
-    console.log(`Syncing to Drive: ${rootName}/${backupName} (${folderId})`);
+    console.log(`Syncing to Drive: ${backupName} (${folderId})`);
+
+    // Fix #6: Derive secure key once per sync session
+    let derivedKey = null;
+    if (user.email) {
+      const salt = await getDriveEncSalt();
+      derivedKey = deriveEncryptionKey(user.email, salt);
+    }
 
     // 2. Upload each data category as a separate file
     const tables = Object.keys(allData); // ['products', 'customers', 'settings', etc.]
@@ -391,8 +478,8 @@ export const syncUserDataToDrive = async (user, allData) => {
         let content = JSON.stringify(allData[table], null, 2);
 
         // Encrypt snapshots for security
-        if (user.email) {
-          content = encryptContent(content, user.email);
+        if (derivedKey) {
+          content = encryptContent(content, derivedKey);
         }
 
         await uploadFileToFolder(accessToken, folderId, fileName, content);
@@ -458,8 +545,8 @@ export const syncUserDataToDrive = async (user, allData) => {
         };
 
         let reportContent = JSON.stringify(taxReport, null, 2);
-        if (user.email) {
-          reportContent = encryptContent(reportContent, user.email);
+        if (derivedKey) {
+          reportContent = encryptContent(reportContent, derivedKey);
         }
 
         await uploadFileToFolder(accessToken, folderId, 'tax_report.json', reportContent);
@@ -472,8 +559,8 @@ export const syncUserDataToDrive = async (user, allData) => {
 
     // Also save User Details in the same folder for reference (Standardized for Restore)
     let profileContent = JSON.stringify(user, null, 2);
-    if (user.email) {
-      profileContent = encryptContent(profileContent, user.email);
+    if (derivedKey) {
+      profileContent = encryptContent(profileContent, derivedKey);
     }
     await uploadFileToFolder(accessToken, folderId, 'user details.json', profileContent);
 
@@ -499,9 +586,9 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       return;
     }
 
-    // Standardized search: Primary is 'Kwiqbill/kwiq bill backup'
+    // Standardized search: Primary is 'Kwiq Bill Backup', fallbacks for legacy versions
     let folderIds = [];
-    const foldersToTry = ['Kwiqbill', `KwiqBilling-${user.id}`];
+    const foldersToTry = ['Kwiq Bill Backup', 'Kwiqbill', `KwiqBilling-${user.id}`];
 
     for (const fName of foldersToTry) {
       const query = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
@@ -536,7 +623,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
     // 1. Search for specific snapshot files we need to restore
     // Optimization: query for specific filenames to avoid pagination issues when there are many event files.
     if (onProgress) onProgress('Connecting to backup engine...', 0.42);
-    const targetFiles = ['settings.json', 'products.json', 'customers.json', 'expenses.json', 'invoices.json', 'user details.json', 'store_logo.jpg'];
+    const targetFiles = ['settings.json', 'products.json', 'customers.json', 'expenses.json', 'expense_adjustments.json', 'invoices.json', 'user details.json', 'store_logo.jpg'];
     const namesQuery = targetFiles.map(name => `name='${name}'`).join(' or ');
     const parentsQuery = folderIds.map(id => `'${id}' in parents`).join(' or ');
     const listQuery = `(${namesQuery}) and (${parentsQuery}) and trashed=false`;
@@ -585,11 +672,11 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
               }
             } catch (e) { /* Not plain JSON */ }
 
-            // Attempt 2: Decryption (Case for Mobile Backups)
+            // Attempt 2: Decryption (Cases for Mobile Backups — PBKDF2 & legacy Email)
             if (cleanText.startsWith('U2FsdGVkX1')) {
               try {
-                const bytes = CryptoJS.AES.decrypt(cleanText, user.email);
-                const decryptedData = bytes.toString(CryptoJS.enc.Utf8);
+                const salt = await getDriveEncSalt();
+                const decryptedData = decryptContent(cleanText, user.email, salt);
                 if (decryptedData) cleanText = decryptedData;
               } catch (err) {
                 console.warn(`[Restore] Decryption failed for ${baseName}. Key mismatch or corrupted.`);
@@ -644,11 +731,12 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
 
     // Parallel Fetch All Data using the optimized map
     if (onProgress) onProgress('Downloading store snapshots... (Est. time: 3s)', 0.45);
-    const [settings, products, customers, expenses, invoices, userDetailsFile] = await Promise.all([
+    const [settings, products, customers, expenses, expense_adjustments, invoices, userDetailsFile] = await Promise.all([
       fetchFileFromMap('settings.json'),
       fetchFileFromMap('products.json'),
       fetchFileFromMap('customers.json'),
       fetchFileFromMap('expenses.json'),
+      fetchFileFromMap('expense_adjustments.json'),
       fetchFileFromMap('invoices.json'),
       fetchFileFromMap('user details.json')
     ]);
@@ -687,9 +775,10 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
         const driveBank = driveSettings.bankDetails || userDetailsFile?.bankDetails || {};
 
         // Deep merge drive settings with local
-        // LOGO: Do NOT use Drive logo. Logo comes from the Database (MongoDB) only.
-        // Preserve whatever logo is already in local settings (set by DB fetch later).
+        // LOGO PRIORITY: DB logo > Drive settings logo (base64) > downloaded store_logo.jpg > existing local
+        const driveLogo = driveSettings.store?.logo || null;
         const existingLogo = localSettings.store?.logo || null;
+        const bestLogo = existingLogo || driveLogo || (localLogoUri ? `file://${localLogoUri.replace('file://', '')}` : null);
 
         const merged = {
           ...localSettings,
@@ -697,7 +786,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
           store: {
             ...(localSettings.store || {}),
             ...(driveSettings.store || {}),
-            logo: existingLogo  // Keep existing local/DB logo, don't overwrite from Drive
+            logo: bestLogo  // Smart fallback: local > drive settings > downloaded file
           },
           tax: { ...(localSettings.tax || {}), ...(driveSettings.tax || {}) },
           invoice: { ...(localSettings.invoice || {}), ...(driveSettings.invoice || {}) },
@@ -710,7 +799,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
         };
 
         await AsyncStorage.setItem(settingsKey, JSON.stringify(merged));
-        console.log('[Restore] Settings merged from Drive (logo excluded — fetched from DB).');
+        console.log('[Restore] Settings merged from Drive. Logo source:', bestLogo ? (bestLogo.startsWith('data:') ? 'base64' : bestLogo.startsWith('http') ? 'cloud URL' : 'local file') : 'none');
       } catch (e) {
         console.warn('[Restore] Settings merge failed, fixing state:', e.message);
         // Minimum viable settings restore
@@ -806,6 +895,22 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       console.log(`[Restore] Restored ${expenses.length} expenses.`);
     }
 
+    // 4b. Restore Expense Adjustments
+    if (expense_adjustments && Array.isArray(expense_adjustments) && expense_adjustments.length > 0) {
+      updateRestoreProgress(`Restoring ${expense_adjustments.length} expense adjustments...`, 0.58);
+      await db.withTransactionAsync(async () => {
+        for (const ea of expense_adjustments) {
+          await db.runAsync(
+            `INSERT OR REPLACE INTO expense_adjustments (id, expense_id, delta, reason, created_at)
+                    VALUES (?, ?, ?, ?, ?)`,
+            [ea.id, ea.expense_id, ea.delta || 0, ea.reason || '', ea.created_at]
+          );
+          restoredStats.synced++;
+        }
+      });
+      console.log(`[Restore] Restored ${expense_adjustments.length} expense adjustments.`);
+    }
+
     // 5. Restore Invoices
     if (invoices && Array.isArray(invoices)) {
       updateRestoreProgress(`Restoring ${invoices.length} invoices...`, 0.59);
@@ -858,14 +963,12 @@ export const syncSettingsToDrive = async (user, settings) => {
       return false;
     }
 
-    const rootName = 'Kwiqbill';
-    const backupName = 'kwiq bill backup';
+    const backupName = 'Kwiq Bill Backup';
 
     console.log('[DriveSync] Starting sync to Google Drive...');
 
     // 1. Ensure Folder Structure Exists
-    const rootId = await getOrCreateFolder(accessToken, rootName);
-    const folderId = await getOrCreateFolder(accessToken, backupName, rootId);
+    const folderId = await getOrCreateFolder(accessToken, backupName);
 
     // 2. Prepare Payload
     // CLONE settings to avoid mutating state passed in
@@ -926,9 +1029,16 @@ export const syncSettingsToDrive = async (user, settings) => {
       }
     }
 
-    let content = JSON.stringify([settingsToSave], null, 2);
+    // Fix #6: Secure key derivation
+    let derivedKey = null;
     if (user.email) {
-      content = encryptContent(content, user.email);
+      const salt = await getDriveEncSalt();
+      derivedKey = deriveEncryptionKey(user.email, salt);
+    }
+
+    let content = JSON.stringify([settingsToSave], null, 2);
+    if (derivedKey) {
+      content = encryptContent(content, derivedKey);
     }
 
     // 3. Upload
@@ -944,8 +1054,8 @@ export const syncSettingsToDrive = async (user, settings) => {
       onboardingCompletedAt: settings.onboardingCompletedAt
     };
     let detailsContent = JSON.stringify(userDetails, null, 2);
-    if (user.email) {
-      detailsContent = encryptContent(detailsContent, user.email);
+    if (derivedKey) {
+      detailsContent = encryptContent(detailsContent, derivedKey);
     }
     await uploadFileToFolder(accessToken, folderId, 'user details.json', detailsContent);
 
@@ -1042,7 +1152,7 @@ export const fetchSettingsFromDrive = async (user) => {
       return null;
     }    // Search for the Drive folder
     let folderId = null;
-    const foldersToTry = ['Kwiqbill', `KwiqBilling-${user.id}`];
+    const foldersToTry = ['Kwiq Bill Backup', 'Kwiqbill', `KwiqBilling-${user.id}`];
 
     for (const fName of foldersToTry) {
       if (folderId) break;
@@ -1054,14 +1164,19 @@ export const fetchSettingsFromDrive = async (user) => {
       const sData = await sRes.json();
       if (sData.files && sData.files.length > 0) {
         const rootId = sData.files[0].id;
-        // Check for subfolder
-        const subQuery = `name='kwiq bill backup' and '${rootId}' in parents and trashed=false`;
-        const subRes = await fetchWithTimeout(
-              `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(subQuery)}`,
-              { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        const subData = await subRes.json();
-        folderId = (subData.files && subData.files.length > 0) ? subData.files[0].id : rootId;
+        // For the new flat structure ('Kwiq Bill Backup'), use root directly
+        if (fName === 'Kwiq Bill Backup') {
+          folderId = rootId;
+        } else {
+          // Check for subfolder in legacy structures
+          const subQuery = `name='kwiq bill backup' and '${rootId}' in parents and trashed=false`;
+          const subRes = await fetchWithTimeout(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(subQuery)}`,
+                { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          const subData = await subRes.json();
+          folderId = (subData.files && subData.files.length > 0) ? subData.files[0].id : rootId;
+        }
       }
     }
  
@@ -1156,13 +1271,16 @@ export const fetchSettingsFromDrive = async (user) => {
     let merged;
     if (driveTime > localTime || isLocalFresh) {
       console.log('[DriveSettings] Drive data is newer or local is empty. Applying cloud preferences.');
+      // LOGO PRIORITY: existing local > Drive settings logo (base64/URL) > null
+      const driveLogo = driveSettings.store?.logo || null;
+      const bestLogo = existingLogo || driveLogo;
       merged = {
         ...localSettings,
         ...driveSettings,
         store: {
           ...(localSettings.store || {}),
           ...(driveSettings.store || {}),
-          logo: existingLogo, // Logo comes from DB only
+          logo: bestLogo, // Smart fallback: local > Drive settings
         },
         tax: { ...(localSettings.tax || {}), ...(driveSettings.tax || {}) },
         invoice: { ...(localSettings.invoice || {}), ...(driveSettings.invoice || {}) },
@@ -1192,10 +1310,11 @@ export const fetchSettingsFromDrive = async (user) => {
 export const syncSecurityVaultToDrive = async (user, vaultData) => {
   if (!user || !user.email || !vaultData) return false;
   try {
-    const { getAccessToken, getOrCreateFolder, uploadFileToFolder, encryptContent } = require('./googleDriveservices');
     const accessToken = await getAccessToken();
-    const folderId = await getOrCreateFolder(accessToken, 'kwiq bill backup', await getOrCreateFolder(accessToken, 'Kwiqbill'));
-    const content = encryptContent(JSON.stringify(vaultData), user.email);
+    const folderId = await getOrCreateFolder(accessToken, 'Kwiq Bill Backup');
+    const salt = await getDriveEncSalt();
+    const derivedKey = deriveEncryptionKey(user.email, salt);
+    const content = encryptContent(JSON.stringify(vaultData), derivedKey);
     await uploadFileToFolder(accessToken, folderId, 'security_vault.json', content);
     return true;
   } catch (error) {
@@ -1207,8 +1326,6 @@ export const syncSecurityVaultToDrive = async (user, vaultData) => {
 export const fetchSecurityVaultFromDrive = async (user) => {
   if (!user || !user.email) return null;
   try {
-    const { getAccessToken, fetchWithTimeout } = require('./googleDriveservices');
-    const CryptoJS = require('crypto-js');
     const accessToken = await getAccessToken();
     const query = `name='security_vault.json' and trashed=false`;
     const searchRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`, {
@@ -1222,9 +1339,9 @@ export const fetchSecurityVaultFromDrive = async (user) => {
     });
     const encryptedText = await contentRes.text();
     if (encryptedText && encryptedText.trim().startsWith('U2FsdGVkX1')) {
-      const bytes = CryptoJS.AES.decrypt(encryptedText.trim(), user.email);
-      const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-      return JSON.parse(decrypted);
+      const salt = await getDriveEncSalt();
+      const decrypted = decryptContent(encryptedText.trim(), user.email, salt);
+      if (decrypted) return JSON.parse(decrypted);
     }
     return null;
   } catch (error) {

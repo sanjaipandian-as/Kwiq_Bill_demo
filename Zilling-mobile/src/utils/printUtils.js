@@ -277,7 +277,8 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
         if (store.gstin) header += center("GSTIN: " + store.gstin);
         header += drawLine('-');
         if (mode === 'invoice') {
-            header += center("TAX INVOICE");
+            const invoiceTitle = settings?.invoice?.headerTitle || "TAX INVOICE";
+            header += center(invoiceTitle.toUpperCase());
             header += drawLine('-');
         }
 
@@ -575,8 +576,9 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         // Header type: TAX INVOICE for invoices, clean line only for customer bills
         printData += drawLine('=');
         if (mode === 'invoice') {
+            const invoiceTitle = settings?.invoice?.headerTitle || "TAX INVOICE";
             printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_ON;
-            printData += center("TAX INVOICE");
+            printData += center(invoiceTitle.toUpperCase());
             printData += center("(Original for Recipient)");
             printData += COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
             printData += drawLine('-');
@@ -1053,7 +1055,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 ${storeGstin ? `<div style="font-size: 10px;">GSTIN: ${storeGstin}</div>` : ''}
             </div>
 
-            <div class="text-center header-title">${mode === 'invoice' ? 'TAX INVOICE' : 'RETAIL BILL'}</div>
+            <div class="text-center header-title">${mode === 'invoice' ? (settings?.invoice?.headerTitle || 'TAX INVOICE').toUpperCase() : 'RETAIL BILL'}</div>
 
             <div class="row">
                 <span>Bill No: <span class="bold">${bill.id ? bill.id.slice(-6).toUpperCase() : '-'}</span></span>
@@ -1331,7 +1333,7 @@ const generateDetailedHTML = (bill, settings, colors) => {
                     <div style="padding: 2px;">Extra Copy <span class="checkbox"></span></div>
                 </div>
             </div>
-            <div class="row bg-gray" style="justify-content: center; padding: 2px;"><span class="bold">${mode === 'invoice' ? 'TAX INVOICE' : 'RETAIL BILL'}</span></div>
+            <div class="row bg-gray" style="justify-content: center; padding: 2px;"><span class="bold">${mode === 'invoice' ? (settings?.invoice?.headerTitle || 'TAX INVOICE').toUpperCase() : 'RETAIL BILL'}</span></div>
             <div class="row" style="justify-content: center; padding: 2px; font-style: italic;">(See rule 7, for a tax invoice referred to in section 31)</div>
             <div class="row">
                 <div class="col">

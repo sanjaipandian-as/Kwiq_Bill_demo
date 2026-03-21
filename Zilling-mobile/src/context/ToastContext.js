@@ -160,6 +160,7 @@ const ToastItem = ({ toast, onRemove }) => {
 
     const getIcon = () => {
         switch (type) {
+            case 'security': return <ShieldAlert size={20} color="#fff" strokeWidth={2.5} />;
             case 'error': return <AlertCircle size={20} color="#ff0000" strokeWidth={2.5} />;
             case 'warning': return <AlertTriangle size={20} color="#f59e0b" strokeWidth={2.5} />;
             case 'info': return <Info size={20} color="#3b82f6" strokeWidth={2.5} />;
@@ -175,6 +176,7 @@ const ToastItem = ({ toast, onRemove }) => {
 
     const getStatusColor = () => {
         switch (type) {
+            case 'security': return '#ffffff';
             case 'error': return '#ff0000';
             case 'warning': return '#f59e0b';
             case 'success': return '#22c55e';
@@ -198,20 +200,30 @@ const ToastItem = ({ toast, onRemove }) => {
             ]}
             {...panResponder.panHandlers}
         >
-            <View style={[styles.blurContainer, type === 'printer' && styles.printerBlurContainer]}>
+            <View style={[
+                styles.blurContainer, 
+                (type === 'printer' || type === 'security') && styles.premiumBlurContainer
+            ]}>
                 <View style={styles.content}>
-                    <View style={[styles.iconContainer, type === 'printer' && { backgroundColor: '#222', borderColor: '#333', width: 44, height: 44 }]}>
+                    <View style={[
+                        styles.iconContainer, 
+                        (type === 'printer' || type === 'security') && { backgroundColor: '#111', borderColor: '#222', width: 44, height: 44 }
+                    ]}>
                         {image ? (
                             <Image source={typeof image === 'string' ? { uri: image } : image} style={{ width: 34, height: 34, borderRadius: 8 }} />
                         ) : (
                             getIcon()
                         )}
-                        <View style={[styles.statusDot, { backgroundColor: getStatusColor(), borderColor: type === 'printer' ? '#000' : '#fff' }, type === 'printer' && { width: 12, height: 12, borderRadius: 6, bottom: -4, right: -4 }]} />
+                        <View style={[
+                            styles.statusDot, 
+                            { backgroundColor: getStatusColor(), borderColor: (type === 'printer' || type === 'security') ? '#000' : '#fff' }, 
+                            (type === 'printer' || type === 'security') && { width: 12, height: 12, borderRadius: 6, bottom: -4, right: -4 }
+                        ]} />
                     </View>
 
                     <View style={styles.textContainer}>
-                        {title && <Text style={[styles.titleText, { color: getStatusColor() }]}>{title}</Text>}
-                        <Text style={[styles.messageText, type === 'printer' && { color: '#fff' }]}>{message}</Text>
+                        {title && <Text style={[styles.titleText, { color: (type === 'printer' || type === 'security') ? '#fff' : getStatusColor() }]}>{title}</Text>}
+                        <Text style={[styles.messageText, (type === 'printer' || type === 'security') && { color: '#fff' }]}>{message}</Text>
                         {action && (
                             <TouchableOpacity
                                 onPress={() => {
@@ -225,8 +237,8 @@ const ToastItem = ({ toast, onRemove }) => {
                         )}
                     </View>
 
-                    <TouchableOpacity onPress={animateOut} style={[styles.closeBtn, type === 'printer' && { backgroundColor: '#333', borderColor: '#444' }]}>
-                        <X size={16} color={type === 'printer' ? '#fff' : '#64748b'} strokeWidth={3} />
+                    <TouchableOpacity onPress={animateOut} style={[styles.closeBtn, (type === 'printer' || type === 'security') && { backgroundColor: '#333', borderColor: '#444' }]}>
+                        <X size={16} color={(type === 'printer' || type === 'security') ? '#fff' : '#64748b'} strokeWidth={3} />
                     </TouchableOpacity>
 
                     {/* Duration Progress Bar */}
@@ -235,7 +247,7 @@ const ToastItem = ({ toast, onRemove }) => {
                             style={[
                                 styles.progressBar,
                                 {
-                                    backgroundColor: type === 'printer' ? '#fff' : '#000',
+                                    backgroundColor: (type === 'printer' || type === 'security') ? '#fff' : '#000',
                                     width: progressWidth.interpolate({
                                         inputRange: [0, 100],
                                         outputRange: ['0%', '100%']
@@ -277,12 +289,13 @@ const styles = StyleSheet.create({
         elevation: 12,
         backgroundColor: '#fff',
     },
-    printerBlurContainer: {
+    premiumBlurContainer: {
         backgroundColor: '#000',
-        borderColor: '#333',
+        borderColor: '#111',
         borderWidth: 2,
         shadowColor: '#000',
-        elevation: 20,
+        elevation: 25,
+        shadowOpacity: 0.4,
     },
     content: {
         flexDirection: 'row',

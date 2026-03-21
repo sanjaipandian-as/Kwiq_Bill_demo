@@ -52,7 +52,7 @@ const Sidebar = ({ isOpen = true, toggleSidebar, isMobile, onCloseMobile }) => {
                         <Receipt size={20} strokeWidth={2.5} />
                     </div>
                     {isOpen && (
-                        <span className="text-xl font-bold text-body-primary tracking-tight">Zilling</span>
+                        <span className="text-xl font-bold text-body-primary tracking-tight">ZIPPY</span>
                     )}
                 </div>
                 {/* Mobile Close Toggle */}

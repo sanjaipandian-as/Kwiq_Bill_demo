@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCcw, Zap, ShieldCheck, Lock, Crown, Gem, Award, Star, Trophy } from 'lucide-react';
+import { RefreshCcw, Zap, ShieldCheck, Lock, Crown, Gem, Award, Star, Trophy, Key } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 
@@ -11,7 +11,8 @@ const UsersTableView = ({
     setFilterStatus,
     getRemainingDays,
     setSelectedUser,
-    handleToggleBlock
+    handleToggleBlock,
+    handleGenerateResetCode
 }) => {
     return (
         <div className="data-view">
@@ -140,6 +141,10 @@ const UsersTableView = ({
                                                         <span className="btn-text">UPGRADE</span>
                                                     </button>
                                                 )}
+                                                <button className="action-btn reset" onClick={() => handleGenerateResetCode(user._id)} title="Reset Manager PIN">
+                                                    <Key size={18} color="#000000" strokeWidth={2.5} />
+                                                    <span className="btn-text">RESET PIN</span>
+                                                </button>
                                                 <button 
                                                     className={`action-btn ${user.isBlocked ? 'safety' : 'danger'}`} 
                                                     onClick={() => handleToggleBlock(user._id)}

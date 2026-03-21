@@ -1,10 +1,12 @@
 const jwt = require('jsonwebtoken');
 
 const generateToken = (id) => {
-    // Use JWT secret from env or fallback to a default for development
-    const secret = process.env.JWT_SECRET || 'dev-secret-key';
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+        throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot issue tokens.');
+    }
     return jwt.sign({ id }, secret, {
-        expiresIn: '1d',
+        expiresIn: '30d', // Fix #10: Extended from 1d to 30d for mobile app persistent sessions
     });
 };
 

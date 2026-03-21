@@ -50,6 +50,9 @@ const App = () => {
     // Security Modal State
     const [showSecurityModal, setShowSecurityModal] = useState(false);
 
+    // PIN Reset Modal State
+    const [resetData, setResetData] = useState(null); // { userId, code, expiresAt }
+
     const fetchUsers = async () => {
         try {
             setLoading(true);
@@ -113,6 +116,23 @@ const App = () => {
             fetchUsers();
         } catch (err) {
             alert('Override failed');
+        }
+    };
+
+    const handleGenerateResetCode = async (userId) => {
+        if (!confirm('Security Protocol: Generate a Manager PIN override code for this user?')) return;
+        try {
+            // Pointing to our new security admin endpoint
+            const res = await axios.post(`${API_URL}/security/admin/generate-reset-code/${userId}`, {}, {
+                headers: { 'x-admin-key': ADMIN_KEY }
+            });
+            setResetData({
+                userId,
+                code: res.data.code,
+                expiresAt: res.data.expiresAt
+            });
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to generate reset code');
         }
     };
 
@@ -308,6 +328,7 @@ const App = () => {
                             getRemainingDays={getRemainingDays}
                             setSelectedUser={setSelectedUser}
                             handleToggleBlock={handleToggleBlock}
+                            handleGenerateResetCode={handleGenerateResetCode}
                         />
                     )}
 
@@ -321,6 +342,7 @@ const App = () => {
                             getRemainingDays={getRemainingDays}
                             setSelectedUser={setSelectedUser}
                             handleToggleBlock={handleToggleBlock}
+                            handleGenerateResetCode={handleGenerateResetCode}
                         />
                     )}
 
@@ -356,6 +378,8 @@ const App = () => {
                 setShowSecurityModal={setShowSecurityModal}
                 securityStats={securityStats}
                 users={users}
+                resetData={resetData}
+                setResetData={setResetData}
             />
 
 

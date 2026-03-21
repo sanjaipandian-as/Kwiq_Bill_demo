@@ -6,6 +6,8 @@ const Broadcast = require('../models/broadcastModel');
 const Backup = require('../models/backupModel');
 const os = require('os');
 const mongoose = require('mongoose');
+const SecurityBackup = require('../models/SecurityBackup');
+const crypto = require('crypto');
 
 // @desc    Get all users for admin management
 // @route   GET /admin/users
@@ -375,6 +377,63 @@ const getBackups = asyncHandler(async (req, res) => {
     res.json(backups);
 });
 
+// @desc    Admin-initiated generation of override code for a specific user
+// @route   POST /admin/security/admin/generate-reset-code/:userId
+// @access  Admin (Key Auth)
+const generateAdminResetCode = asyncHandler(async (req, res) => {
+    const adminKey = req.headers['x-admin-key'];
+    if (adminKey !== process.env.ADMIN_MANAGEMENT_KEY) {
+        res.status(401);
+        throw new Error('Not authorized as an admin');
+    }
+
+    const { userId } = req.params;
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    
+    // Find backup to check if user has a vault
+    let backup = await SecurityBackup.findOne({ user: userObjectId });
+    const targetUser = await User.findById(userObjectId);
+
+    if (!targetUser) {
+        res.status(404);
+        throw new Error('User not found');
+    }
+    
+    if (!backup) {
+        // Create a new backup record just for OTP purposes for now
+        backup = await SecurityBackup.create({
+            user: userObjectId,
+            encryptedMasterKeyBackup: null // User hasn't synced yet
+        });
+    }
+
+    // Generate 8-character Alphanumeric Code
+    const otp = crypto.randomBytes(4).toString('hex').toUpperCase(); 
+    
+    // Save SHA-256 hash to the ADMIN-SPECIFIC field
+    // recoverKey() checks adminOtpHash first — this MUST match
+    backup.adminOtpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    backup.adminOtpExpiresAt = new Date(Date.now() + 120 * 60000); // 2 hours expiry
+    backup.failedOtpAttempts = 0;
+    await backup.save();
+
+    // LOG ACTION
+    await AuditLog.create({
+        action: 'SECURITY_OVERRIDE_GENERATED',
+        targetType: 'USER',
+        targetId: userId,
+        details: `Generated PIN reset code for user: ${targetUser.email}`
+    });
+
+    console.log(`\n[SECURITY-ADMIN] RESET CODE GENERATED for ${targetUser.email} (${userId}): ${otp}\n`);
+
+    res.json({ 
+        success: true, 
+        code: otp,
+        expiresAt: backup.adminOtpExpiresAt
+    });
+});
+
 module.exports = {
     getAllUsers,
     updateUserPlan,
@@ -386,5 +445,6 @@ module.exports = {
     createBroadcast,
     getBroadcasts,
     triggerBackup,
-    getBackups
+    getBackups,
+    generateAdminResetCode
 };

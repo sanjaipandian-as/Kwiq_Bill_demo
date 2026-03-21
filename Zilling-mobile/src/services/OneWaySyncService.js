@@ -1,9 +1,9 @@
 import { db, clearDatabase } from './database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
-import { getAccessToken, getOrCreateFolder, uploadFileToFolder, fetchWithTimeout } from './googleDriveservices';
+import { getAccessToken, getOrCreateFolder, uploadFileToFolder, fetchWithTimeout, getDriveEncSalt, deriveEncryptionKey, encryptContent, decryptContent } from './googleDriveservices';
 import { generateUUID } from '../utils/crypto';
-const CryptoJS = require('crypto-js');
+import CryptoJS from 'crypto-js';
 const PROCESSED_EVENTS_KEY = 'processed_events_ids';
 const PENDING_UPLOAD_QUEUE_KEY = 'pending_upload_queue';
 const LAST_SYNCED_KEY = 'last_synced_timestamp';
@@ -371,26 +371,25 @@ export const SyncService = {
     },
 
     /**
-     * Get or Create Root 'Kwiqbill' Folder
+     * Get or Create Root 'Kwiq Bill Backup' Folder
      */
     async getRootFolderId(accessToken) {
-        return getOrCreateFolder(accessToken, 'Kwiqbill');
+        return getOrCreateFolder(accessToken, 'Kwiq Bill Backup');
     },
 
     /**
-     * Get or Create the official 'kwiq bill backup' folder
-     * (Inside the Kwiqbill root folder)
+     * Get or Create the official 'Kwiq Bill Backup' folder
+     * (Direct root folder)
      */
     async getBackupFolderId(accessToken) {
         if (_cachedBackupsFolderId) return _cachedBackupsFolderId;
-        const rootId = await this.getRootFolderId(accessToken);
-        const backupId = await getOrCreateFolder(accessToken, 'kwiq bill backup', rootId);
+        const backupId = await this.getRootFolderId(accessToken);
         _cachedBackupsFolderId = backupId;
         return backupId;
     },
 
     /**
-     * Get or Create Subfolders (Inside the 'kwiq bill backup' folder)
+     * Get or Create Subfolders (Uses 'Kwiq Bill Backup' as root)
      */
     async getEventsFolderId(accessToken) {
         return this.getBackupFolderId(accessToken);
@@ -472,7 +471,9 @@ export const SyncService = {
 
                 let content = JSON.stringify(envelope);
                 if (syncKey) {
-                    content = CryptoJS.AES.encrypt(content, syncKey).toString();
+                    const salt = await getDriveEncSalt();
+                    const derivedKey = deriveEncryptionKey(syncKey, salt);
+                    content = encryptContent(content, derivedKey);
                 }
 
                 // Folder ID is cached after first call — near-zero cost on subsequent uploads
@@ -548,7 +549,9 @@ export const SyncService = {
             snapshot.hash = CryptoJS.SHA256(signable).toString();
 
             let content = JSON.stringify(snapshot);
-            content = CryptoJS.AES.encrypt(content, user.email).toString();
+            const salt = await getDriveEncSalt();
+            const derivedKey = deriveEncryptionKey(user.email, salt);
+            content = encryptContent(content, derivedKey);
  
             onProgress('Uploading to cloud...', 0.7);
             const folderId = await this.getSnapshotsFolderId(accessToken);
@@ -618,8 +621,8 @@ export const SyncService = {
             onProgress('Decrypting...', 0.5);
             let decrypted;
             try {
-                const bytes = CryptoJS.AES.decrypt(encryptedContent, user.email);
-                decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                const salt = await getDriveEncSalt();
+                decrypted = decryptContent(encryptedContent, user.email, salt);
                 if (!decrypted) throw new Error('Decryption resulted in empty string. Wrong key or corrupted data.');
             } catch (decryptError) {
                 console.error('[Restore] Decryption failed:', decryptError.message);
@@ -705,6 +708,18 @@ export const SyncService = {
                       [nr.id, nr.name, nr.is_active, nr.created_at, nr.updated_at]
                     );
                   }
+                }
+                // Restore expense adjustments if present in snapshot
+                const { expense_adjustments } = snapshot.data;
+                if (Array.isArray(expense_adjustments)) {
+                  for (const ea of expense_adjustments) {
+                    await db.runAsync(
+                      `INSERT OR REPLACE INTO expense_adjustments (id, expense_id, delta, reason, created_at)
+                       VALUES (?, ?, ?, ?, ?)`,
+                      [ea.id, ea.expense_id, ea.delta || 0, ea.reason || '', ea.created_at]
+                    );
+                  }
+                  console.log(`[Restore] Restored ${expense_adjustments.length} expense adjustments from snapshot.`);
                 }
             });
 
@@ -1106,7 +1121,7 @@ export const SyncService = {
             // 1. Find the user's backup folder on Drive (Search standard 'Kwiqbill' first)
             onProgress('Locating cloud backup...', 0.15);
             let folderId = null;
-            const foldersToTry = ['Kwiqbill', `KwiqBilling-${user.id}`];
+            const foldersToTry = ['Kwiq Bill Backup', 'Kwiqbill', `KwiqBilling-${user.id}`];
 
             for (const fName of foldersToTry) {
                 if (folderId) break;
@@ -1593,9 +1608,11 @@ export const SyncService = {
             for (const item of currentQueue) {
                 try {
                     let content = JSON.stringify(item.content);
-                    if (syncKey) {
-                        content = CryptoJS.AES.encrypt(content, syncKey).toString();
-                    }
+                        if (syncKey) {
+                            const salt = await getDriveEncSalt();
+                            const derivedKey = deriveEncryptionKey(syncKey, salt);
+                            content = encryptContent(content, derivedKey);
+                        }
 
                     await uploadFileToFolder(accessToken, folderId, item.fileName, content);
                     await this.removeFromQueue(item.content.eventId);

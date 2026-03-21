@@ -1,5 +1,4 @@
-import React from 'react';
-import { Zap, UserCheck, ShieldAlert, ShieldCheck, UserX, Activity, ChevronRight } from 'lucide-react';
+import { Zap, UserCheck, ShieldAlert, ShieldCheck, UserX, Activity, ChevronRight, Key } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Modals = ({
@@ -17,7 +16,10 @@ const Modals = ({
     showSecurityModal,
     setShowSecurityModal,
     securityStats,
-    users
+    users,
+
+    resetData,
+    setResetData
 }) => {
     return (
         <>
@@ -185,6 +187,65 @@ const Modals = ({
                             <button className="plan-btn" onClick={() => setShowSecurityModal(false)} style={{ marginTop: 20 }}>
                                 <div className="btn-content" style={{ justifyContent: 'center' }}>
                                     <span className="opt-label">Acknowledge Status</span>
+                                </div>
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+            {/* PIN Reset Code Modal */}
+            <AnimatePresence>
+                {resetData && (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="modal-backdrop"
+                        style={{ zIndex: 2000 }}
+                    >
+                        <motion.div 
+                            initial={{ scale: 0.9, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.9, y: 20 }}
+                            className="premium-modal"
+                            style={{ border: '3px solid #000' }}
+                        >
+                            <div className="modal-header">
+                                <div className="modal-icon" style={{ background: '#000' }}><Key size={24} color="#fff" /></div>
+                                <h2>Manual Override Code</h2>
+                                <p>Provide this code to the manager for identity verification.</p>
+                            </div>
+
+                            <div style={{ 
+                                background: '#000', 
+                                color: '#fff', 
+                                padding: '30px', 
+                                borderRadius: '24px', 
+                                textAlign: 'center',
+                                marginBottom: '24px',
+                                boxShadow: '0 15px 30px rgba(0,0,0,0.2)'
+                            }}>
+                                <span style={{ 
+                                    fontSize: '48px', 
+                                    fontWeight: '950', 
+                                    letterSpacing: '4px',
+                                    fontFamily: 'monospace'
+                                }}>
+                                    {resetData.code}
+                                </span>
+                            </div>
+
+                            <div className="sec-stat-box neutral" style={{ marginBottom: 24 }}>
+                                <Activity size={20} />
+                                <div>
+                                    <h4>Code Validity</h4>
+                                    <p>Expires in 2 hours. Can be used only once.</p>
+                                </div>
+                            </div>
+
+                            <button className="plan-btn" onClick={() => setResetData(null)} style={{ background: '#000', color: '#fff' }}>
+                                <div className="btn-content" style={{ justifyContent: 'center' }}>
+                                    <span className="opt-label" style={{ color: '#fff' }}>CODE PROVIDED</span>
                                 </div>
                             </button>
                         </motion.div>
