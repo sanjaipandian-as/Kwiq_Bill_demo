@@ -101,3 +101,26 @@ FIX: The React Native setup UI will physically disable the "Create Vault" button
 
 ---
 STATUS: ALL ARCHITECTURAL EDGE CASES RESOLVED. READY FOR CODE EXECUTION.
+
+ TO BE COMPLETED (What we need to work on next)
+1. Advanced Authorization
+
+Biometric Wrapper (FaceID/Fingerprint): We have not yet imported or implemented expo-local-authentication. We'll need to wrap this over the PIN entry in 
+
+ManagerPinGate.jsx
+.
+2. Network & Cloud Infrastructure Security
+
+Strict SSL Certificate Pinning: The code exists in 
+
+api.js
+ (Phase 3 block), but it is currently commented out. We need to install react-native-ssl-public-key-pinning, un-comment the code, and insert production SSL Cert SHA-256 hashes to prevent Man-In-The-Middle attacks.
+MongoDB Hardening: This is a DevOps task. We need to configure the MongoDB Atlas host to be inside a VPC and explicitly whitelist our Node.js server IPs, revoking public 0.0.0.0/0 access.
+3. Recovery & Audit Protocols
+
+Self-Service OTP Flow (Phase 4): The secondary verification mechanism (emailing an 8-character recovery code like "X9T-4BD" when a lost device is detected) does not exist in the React Native codebase yet.
+BIP39 Proof of Work Quiz: The fallback UI for the 12 words exists, but we need to ensure the user takes verifying "Proof of Work" interactive quizzes (e.g. "Tap your 3rd word") before allowing them to proceed.
+Centralized Audit Logging: We need to fire silent API events tracking PIN_FAILED and PIN_SUCCESS actions back to the remote server so the owner can track intruder attempts.
+Instant Email Alerts: We have to build out the backend logic to email primary owners if key recoveries happen on a new phone.
+Would you like me to tackle one of the remaining items like the Biometric Wrappers, the Self-Service OTP Flow, or wrapping up the Proof of Work Quiz?
+

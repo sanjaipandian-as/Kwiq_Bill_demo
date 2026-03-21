@@ -58,13 +58,25 @@ export const switchUserDatabase = async (email) => {
         try {
             console.log(`[DB] Opening database file: ${newDbName}`);
             
+            // 0. CLEANUP OLD HANDLE
+            // Explicitly closing the old handle prevents "NativeDatabase.prepareAsync" NPEs on Android
+            if (_activeDb) {
+                try {
+                    console.log(`[DB] Closing previous session handle...`);
+                    await _activeDb.closeAsync();
+                } catch (closeErr) {
+                    console.warn(`[DB] Non-critical error closing previous handle:`, closeErr.message);
+                }
+                _activeDb = null;
+            }
+
             // 1. Open Native Handle
             let newDb = await SQLite.openDatabaseAsync(newDbName);
             if (!newDb) throw new Error("Failed to open database handle: SQLite.openDatabaseAsync returned null");
             
             // 2. NATIVE WARM-UP DELAY
             // NPEs in 'prepareAsync' often happen because the native DB object isn't fully linked to the JS handle yet.
-            await new Promise(resolve => setTimeout(resolve, 150));
+            await new Promise(resolve => setTimeout(resolve, 300));
             
             // 3. NATIVE SMOKE TEST
             // Verify the handle actually works before putting it into the schema logic
@@ -72,7 +84,7 @@ export const switchUserDatabase = async (email) => {
                 await newDb.execAsync('SELECT 1;');
             } catch (smokeErr) {
                 console.warn(`[DB] Smoke test failed for ${newDbName}, retrying open...`);
-                await new Promise(resolve => setTimeout(resolve, 200));
+                await new Promise(resolve => setTimeout(resolve, 300));
                 newDb = await SQLite.openDatabaseAsync(newDbName);
                 await newDb.execAsync('SELECT 1;');
             }
@@ -104,8 +116,15 @@ export const switchUserDatabase = async (email) => {
 /**
  * Resets the active database connection (used on logout).
  */
-export const logoutDB = () => {
+export const logoutDB = async () => {
     console.log(`[DB] Closing database session: ${_currentDbName}`);
+    if (_activeDb) {
+        try {
+            await _activeDb.closeAsync();
+        } catch (e) {
+            console.warn(`[DB] Error during logout closure:`, e.message);
+        }
+    }
     _activeDb = null;
     _currentDbName = null;
     _initializationPromise = null;
@@ -331,12 +350,13 @@ export const fetchAllTableData = async () => {
     const settingsStr = await AsyncStorage.getItem(settingsKey);
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
 
-    const [customers, products, invoices, expenses, receptionists] = await Promise.all([
+    const [customers, products, invoices, expenses, receptionists, expense_adjustments] = await Promise.all([
       currentDb.getAllAsync('SELECT * FROM customers'),
       currentDb.getAllAsync('SELECT * FROM products'),
       currentDb.getAllAsync('SELECT * FROM invoices'),
       currentDb.getAllAsync('SELECT * FROM expenses'),
-      currentDb.getAllAsync('SELECT * FROM receptionists')
+      currentDb.getAllAsync('SELECT * FROM receptionists'),
+      currentDb.getAllAsync('SELECT * FROM expense_adjustments').catch(() => [])
     ]);
 
     return {
@@ -345,6 +365,7 @@ export const fetchAllTableData = async () => {
       invoices,
       expenses,
       receptionists,
+      expense_adjustments,
       settings: [settings],
     };
   } catch (error) {

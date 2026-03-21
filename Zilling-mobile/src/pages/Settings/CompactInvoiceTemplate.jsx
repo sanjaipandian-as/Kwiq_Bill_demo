@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native';
 
-const CompactInvoiceTemplate = ({ settings, data }) => {
+const CompactInvoiceTemplate = ({ settings, data, taxType }) => {
     // Fallback/Demo Data
     const store = settings?.store || {
         name: 'KWIQ BILL',
@@ -124,7 +124,7 @@ const CompactInvoiceTemplate = ({ settings, data }) => {
                         <Text style={styles.compactFooterText}>SUBTOTAL</Text>
                         <Text style={[styles.compactFooterText, { fontWeight: '700' }]}>₹{parseFloat(invoice.totals.subtotal).toFixed(2)}</Text>
                     </View>
-                    {invoice.taxType === 'intra' ? (
+                    {(taxType || invoice.taxType) === 'intra' ? (
                         <>
                             <View style={styles.compactTotalRow}>
                                 <Text style={styles.compactFooterText}>CGST</Text>

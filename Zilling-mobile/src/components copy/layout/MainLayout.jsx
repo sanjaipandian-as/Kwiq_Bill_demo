@@ -49,7 +49,7 @@ const MainLayout = () => {
                         >
                             <Menu size={24} className="text-slate-700" />
                         </Button>
-                        <span className="font-semibold text-lg text-slate-800">Zilling</span>
+                        <span className="font-semibold text-lg text-slate-800">ZIPPY</span>
                     </div>
                 </header>
 

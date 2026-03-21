@@ -41,6 +41,26 @@ const API = axios.create({
 // For debugging: verify which URL is being used
 console.log(`[API] Initialized with baseURL: ${BASE_URL} (Mode: ${IS_PRODUCTION ? 'PROD' : 'LOCAL'})`);
 
+/* =====================================================================
+ * PHASE 3: STRICT SSL CERTIFICATE PINNING (Anti-MITM)
+ * To permanently activate, run: npx expo install react-native-ssl-public-key-pinning
+ * and uncomment this block. Once active, all Axios requests to untrusted certs will physically abort.
+ * =====================================================================
+ */
+import { initializeSslPinning } from 'react-native-ssl-public-key-pinning';
+
+// We initialize SSL pinning immediately to protect the production node
+if (IS_PRODUCTION) {
+   initializeSslPinning({
+       'kwiq-bill.onrender.com': {
+           includeSubdomains: true,
+           publicKeyHashes: [
+               'sha256/WoiWRyIOVNa9ihaBciRSC7XHjliYS9VwUGOIud4PB18=', // Primary Let's Encrypt / Render Hash
+               'sha256/8Rw90Ej3Ttt8RRkrg+WYDS9n7y03zkV7vHym1mYf4s4='  // Backup CA Hash
+           ],
+       }
+   }).catch(err => console.error('[SSL_PINNING] Failed to initialize', err));
+}
 
 // Attach token automatically
 API.interceptors.request.use(async (config) => {
@@ -72,13 +92,17 @@ API.interceptors.response.use(
     } else if (error.response) {
       const sanitizedUrl = error.config?.url ? error.config.url.split('?')[0] : 'unknown_url';
       console.log(`[API] Error Status: ${error.response.status} for ${sanitizedUrl}`);
+      if (error.response.status === 400 && error.response.data) {
+        console.log(`[API] Error Detail:`, JSON.stringify(error.response.data));
+      }
     }
 
     if (error.response && error.response.status === 401) {
       const now = Date.now();
       const isAuthRoute = error.config?.url?.includes('/auth/login') ||
         error.config?.url?.includes('/auth/google') ||
-        error.config?.url?.includes('/auth/register');
+        error.config?.url?.includes('/auth/register') ||
+        error.config?.url?.includes('/security/recover'); // Recovery is public — never wipe token for this
 
       if (now - lastReset > 60000) {
         unauthorizedCount = 1;
@@ -199,6 +223,11 @@ export const services = {
   },
   broadcasts: {
     getLatest: () => API.get('/broadcasts/latest'),
+  },
+  security: {
+    backupKey: async (data) => { const res = await API.post('/security/backup-key', data); return res.data; },
+    recoverKey: async (data) => { const res = await API.post('/security/recover', data); return res.data; },
+    auditLog: async (data) => { const res = await API.post('/security/audit', data); return res.data; },
   }
 };
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Dimensions, Image } from 'react-native';
 import { CheckCircle2 } from 'lucide-react-native';
 
-const DetailedInvoiceTemplate = ({ settings, data }) => {
+const DetailedInvoiceTemplate = ({ settings, data, taxType }) => {
     // Fallback data for preview if settings not provided
     const store = settings?.store || {
         name: 'Kwiq Bill',
@@ -108,7 +108,7 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Vehicle Number:</Text> -</Text>
                     <View style={{ height: 4 }} />
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Date of Supply:</Text> {invoice.date}</Text>
-                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Place of Supply:</Text> {invoice.taxType === 'inter' ? 'Inter-State' : 'Local'}</Text>
+                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Place of Supply:</Text> {(taxType || invoice.taxType) === 'inter' ? 'Inter-State' : 'Local'}</Text>
                 </View>
             </View>
 
@@ -146,7 +146,7 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
                 <View style={[styles.detailedCol, { width: 30, alignItems: 'center', justifyContent: 'center' }]}><Text style={styles.detailedBold}>Rate</Text></View>
                 <View style={[styles.detailedCol, { width: 40, alignItems: 'center', justifyContent: 'center' }]}><Text style={[styles.detailedBold, { fontSize: 8 }]}>Taxable Value</Text></View>
 
-                {invoice.taxType === 'inter' ? (
+                {(taxType || invoice.taxType) === 'inter' ? (
                     <View style={[styles.detailedCol, { width: 80, padding: 0 }]}>
                         <View style={{ borderBottomWidth: 1, borderColor: '#000', alignItems: 'center' }}><Text style={styles.detailedBold}>IGST</Text></View>
                         <View style={{ flexDirection: 'row', flex: 1 }}>
@@ -186,7 +186,7 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
                     <View style={[styles.detailedCol, { width: 30, alignItems: 'flex-end' }]}><Text style={styles.detailedText}>{parseFloat(item.price).toFixed(2)}</Text></View>
                     <View style={[styles.detailedCol, { width: 40, alignItems: 'flex-end' }]}><Text style={styles.detailedText}>{parseFloat(item.taxableValue || item.price * item.quantity).toFixed(2)}</Text></View>
 
-                    {invoice.taxType === 'inter' ? (
+                    {(taxType || invoice.taxType) === 'inter' ? (
                         <View style={[styles.detailedCol, { width: 80, padding: 0, flexDirection: 'row' }]}>
                             <View style={{ flex: 1, borderRightWidth: 1, borderColor: '#000', alignItems: 'center' }}><Text style={styles.detailedText}>{item.igstRate || (parseFloat(item.taxRate) || 0) + '%'}</Text></View>
                             <View style={{ flex: 1.5, alignItems: 'flex-end', paddingRight: 2 }}><Text style={styles.detailedText}>{parseFloat(item.igstAmt || item.taxAmount || 0).toFixed(2)}</Text></View>
@@ -228,7 +228,7 @@ const DetailedInvoiceTemplate = ({ settings, data }) => {
                         <View style={{ flex: 1, padding: 2 }}><Text style={styles.detailedText}>Total Amount before Tax:</Text></View>
                         <View style={{ width: 60, alignItems: 'flex-end', padding: 2 }}><Text style={styles.detailedText}>{parseFloat(invoice.totals.subtotal).toFixed(2)}</Text></View>
                     </View>
-                    {invoice.taxType === 'intra' ? (
+                    {(taxType || invoice.taxType) === 'intra' ? (
                         <>
                             <View style={[styles.detailedRow, { borderBottomWidth: 1 }]}>
                                 <View style={{ flex: 1, padding: 2 }}><Text style={styles.detailedText}>Add: CGST</Text></View>

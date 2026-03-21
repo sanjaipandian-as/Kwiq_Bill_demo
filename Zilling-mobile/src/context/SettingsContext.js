@@ -10,6 +10,7 @@ import { useToast } from './ToastContext';
 import { getUserSpecificKey, SETTINGS_KEY } from '../utils/storageKeys';
 import { SecurityService } from '../services/SecurityService';
 import CryptoJS from 'crypto-js';
+import { getDriveEncSalt, deriveEncryptionKey, encryptContent, decryptContent } from '../services/googleDriveservices';
 
 const SENSITIVE_FIELDS = [
     { section: 'bankDetails', fields: ['accountName', 'accountNumber', 'ifsc', 'bankName', 'branch'] },
@@ -114,19 +115,27 @@ export const SettingsProvider = ({ children, user }) => {
     const [isSettingsDirty, setIsSettingsDirty] = useState(false);
     const [queueLength, setQueueLength] = useState(0);
     const [isUploading, setIsUploading] = useState(false);
-    const [dbProfileComplete, setDbProfileComplete] = useState(false); // Tracks if profile exists in MongoDB
+    const [dbProfileComplete, setDbProfileComplete] = useState(false);
     const [isLogoUploading, setIsLogoUploading] = useState(false);
 
-    // Derived user-specific key
     const settingsKey = getUserSpecificKey(SETTINGS_KEY, user?.email);
 
-    // Network / Auto-Sync States
     const { isConnected, wasOfflinePreviously, setWasOffline } = useNetwork();
     const { showToast } = useToast();
     const [estimatedUploadTime, setEstimatedUploadTime] = useState(0);
 
+    // Fix #6: Pre-derive and cache the strong key for local encryption
+    const [strongKey, setStrongKey] = useState(null);
     useEffect(() => {
-        // Roughly 2 seconds per queued item
+        if (user?.email) {
+            getDriveEncSalt().then(salt => {
+                const key = deriveEncryptionKey(user.email, salt);
+                setStrongKey(key);
+            });
+        }
+    }, [user?.email]);
+
+    useEffect(() => {
         setEstimatedUploadTime(queueLength * 2);
     }, [queueLength]);
 
@@ -169,38 +178,44 @@ export const SettingsProvider = ({ children, user }) => {
         }
     };
 
-    /**
-     * Encrypts or Decrypts sensitive fields in the settings object for secure cloud/local storage.
-     */
-    const processSensitiveFields = (data, email, mode = 'encrypt') => {
-        if (!data || !email) return data;
-        const processed = JSON.parse(JSON.stringify(data)); // Deep clone
+    const processSensitiveFields = (data, email, mode = 'encrypt', strongKey = null) => {
+        if (!data || (!email && !strongKey)) return data;
+        
+        // Shallow copy top-level to avoid polluting the original reference until sections are deep-copied
+        const processed = { ...data };
 
         SENSITIVE_FIELDS.forEach(({ section, fields }) => {
             const sectionData = processed[section];
             if (!sectionData) return;
 
-            // Helper for single object processing
-            const processObject = (obj) => {
-                fields.forEach(field => {
+            // Deep copy only the section we are about to modify
+            const sectionTarget = Array.isArray(sectionData) 
+                ? [...sectionData] 
+                : { ...sectionData };
+            
+            processed[section] = sectionTarget;
+
+            const processObject = (obj, objFields) => {
+                objFields.forEach(field => {
                     const value = obj[field];
                     if (!value) return;
                     try {
                         if (mode === 'encrypt') {
                             const strValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
                             if (!strValue.startsWith('U2FsdGVkX1')) {
-                                obj[field] = CryptoJS.AES.encrypt(strValue, email).toString();
+                                obj[field] = encryptContent(strValue, strongKey || email);
                             }
                         } else {
                             if (typeof value === 'string' && value.startsWith('U2FsdGVkX1')) {
-                                const bytes = CryptoJS.AES.decrypt(value, email);
-                                const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                                if (decrypted) {
+                                // Use the robust helper to try strongKey first, then email fallback
+                                const result = decryptContent(value, email, strongKey || null);
+
+                                if (result) {
                                     try {
-                                        obj[field] = (decrypted.startsWith('{') || decrypted.startsWith('[')) 
-                                            ? JSON.parse(decrypted) 
-                                            : decrypted;
-                                    } catch (e) { obj[field] = decrypted; }
+                                        obj[field] = (result.startsWith('{') || result.startsWith('['))
+                                            ? JSON.parse(result)
+                                            : result;
+                                    } catch (e) { obj[field] = result; }
                                 }
                             }
                         }
@@ -210,10 +225,15 @@ export const SettingsProvider = ({ children, user }) => {
                 });
             };
 
-            if (Array.isArray(sectionData)) {
-                sectionData.forEach(item => processObject(item));
+            if (Array.isArray(sectionTarget)) {
+                // For arrays, each item is treated as an object to have its fields processed
+                processed[section] = sectionTarget.map(item => {
+                    const newItem = { ...item };
+                    processObject(newItem, fields);
+                    return newItem;
+                });
             } else {
-                processObject(sectionData);
+                processObject(sectionTarget, fields);
             }
         });
         return processed;
@@ -222,17 +242,18 @@ export const SettingsProvider = ({ children, user }) => {
     const loadSettings = async () => {
         try {
             const saved = await AsyncStorage.getItem(settingsKey);
-            if (saved) {
+            if (saved && saved !== 'null') {
                 const parsed = JSON.parse(saved);
-                const decrypted = processSensitiveFields(parsed, user?.email, 'decrypt');
-                setSettings(decrypted);
-            } else if (settingsKey !== SETTINGS_KEY) {
-                // Fallback attempt: if new user-specific key is empty, check global key
-                // but only if it's the SAME email (safety). 
-                // However, it's cleaner to just start fresh if the specific key is missing.
-                // For now, let's just use the specific key.
+                if (parsed) {
+                    let strongKey = null;
+                    if (user?.email) {
+                        const salt = await getDriveEncSalt();
+                        strongKey = deriveEncryptionKey(user.email, salt);
+                    }
+                    const decrypted = processSensitiveFields(parsed, user?.email, 'decrypt', strongKey);
+                    setSettings(decrypted || {});
+                }
             }
-
             const dirty = await AsyncStorage.getItem('settings_dirty');
             if (dirty === 'true') setIsSettingsDirty(true);
         } catch (error) {
@@ -252,26 +273,21 @@ export const SettingsProvider = ({ children, user }) => {
 
         try {
             const { SyncService } = require('../services/OneWaySyncService');
-
-            // 0. Update Queue Count
             setSyncStatus('Checking pending uploads...');
             let qLen = await checkQueueStatus();
 
-            // 1. Retry pending uploads
             if (qLen > 0) {
                 setSyncStatus(`Pushing ${qLen} pending changes...`);
                 await SyncService.retryQueue();
-                qLen = await checkQueueStatus(); // Re-check after retry
+                qLen = await checkQueueStatus();
             }
 
-            // 2. Fetch and apply new events (Drive Sync)
             setSyncStatus('Checking for cloud updates...');
             await SyncService.syncDown((msg, prog, stats) => {
                 setSyncStatus(msg);
                 if (stats) setSyncStats(stats);
             });
 
-            // 3. Retry Onboarding Sync if dirty (MongoDB)
             const dirtyFlag = await AsyncStorage.getItem('settings_dirty');
             if (dirtyFlag === 'true') {
                 setSyncStatus('Finalizing cloud setup...');
@@ -313,8 +329,6 @@ export const SettingsProvider = ({ children, user }) => {
     useEffect(() => {
         const initializeSettings = async () => {
             setLoading(true);
-
-            // 1. Instantly load local data
             await loadSettings();
             await loadSyncTime();
             await checkQueueStatus();
@@ -322,17 +336,12 @@ export const SettingsProvider = ({ children, user }) => {
             let hasUnlockedUI = false;
 
             if (user && user.id) {
-                // Determine if we should unlock immediately (Offline-First) 
-                // OR wait for alignment (user request).
                 try {
                     const saved = await AsyncStorage.getItem(settingsKey);
                     if (saved) {
                         const local = JSON.parse(saved);
                         if (local.onboardingCompletedAt || !!local.store?.name) {
-                            console.log('[SettingsContext] Local settings verified. Preparing to align data...');
                             setDbProfileComplete(!!local.onboardingCompletedAt);
-                            
-                            // ─── ALIGNMENT LOGIC (Wait for sync but don't hang too long) ───
                             hasUnlockedUI = true;
                         }
                     }
@@ -340,55 +349,39 @@ export const SettingsProvider = ({ children, user }) => {
                     console.log('Error verifying offline settings:', e);
                 }
 
-                // 2. Run Network Syncs
                 (async () => {
-                    console.log('[SettingsContext] Beginning data alignment & sync process...');
                     let isFreshLogin = false;
                     try {
                         const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
                         if (justLoggedIn === 'true') {
                             isFreshLogin = true;
-                            console.log('[SettingsContext] Fresh login sync detected.');
-                            await AsyncStorage.removeItem('just_logged_in'); // Consume the flag
-
-                            // Only show countdown if the UI is still locked
+                            await AsyncStorage.removeItem('just_logged_in');
                             for (let i = 2; i > 0; i--) {
                                 setSyncStatus(`Finalizing Database... (Est. time: ${i}s)`);
                                 await new Promise(r => setTimeout(r, 1000));
                             }
                             setSyncStatus('Data was aligned. Opening app...');
-                            await new Promise(r => setTimeout(r, 600)); 
+                            await new Promise(r => setTimeout(r, 600));
                         } else {
-                            // IF ALREADY LOGGED IN: Ensure we check cloud but don't wait forever
                             const syncPromise = syncAllData(false);
-                            
-                            // If local data exists, we show "Aligning" for at least 2 seconds 
-                            // to ensure some progress is visible before navigating to dashboard.
                             if (hasUnlockedUI) {
                                 setSyncStatus('Checking for recent updates...');
-                                await new Promise(r => setTimeout(r, 1500)); // Visible polish delay
-                                
-                                // Wait at most 4 more seconds for the sync to complete 
-                                // to handle "directly opening" issue on slow networks.
+                                await new Promise(r => setTimeout(r, 1500));
                                 await Promise.race([
                                     syncPromise,
                                     new Promise(r => setTimeout(r, 4000))
                                 ]);
                             } else {
-                                // No local data? MUST wait for sync to finish.
                                 await syncPromise;
                             }
                         }
                     } catch (e) {
                         console.warn('[SettingsContext] Alignment check failed:', e.message);
                     } finally {
-                        // UNLOCK UI ONLY AFTER ALIGNMENT IS COMPLETE (OR TIMED OUT)
                         setLoading(false);
                     }
 
-                    // STEP 0: Fetch Security Vault (PIN & Receptionists)
                     try {
-                        console.log('[SettingsContext] Syncing Security Vault (PIN/Staff)...');
                         const vaultRecep = await SecurityService.getReceptionists(user);
                         if (vaultRecep && vaultRecep.length > 0) {
                             setSettings(prev => ({ ...prev, receptionists: vaultRecep }));
@@ -397,39 +390,33 @@ export const SettingsProvider = ({ children, user }) => {
                         console.warn('[SettingsContext] Security Vault fetch failed:', secErr.message);
                     }
 
-                    // STEP 1: Fetch store/bank/tax/invoice settings from Google Drive
+                    // Fix #6: Derive key once for this session to ensure consistency across background tasks
+                    const salt = await getDriveEncSalt();
+                    const activeStrongKey = deriveEncryptionKey(user.email, salt);
+
                     let driveDataLoaded = false;
                     try {
-                        if (isFreshLogin) {
-                            console.log('[SettingsContext] Skipping Drive settings fetch - already loaded during auth.');
-                            driveDataLoaded = true; // Kept true so DB data doesn't overwrite it
-                        } else {
-                            console.log('[SettingsContext] Fetching settings from Drive in background...');
+                        if (!isFreshLogin) {
                             const { fetchSettingsFromDrive } = require('../services/googleDriveservices');
                             const driveResult = await fetchSettingsFromDrive(user);
                             if (driveResult) {
                                 driveDataLoaded = true;
                                 setSettings(prev => {
-                                    const decryptedDriveData = processSensitiveFields(driveResult, user?.email, 'decrypt');
+                                    const decryptedDriveData = processSensitiveFields(driveResult, user?.email, 'decrypt', activeStrongKey);
                                     return { ...prev, ...decryptedDriveData };
                                 });
-                                console.log('[SettingsContext] ✅ Background Drive settings loaded');
                             }
                         }
                     } catch (driveErr) {
                         console.warn('[SettingsContext] Background Drive settings fetch failed:', driveErr.message);
                     }
 
-                    // STEP 2: Check DB for profile existence + fetch LOGO
                     try {
-                        console.log('[SettingsContext] Checking database for profile & logo in background...');
                         const response = await services.settings.getSettings();
                         const dbSettings = response?.data || response;
 
                         if (dbSettings && dbSettings.onboardingCompletedAt) {
-                            console.log('[SettingsContext] ✅ Profile found in database');
                             setDbProfileComplete(true);
-
                             const dbLogo = dbSettings.store?.logo || null;
 
                             setSettings(prev => {
@@ -454,29 +441,15 @@ export const SettingsProvider = ({ children, user }) => {
                                             ...(dbSettings.store || {}),
                                             logo: dbLogo || prev.store?.logo || null,
                                         },
-                                        bankDetails: {
-                                            ...prev.bankDetails,
-                                            ...(dbSettings.bankDetails || {}),
-                                        },
-                                        tax: {
-                                            ...prev.tax,
-                                            ...(dbSettings.tax || {}),
-                                        },
-                                        invoice: {
-                                            ...prev.invoice,
-                                            ...(dbSettings.invoice || {}),
-                                        },
-                                        defaults: {
-                                            ...prev.defaults,
-                                            ...(dbSettings.defaults || {}),
-                                        },
+                                        bankDetails: { ...prev.bankDetails, ...(dbSettings.bankDetails || {}) },
+                                        tax: { ...prev.tax, ...(dbSettings.tax || {}) },
+                                        invoice: { ...prev.invoice, ...(dbSettings.invoice || {}) },
+                                        defaults: { ...prev.defaults, ...(dbSettings.defaults || {}) },
                                     };
                                 }
 
-                                // Decrypt before setting to state
-                                const decryptedFinal = processSensitiveFields(updated, user?.email, 'decrypt');
-                                const toSaveLocal = processSensitiveFields(decryptedFinal, user?.email, 'encrypt');
-                                
+                                const decryptedFinal = processSensitiveFields(updated, user?.email, 'decrypt', activeStrongKey);
+                                const toSaveLocal = processSensitiveFields(decryptedFinal, user?.email, 'encrypt', activeStrongKey);
                                 AsyncStorage.setItem(settingsKey, JSON.stringify(toSaveLocal));
                                 return decryptedFinal;
                             });
@@ -495,55 +468,33 @@ export const SettingsProvider = ({ children, user }) => {
                             }
                         }
                     }
-
-                    // Sync process finished
                 })();
             } else {
                 setDbProfileComplete(false);
                 setLoading(false);
             }
         };
-
         initializeSettings();
     }, [user?.id, user?.email]);
 
     const uploadLogoToCloud = async (logoData) => {
         if (!logoData || logoData.startsWith('http')) return logoData;
-
         try {
             const { services } = require('../services/api');
             let fileObject;
-
             if (logoData.startsWith('data:image')) {
-                // Base64 from ImagePicker
                 const parts = logoData.split(',');
                 const mime = parts[0].match(/:(.*?);/)[1];
                 const extension = mime.split('/')[1];
-
-                // We'll use a specific name for the logo
-                fileObject = {
-                    uri: logoData,
-                    name: `store_logo.${extension}`,
-                    type: mime,
-                };
+                fileObject = { uri: logoData, name: `store_logo.${extension}`, type: mime };
             } else if (logoData.startsWith('file://')) {
                 const fileName = logoData.split('/').pop();
                 const ext = fileName.split('.').pop().toLowerCase();
-                fileObject = {
-                    uri: logoData,
-                    name: fileName,
-                    type: ext === 'png' ? 'image/png' : 'image/jpeg',
-                };
-            } else {
-                return logoData;
-            }
+                fileObject = { uri: logoData, name: fileName, type: ext === 'png' ? 'image/png' : 'image/jpeg' };
+            } else return logoData;
 
             const response = await services.settings.uploadLogo(fileObject);
-            const cloudUrl = response?.data?.logoUrl || '';
-            if (cloudUrl) {
-                console.log(`[Logo] ✅ Uploaded to Cloudinary: ${cloudUrl}`);
-            }
-            return cloudUrl || logoData;
+            return response?.data?.logoUrl || logoData;
         } catch (err) {
             console.warn(`[Logo] ⚠️ Cloudinary upload failed: ${err.message}`);
             return logoData;
@@ -551,59 +502,40 @@ export const SettingsProvider = ({ children, user }) => {
     };
 
     const ensurePortableSettings = async (s) => {
-        // If logo is already a Cloudinary/Remote URL, it's portable!
-        if (s.store?.logo && s.store.logo.startsWith('http')) {
-            return s;
-        }
-
+        if (s.store?.logo && s.store.logo.startsWith('http')) return s;
         if (s.store?.logo && s.store.logo.startsWith('file://')) {
             try {
                 const base64 = await FileSystem.readAsStringAsync(s.store.logo, { encoding: 'base64' });
                 const mime = s.store.logo.endsWith('.png') ? 'image/png' : 'image/jpeg';
-                return {
-                    ...s,
-                    store: { ...s.store, logo: `data:${mime};base64,${base64}` }
-                };
-            } catch (e) {
-                console.warn('[SettingsContext] Portability conversion failed:', e);
-            }
+                return { ...s, store: { ...s.store, logo: `data:${mime};base64,${base64}` } };
+            } catch (e) { console.warn('[SettingsContext] Portability conversion failed:', e); }
         }
         return s;
     };
 
     const updateSettings = (section, updates) => {
         setSettings(prev => {
-            const newSettings = {
-                ...prev,
-                [section]: {
-                    ...prev[section],
-                    ...updates
-                }
-            };
-            
-            const toPersist = processSensitiveFields(newSettings, user?.email, 'encrypt');
+            const newSettings = { ...prev, [section]: { ...prev[section], ...updates } };
+            const toPersist = processSensitiveFields(newSettings, user?.email, 'encrypt', strongKey);
             AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
 
             (async () => {
-                // Background Security Vault Update
+                // Defer intense security updates to keep the "continue/save" animation buttery smooth
                 if (section === 'security' && updates.managerPin) {
-                    try {
-                        await SecurityService.saveVault(user, updates.managerPin, newSettings.receptionists);
-                        console.log('[SettingsContext] Manager PIN saved to Secure Vault');
-                    } catch (secErr) {
-                        console.error('[SettingsContext] Security Vault Save failed:', secErr.message);
-                    }
+                    setTimeout(async () => {
+                        try {
+                            await SecurityService.saveVault(user, updates.managerPin, newSettings.receptionists);
+                        } catch (secErr) { 
+                            console.error('[SettingsContext] Security Vault Save failed:', secErr.message); 
+                        }
+                    }, 800);
                 }
 
-                // Background logo upload if it's the store section and logo changed
                 let finalSettings = newSettings;
                 if (section === 'store' && updates.logo && !updates.logo.startsWith('http')) {
                     const cloudLogo = await uploadLogoToCloud(updates.logo);
                     if (cloudLogo !== updates.logo) {
-                        finalSettings = {
-                            ...newSettings,
-                            store: { ...newSettings.store, logo: cloudLogo }
-                        };
+                        finalSettings = { ...newSettings, store: { ...newSettings.store, logo: cloudLogo } };
                         setSettings(finalSettings);
                         AsyncStorage.setItem(settingsKey, JSON.stringify(finalSettings));
                     }
@@ -618,117 +550,75 @@ export const SettingsProvider = ({ children, user }) => {
                     AsyncStorage.setItem('settings_dirty', 'false');
                     setIsSettingsDirty(false);
                 } catch (err) {
-                    console.log('Background Sync to MongoDB failed (Keep Dirty):', err.message);
                     AsyncStorage.setItem('settings_dirty', 'true');
                     setIsSettingsDirty(true);
                 }
 
                 if (user && user.id) {
                     const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                    syncSettingsToDrive(user, toCloud)
-                        .then(success => console.log('Background: Drive Sync (Settings Update)', success ? 'Success' : 'Failed'))
-                        .catch(err => console.error('Background: Drive Sync Error:', err));
+                    syncSettingsToDrive(user, toCloud).catch(e => console.error(e));
                 }
             })();
-
             return newSettings;
         });
     };
 
-
-
     const saveFullSettings = async (fullSettings) => {
         setIsUploading(true);
         try {
-            const updated = { 
-                ...fullSettings, 
-                lastUpdatedAt: new Date().toISOString() // Standardize ISO string for comparison
-            };
-
-            // Log key fields for diagnostics (Visible in development logs)
-            if (updated.invoice?.termsAndConditions) {
-                console.log(`[SettingsContext] 💾 Saving Terms: ${updated.invoice.termsAndConditions.substring(0, 30)}...`);
-            }
-            if (updated.invoice?.conditionsText) {
-                console.log(`[SettingsContext] 💾 Saving Conditions: ${updated.invoice.conditionsText.substring(0, 30)}...`);
-            }
-
-            // 1. Instant Local Update - THIS IS THE MOST IMPORTANT STEP FOR OFFLINE-FIRST
+            const updated = { ...fullSettings, lastUpdatedAt: new Date().toISOString() };
             setSettings(updated);
             
-            const toPersist = processSensitiveFields(updated, user?.email, 'encrypt');
+            let strongKey = null;
+            if (user?.email) {
+                const salt = await getDriveEncSalt();
+                strongKey = deriveEncryptionKey(user.email, salt);
+            }
+            
+            const toPersist = processSensitiveFields(updated, user?.email, 'encrypt', strongKey);
             await AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
-            console.log('[SettingsContext] ✅ Local settings saved successfully (Offline-First and Encrypted)');
 
             let finalToSync = updated;
-
-            // 2. Attempt logo upload to Cloudinary (Non-blocking if it fails)
             const logoData = updated.store?.logo;
             if (logoData && !logoData.startsWith('http')) {
                 setIsLogoUploading(true);
                 try {
                     const cloudUrl = await uploadLogoToCloud(logoData);
                     if (cloudUrl && cloudUrl !== logoData) {
-                        finalToSync = {
-                            ...updated,
-                            store: { ...updated.store, logo: cloudUrl }
-                        };
+                        finalToSync = { ...updated, store: { ...updated.store, logo: cloudUrl } };
                         setSettings(finalToSync);
                         await AsyncStorage.setItem(settingsKey, JSON.stringify(finalToSync));
                     }
-                } catch (logoErr) {
-                    console.log('[SettingsContext] Logo upload failed (Offline), will retry later.');
-                }
+                } catch (e) { }
                 setIsLogoUploading(false);
             }
 
-            // 3. Attempt MongoDB & Drive Sync (If offline, we just mark as dirty)
             if (user && user.id) {
                 const portable = await ensurePortableSettings(finalToSync);
                 const toCloud = processSensitiveFields(portable, user?.email, 'encrypt');
                 const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = toCloud;
 
-                // A. Try MongoDB Sync (Critical for core profile)
                 try {
-                    console.log('[SettingsContext] Attempting background MongoDB sync (Encrypted)...');
                     await services.settings.updateSettings(cleanToCloud);
-                    console.log('[SettingsContext] ✅ Cloud Sync: MongoDB updated.');
                     setDbProfileComplete(true);
                     await AsyncStorage.setItem('settings_dirty', 'false');
                     setIsSettingsDirty(false);
-                } catch (networkErr) {
-                    console.log('[SettingsContext] MongoDB sync failed (Device is Offline/Retry later).');
+                } catch (err) {
                     await AsyncStorage.setItem('settings_dirty', 'true');
                     setIsSettingsDirty(true);
-                    if (showToast) showToast("Offline: Saved locally. Cloud sync pending.", "info");
                 }
 
-                // B. Try Google Drive Sync (Critical for cross-device backup)
                 try {
                     const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                    // We sync the PORTABLE version (with base64 logo if needed) to Drive
-                    const syncSuccess = await syncSettingsToDrive(user, portable);
-                    if (syncSuccess) {
-                        console.log('[SettingsContext] ✅ Drive settings sync completed.');
-                    } else {
-                        throw new Error("Drive service returned failure");
-                    }
-                } catch (driveErr) {
-                    console.log('[SettingsContext] ⚠️ Drive sync failed (Will retry later):', driveErr.message);
-                }
+                    await syncSettingsToDrive(user, portable);
+                } catch (e) { }
             }
 
-            // 4. Trigger secondary hooks (like backups)
-            setTimeout(() => {
-                triggerAutoSave().catch(e => console.warn('AutoSave Warning:', e));
-            }, 50);
-
+            setTimeout(() => { triggerAutoSave().catch(e => { }); }, 50);
             return true;
         } catch (error) {
-            console.error('Critical failure in saveFullSettings:', error);
             setIsUploading(false);
             setIsLogoUploading(false);
-            // Only throw if even the LOCAL save failed (very rare)
             throw error;
         } finally {
             setIsUploading(false);
@@ -739,23 +629,17 @@ export const SettingsProvider = ({ children, user }) => {
     const forceResync = async () => {
         const currentQueueLen = await checkQueueStatus();
         if (currentQueueLen > 0) {
-            Alert.alert("Cannot Re-sync Now", `You have ${currentQueueLen} items pending upload. Please wait for them to finish uploading to avoid data loss.`);
+            Alert.alert("Cannot Re-sync Now", `You have ${currentQueueLen} items pending upload.`);
             return false;
         }
-
         setLoading(true);
-        setSyncStatus('Resetting sync state...');
         setIsUploading(true);
-
         try {
             const { SyncService } = require('../services/OneWaySyncService');
-            console.log('[SettingsContext] Forcing Re-sync...');
             await SyncService.resetSyncState();
             await syncAllData(false);
             return true;
         } catch (error) {
-            console.error('Force Resync Error:', error);
-            setSyncStatus('Error: ' + error.message);
             return false;
         } finally {
             setIsUploading(false);
@@ -765,18 +649,13 @@ export const SettingsProvider = ({ children, user }) => {
 
     const repairSync = async () => {
         setLoading(true);
-        setSyncStatus('Repairing sync channel...');
         setIsUploading(true);
-
         try {
             const { SyncService } = require('../services/OneWaySyncService');
-            console.log('[SettingsContext] Repairing Sync Cache...');
             await SyncService.resetProcessedEvents();
             await syncAllData(false);
             return true;
         } catch (error) {
-            console.error('Repair Sync Error:', error);
-            setSyncStatus('Error: ' + error.message);
             return false;
         } finally {
             setIsUploading(false);
@@ -786,44 +665,18 @@ export const SettingsProvider = ({ children, user }) => {
 
     const deepRepair = async () => {
         if (!user || !user.id) return false;
-        
         setLoading(true);
-        setSyncStatus('Running Deep Repair...');
         setIsUploading(true);
-
         try {
             const { SyncService } = require('../services/OneWaySyncService');
-            console.log('[SettingsContext] Running Deep Repair (Snapshots + Events)...');
-            
-            // 1. Try Modern Snapshot Restore first (Rapid & Encrypted)
             setSyncStatus('Locating baseline snapshot...');
-            let restoreResult = await SyncService.restoreFromLatestSnapshot((msg, progress) => {
-                setSyncStatus(`[Snapshot] ${msg}`);
-            });
-            
+            let restoreResult = await SyncService.restoreFromLatestSnapshot((msg) => setSyncStatus(`[Snapshot] ${msg}`));
             if (!restoreResult) {
-                console.log('[SettingsContext] Modern snapshot not found, falling back to legacy data fetch...');
-                setSyncStatus('Searching for legacy backups...');
-                
-                // 2. Fallback to Legacy/Desktop files (products.json, etc)
-                const legacyResult = await SyncService.forceRestoreFromDrive(user, (msg, progress) => {
-                    setSyncStatus(`[Legacy] ${msg}`);
-                });
-                if (!legacyResult.success) {
-                    console.warn('[SettingsContext] Legacy restore also failed:', legacyResult.error);
-                }
+                await SyncService.forceRestoreFromDrive(user, (msg) => setSyncStatus(`[Legacy] ${msg}`));
             }
-
-            // 3. Re-sync any events created after the snapshot
-            setSyncStatus('Applying recent updates...');
-            await SyncService.syncDown((msg, progress) => {
-                setSyncStatus(msg);
-            });
-            
+            await SyncService.syncDown((msg) => setSyncStatus(msg));
             return true;
         } catch (error) {
-            console.error('Deep Repair Error:', error);
-            setSyncStatus('Error: ' + error.message);
             return false;
         } finally {
             setIsUploading(false);
@@ -836,273 +689,142 @@ export const SettingsProvider = ({ children, user }) => {
             const updated = { ...settings, onboardingCompletedAt: null };
             setSettings(updated);
             await AsyncStorage.setItem(settingsKey, JSON.stringify(updated));
-            Alert.alert("Reset Complete", "Onboarding status has been reset. Restart the app or navigate back to see the onboarding screen.");
+            Alert.alert("Reset Complete", "Onboarding status has been reset.");
             return true;
-        } catch (error) {
-            console.error('Failed to reset onboarding', error);
-            return false;
-        }
+        } catch (error) { return false; }
     };
 
     const addReceptionist = async (name) => {
-        const newReceptionist = {
-            id: `RECEP-${Date.now()}`,
-            name,
-            is_active: 1,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        };
-
+        const newReceptionist = { id: `RECEP-${Date.now()}`, name, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
         const updatedReceptionists = [...(settings.receptionists || []), newReceptionist];
-        const updated = {
-            ...settings,
-            receptionists: updatedReceptionists,
-            lastUpdatedAt: new Date().toISOString()
-        };
-
-        // 1. Update Global State
+        const updated = { ...settings, receptionists: updatedReceptionists, lastUpdatedAt: new Date().toISOString() };
         setSettings(updated);
-
-        // 2. Drive & Local Vault Save (Primary Secure Storage - NO DATABASE)
-        try {
-            await SecurityService.saveVault(user, settings.security?.managerPin, updatedReceptionists);
-            console.log('[SettingsContext] Receptionist saved to Secure Vault');
-        } catch (e) {
-            console.error('[SettingsContext] Secure Vault Save failed:', e.message);
-        }
-
-        // 3. Fallback Legacy DB/Sync (Keep for backward compatibility with BillingPage queries)
+        try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { console.error('[Settings] Vault save failed on add:', e.message); }
         try {
             const { db } = require('../services/database');
             const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-            await db.runAsync(
-                'INSERT INTO receptionists (id, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-                [newReceptionist.id, newReceptionist.name, newReceptionist.is_active, newReceptionist.created_at, newReceptionist.updated_at]
-            );
+            await db.runAsync('INSERT INTO receptionists (id, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [newReceptionist.id, newReceptionist.name, newReceptionist.is_active, newReceptionist.created_at, newReceptionist.updated_at]);
             SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_CREATED, newReceptionist);
-        } catch (e) {
-            console.warn('[SettingsContext] Legacy DB update failed:', e.message);
-        }
+        } catch (e) { console.error('[Settings] DB/Sync failed on add receptionist:', e.message); }
     };
 
     const updateReceptionist = async (id, name) => {
         const updatedAt = new Date().toISOString();
         const updatedReceptionists = settings.receptionists.map(r => r.id === id ? { ...r, name, updated_at: updatedAt } : r);
-        const updated = {
-            ...settings,
-            receptionists: updatedReceptionists,
-            lastUpdatedAt: updatedAt
-        };
-
+        const updated = { ...settings, receptionists: updatedReceptionists, lastUpdatedAt: updatedAt };
         setSettings(updated);
-
-        try {
-            await SecurityService.saveVault(user, settings.security?.managerPin, updatedReceptionists);
-        } catch (e) { console.error('[SettingsContext] Vault update failed:', e); }
-
-        // Update SQLite (Legacy)
+        try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { console.error('[Settings] Vault save failed on update:', e.message); }
         try {
             const { db } = require('../services/database');
             const { SyncService, EventTypes } = require('../services/OneWaySyncService');
             await db.runAsync('UPDATE receptionists SET name = ?, updated_at = ? WHERE id = ?', [name, updatedAt, id]);
             SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_UPDATED, { id, name, updated_at: updatedAt });
-        } catch (e) {
-            console.warn('[SettingsContext] Legacy update failed:', e.message);
-        }
+        } catch (e) { console.error('[Settings] DB/Sync failed on update receptionist:', e.message); }
     };
 
     const toggleReceptionistActive = async (id, isActive) => {
         const updatedAt = new Date().toISOString();
         const activeStatus = isActive ? 1 : 0;
         const updatedReceptionists = settings.receptionists.map(r => r.id === id ? { ...r, is_active: activeStatus, updated_at: updatedAt } : r);
-        const updated = {
-            ...settings,
-            receptionists: updatedReceptionists,
-            lastUpdatedAt: updatedAt
-        };
-
+        const updated = { ...settings, receptionists: updatedReceptionists, lastUpdatedAt: updatedAt };
         setSettings(updated);
-
-        try {
-            await SecurityService.saveVault(user, settings.security?.managerPin, updatedReceptionists);
-        } catch (e) { console.error('[SettingsContext] Vault toggle failed:', e); }
-
-        // Update SQLite (Legacy)
+        try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { console.error('[Settings] Vault save failed on toggle:', e.message); }
         try {
             const { db } = require('../services/database');
             const { SyncService, EventTypes } = require('../services/OneWaySyncService');
             await db.runAsync('UPDATE receptionists SET is_active = ?, updated_at = ? WHERE id = ?', [activeStatus, updatedAt, id]);
             SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_UPDATED, { id, is_active: activeStatus, updated_at: updatedAt });
-        } catch (e) {
-            console.warn('[SettingsContext] Legacy toggle failed:', e.message);
-        }
+        } catch (e) { console.error('[Settings] DB/Sync failed on toggle receptionist:', e.message); }
     };
 
     const deleteReceptionist = async (id) => {
         const updatedReceptionists = settings.receptionists.filter(r => r.id !== id);
-        const updated = {
-            ...settings,
-            receptionists: updatedReceptionists,
-            lastUpdatedAt: new Date().toISOString()
-        };
-
+        const updated = { ...settings, receptionists: updatedReceptionists, lastUpdatedAt: new Date().toISOString() };
         setSettings(updated);
-
-        try {
-            await SecurityService.saveVault(user, settings.security?.managerPin, updatedReceptionists);
-        } catch (e) { console.error('[SettingsContext] Vault delete failed:', e); }
-
-        // Update SQLite (Legacy)
+        try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { console.error('[Settings] Vault save failed on delete:', e.message); }
         try {
             const { db } = require('../services/database');
             const { SyncService, EventTypes } = require('../services/OneWaySyncService');
             await db.runAsync('DELETE FROM receptionists WHERE id = ?', [id]);
             SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_DELETED, { id });
-        } catch (e) {
-            console.warn('[SettingsContext] Legacy delete failed:', e.message);
-        }
+        } catch (e) { console.error('[Settings] DB/Sync failed on delete receptionist:', e.message); }
     };
 
     const syncToCloud = async () => {
-        if (!user || !user.id) {
-            Alert.alert("Cloud Backup", "Please log in with Google to enable Cloud Backup.");
-            return false;
-        }
+        if (!user || !user.id) { return false; }
         setIsUploading(true);
         try {
             const { fetchAllTableData } = require('../services/database');
             const { syncUserDataToDrive } = require('../services/googleDriveservices');
-
             const allData = await fetchAllTableData();
             allData.settings = [settings];
-
             const success = await syncUserDataToDrive(user, allData);
-
             if (success) {
-                // Also create a Modern Snapshot for Rapid Recovery
                 const { SyncService } = require('../services/OneWaySyncService');
-                SyncService.createGlobalSnapshot().catch(e => console.log('Background Snapshot failed:', e.message));
+                SyncService.createGlobalSnapshot().catch(e => { });
             }
-
             return success;
-        } catch (error) {
-            console.error('Cloud Backup Error:', error);
-            return false;
-        } finally {
-            setIsUploading(false);
-        }
+        } catch (error) { return false; } finally { setIsUploading(false); }
     };
 
-    /**
-     * Manual "Backup Data" trigger (User requested)
-     * Resends pending events and pushes a fresh high-security snapshot.
-     * @param {function} onLog - optional callback (message, status: 'info'|'success'|'error'|'working') => void
-     */
     const backupDataToCloud = async (onLog) => {
-        if (!user || !user.id) {
-            Alert.alert("Authentication Required", "Please sign in with your Google account to perform a secure backup.");
-            return false;
-        }
-
-        const log = (msg, status = 'info') => {
+        if (!user || !user.id) { return false; }
+        const log = (msg) => {
             setSyncStatus(msg);
-            if (typeof onLog === 'function') onLog(msg, status);
-            console.log(`[Backup] ${msg}`);
+            if (typeof onLog === 'function') onLog(msg);
         };
-
         setIsUploading(true);
-        log('Starting secure backup...', 'working');
-
         try {
             const { SyncService } = require('../services/OneWaySyncService');
             const { fetchAllTableData } = require('../services/database');
-
-            // 1. Check pending upload queue
-            log('Checking for unsynced items...', 'working');
-            const pendingLength = await SyncService.getPendingQueueLength();
-
-            if (pendingLength > 0) {
-                log(`Found ${pendingLength} pending item(s). Uploading now...`, 'working');
-                await SyncService.retryQueue();
-                log(`\u2713 ${pendingLength} pending item(s) synced to cloud.`, 'success');
-            } else {
-                log('\u2713 All items are already synced. No pending uploads.', 'success');
-            }
-
-            // 2. Fetch current local data snapshot summary
-            log('Reading local database...', 'working');
-            const allData = await fetchAllTableData();
-            const counts = {
-                products: allData.products?.length || 0,
-                customers: allData.customers?.length || 0,
-                invoices: allData.invoices?.length || 0,
-                expenses: allData.expenses?.length || 0,
-            };
-            log(`\u2713 Found: ${counts.invoices} invoices, ${counts.products} products, ${counts.customers} customers, ${counts.expenses} expenses.`, 'success');
-
-            // 3. Encrypt and upload snapshot
-            log('Encrypting data with AES-256...', 'working');
-            const snapSuccess = await SyncService.createGlobalSnapshot((msg, progress) => {
-                const pct = Math.round(progress * 100);
-                if (progress < 0.5) {
-                    log(`Encrypting & signing data... ${pct}%`, 'working');
-                } else if (progress < 0.9) {
-                    log(`Uploading to Google Drive... ${pct}%`, 'working');
-                } else {
-                    log(`Finalizing backup... ${pct}%`, 'working');
-                }
-            });
-
+            log('Starting secure backup...');
+            await SyncService.retryQueue();
+            const snapSuccess = await SyncService.createGlobalSnapshot((msg) => log(msg));
             if (snapSuccess) {
-                log('\u2713 Secure encrypted snapshot saved to Google Drive!', 'success');
-                log('\u2713 Backup complete. Your data is protected.', 'success');
-                setSyncStatus('Ready');
-                showToast("Data securely backed up to your Google Drive.", "success", 4000, null, "Backup Complete \u2713");
+                log('Backup complete!');
+                showToast("Data securely backed up to your Google Drive.", "success");
                 return true;
-            } else {
-                throw new Error("Failed to create cloud snapshot. Check your internet connection.");
             }
-        } catch (error) {
-            console.error('Manual Backup Error:', error);
-            log(`\u2717 Backup failed: ${error.message}`, 'error');
-            showToast("Backup encountered an issue. Check your connection.", "error");
-            setSyncStatus('Backup Failed');
             return false;
-        } finally {
-            setIsUploading(false);
-            checkQueueStatus();
-        }
+        } catch (error) { return false; } finally { setIsUploading(false); }
     };
 
+    // Stable context value (Settings and Actions)
+    const settingsValue = React.useMemo(() => ({
+        settings,
+        updateSettings,
+        saveFullSettings,
+        resetOnboarding,
+        syncAllData,
+        syncToCloud,
+        backupDataToCloud,
+        forceResync,
+        repairSync,
+        deepRepair,
+        addReceptionist,
+        updateReceptionist,
+        toggleReceptionistActive,
+        deleteReceptionist,
+        loading,
+        dbProfileComplete,
+        isConnected,
+        verifyManagerPin: async (pin) => await SecurityService.verifyPin(pin, user)
+    }), [settings, loading, dbProfileComplete, isConnected, user?.id]);
+
+    // High-frequency context value (Sync Status)
+    const statusValue = React.useMemo(() => ({
+        lastEventSyncTime,
+        syncStatus,
+        queueLength,
+        isUploading,
+        isLogoUploading,
+        checkQueueStatus,
+        syncStats,
+        estimatedUploadTime
+    }), [lastEventSyncTime, syncStatus, queueLength, isUploading, isLogoUploading, syncStats, estimatedUploadTime]);
+
     return (
-        <SettingsContext.Provider value={{
-            settings,
-            updateSettings,
-            saveFullSettings,
-            resetOnboarding,
-            syncAllData,
-            syncToCloud,
-            backupDataToCloud,
-            forceResync,
-            repairSync,
-            deepRepair,
-            addReceptionist,
-            updateReceptionist,
-            toggleReceptionistActive,
-            deleteReceptionist,
-            lastEventSyncTime,
-            syncStatus,
-            loading,
-            queueLength,
-            isUploading,
-            isLogoUploading,
-            checkQueueStatus,
-            dbProfileComplete,
-            syncStats,
-            estimatedUploadTime,
-            isConnected,
-            verifyManagerPin: async (pin) => await SecurityService.verifyPin(pin, user?.email)
-        }}>
+        <SettingsContext.Provider value={{ ...settingsValue, ...statusValue }}>
             {children}
         </SettingsContext.Provider>
     );

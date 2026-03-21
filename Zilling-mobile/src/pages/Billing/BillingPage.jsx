@@ -1045,9 +1045,13 @@ export default function BillingPage({ navigation, route }) {
                     setIsScannerOpen(false);
                     updateSettings('app', { isScannerActive: false });
                   }}
-                  onScanned={(product) => {
-                    handleAddProduct(product);
-                    // showToast(`Scanned: ${product.name}`, 'success'); // Removed redundant toast
+                  onScanned={(cartPayload, variant) => {
+                    if (variant) {
+                      addItemToCart(cartPayload, variant);
+                    } else {
+                      handleAddProduct(cartPayload);
+                    }
+                    // showToast(`Scanned: ${cartPayload.name}`, 'success'); // Removed redundant toast
 
                     // Note: We no longer auto-close the scanner when hasVariants is true.
                     // The 'paused' prop handles disabling the scanner if a modal appears.

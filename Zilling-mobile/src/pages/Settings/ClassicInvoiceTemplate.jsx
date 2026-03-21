@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native';
 import { Store } from 'lucide-react-native';
 
-const ClassicInvoiceTemplate = ({ settings, data }) => {
+const ClassicInvoiceTemplate = ({ settings, data, taxType }) => {
     // Fallback/Demo Data
     const store = settings?.store || {
         name: 'KWIQ BILL',
@@ -112,7 +112,7 @@ const ClassicInvoiceTemplate = ({ settings, data }) => {
                     <Text style={styles.a4TotalLabel}>SUBTOTAL</Text>
                     <Text style={styles.a4TotalValue}>₹{parseFloat(invoice.totals.subtotal).toFixed(2)}</Text>
                 </View>
-                {invoice.taxType === 'intra' ? (
+                {(taxType || invoice.taxType) === 'intra' ? (
                     <>
                         <View style={styles.a4TotalRow}>
                             <Text style={styles.a4TotalLabel}>CGST</Text>

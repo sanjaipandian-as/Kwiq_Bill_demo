@@ -45,6 +45,7 @@ import {
   Globe,
   MessageSquare,
   FileText,
+  Lock,
   CreditCard,
   Upload,
   Image as ImageIcon,
@@ -114,12 +115,16 @@ const SettingsPage = ({ navigation, route }) => {
   const [isRepairModalVisible, setIsRepairModalVisible] = useState(false);
   const repairFadeAnim = React.useRef(new Animated.Value(0)).current;
   const [isPinVerified, setIsPinVerified] = useState(false);
+  const [isChangingPin, setIsChangingPin] = useState(false);
+  const previousPinRef = React.useRef(null);
   const [isDiscardModalVisible, setIsDiscardModalVisible] = useState(false);
   const discardFadeAnim = React.useRef(new Animated.Value(0)).current;
   const [isUserModalVisible, setIsUserModalVisible] = useState(false);
   const [userModalMode, setUserModalMode] = useState('add');
   const [editingUserId, setEditingUserId] = useState(null);
   const [userNameInput, setUserNameInput] = useState('');
+  const [isPinResetModalVisible, setIsPinResetModalVisible] = useState(false);
+  const pinResetFadeAnim = React.useRef(new Animated.Value(0)).current;
   const userModalFadeAnim = React.useRef(new Animated.Value(0)).current;
 
   // Bluetooth Printer States
@@ -136,6 +141,7 @@ const SettingsPage = ({ navigation, route }) => {
   const [backupDone, setBackupDone] = useState(false);
   const [animDots, setAnimDots] = useState('');
   const backupLogsBufferRef = React.useRef([]);
+  const backupLogsRef = React.useRef(null);
   const [showTerminal, setShowTerminal] = useState(false);
 
   // --- Swipe Navigation Logic ---
@@ -145,7 +151,7 @@ const SettingsPage = ({ navigation, route }) => {
     { id: 'tax', label: 'Tax', icon: Calculator },
     { id: 'invoice', label: 'Invoices', icon: Layout },
     { id: 'print', label: ' Print ', icon: Printer },
-    { id: 'access', label: 'Users', icon: Users },
+    { id: 'access', label: 'Staffs', icon: Users },
     { id: 'backup', label: 'Backups', icon: Save },
     { id: 'contact', label: 'Contact (KWIQ BILL TEAM)', icon: Headset },
     { id: 'logout', label: 'Logout', icon: LogOut },
@@ -334,6 +340,17 @@ const SettingsPage = ({ navigation, route }) => {
   const closeLogoutModal = () => {
     Animated.timing(logoutFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
       setIsLogoutModalVisible(false);
+    });
+  };
+
+  const openPinResetModal = () => {
+    setIsPinResetModalVisible(true);
+    Animated.timing(pinResetFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  };
+
+  const closePinResetModal = () => {
+    Animated.timing(pinResetFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setIsPinResetModalVisible(false);
     });
   };
 
@@ -663,7 +680,44 @@ const SettingsPage = ({ navigation, route }) => {
     switch (activeTab) {
       case 'access':
         if (!isPinVerified) {
-          return <ManagerPinGate onUnlocked={() => setIsPinVerified(true)} />;
+          return (
+            <View style={{ flex: 1 }}>
+              <ManagerPinGate onUnlocked={() => { setIsPinVerified(true); setIsChangingPin(false); }} />
+              {isChangingPin && (
+                <TouchableOpacity
+                  onPress={async () => {
+                    // Restore old PIN and go back to staff list
+                    if (previousPinRef.current !== null) {
+                      await updateSettings('security', { managerPin: previousPinRef.current });
+                    }
+                    previousPinRef.current = null;
+                    setIsChangingPin(false);
+                    setIsPinVerified(true);
+                  }}
+                  activeOpacity={0.7}
+                  style={{
+                    position: 'absolute',
+                    top: Platform.OS === 'ios' ? 56 : 16,
+                    right: 16,
+                    zIndex: 99,
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: '#f1f5f9',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    elevation: 4,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 4,
+                  }}
+                >
+                  <X size={20} color="#0f172a" />
+                </TouchableOpacity>
+              )}
+            </View>
+          );
         }
         return (
           <View style={styles.tabContent}>
@@ -692,20 +746,20 @@ const SettingsPage = ({ navigation, route }) => {
                 <Text style={{ fontSize: 14, fontWeight: '900', color: '#000' }}>ACTIVE STAFF</Text>
               </View>
               <View style={{ padding: 12 }}>
-                {(!localSettings?.receptionists || localSettings.receptionists.length === 0) ? (
+                {(!settings?.receptionists || settings.receptionists.length === 0) ? (
                   <View style={{ padding: 40, alignItems: 'center' }}>
                     <Contact size={40} color="#e2e8f0" strokeWidth={1} style={{ marginBottom: 12 }} />
                     <Text style={{ fontSize: 13, color: '#94a3b8', fontWeight: '600' }}>No receptionists added yet</Text>
                   </View>
                 ) : (
-                  localSettings.receptionists.map((recep, idx) => (
+                  settings.receptionists.map((recep, idx) => (
                     <View
                       key={recep.id}
                       style={{
                         flexDirection: 'row',
                         alignItems: 'center',
                         padding: 16,
-                        borderBottomWidth: idx === localSettings.receptionists.length - 1 ? 0 : 1,
+                        borderBottomWidth: idx === settings.receptionists.length - 1 ? 0 : 1,
                         borderBottomColor: '#f1f5f9',
                         opacity: recep.is_active ? 1 : 0.5
                       }}
@@ -755,6 +809,17 @@ const SettingsPage = ({ navigation, route }) => {
                   </Text>
                 </View>
               </View>
+            </View>
+
+            <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', marginTop: 32, marginBottom: 12, letterSpacing: 0.5, uppercase: true }}>VAULT & SECURITY</Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity 
+                  style={{ flex: 1, backgroundColor: '#000', padding: 16, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}
+                  onPress={openPinResetModal}
+                >
+                    <Lock size={16} color="#fff" />
+                    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>Change PIN</Text>
+                </TouchableOpacity>
             </View>
           </View>
         );
@@ -1797,17 +1862,40 @@ const SettingsPage = ({ navigation, route }) => {
             }}>
               <View style={{ marginBottom: 12, paddingHorizontal: 12, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Sparkles size={14} color="#64748b" />
+                  {/* <Sparkles size={14} color="#64748b" /> */}
                   <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Live Preview</Text>
                 </View>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' }} />
+                <TouchableOpacity 
+                  activeOpacity={0.7}
+                  onPress={() => setIsPreviewIGST(!isPreviewIGST)} 
+                  style={{ 
+                    flexDirection: 'row', 
+                    alignItems: 'center', 
+                    backgroundColor: '#ffffff', 
+                    paddingHorizontal: 12, 
+                    paddingVertical: 6, 
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: '#cbd5e1',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 3,
+                    elevation: 2
+                  }}
+                >
+                  <RefreshCw size={11} color="#334155" style={{ marginRight: 6 }} />
+                  <Text style={{ fontSize: 10, fontWeight: '800', color: '#334155', letterSpacing: 0.5 }}>
+                    {isPreviewIGST ? 'CHANGE TO CGST VIEW' : 'CHANGE TO IGST VIEW'}
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               <View style={{ borderRadius: 0, overflow: 'hidden', backgroundColor: '#fff', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 16 }}>
-                {(localSettings.invoice.template || 'Classic') === 'Classic' && <ClassicInvoiceTemplate settings={localSettings} data={null} />}
-                {localSettings.invoice.template === 'Compact' && <CompactInvoiceTemplate settings={localSettings} data={null} />}
-                {localSettings.invoice.template === 'Detailed' && <DetailedInvoiceTemplate settings={localSettings} />}
-                {localSettings.invoice.template === 'Minimal' && <MinimalInvoiceTemplate settings={localSettings} taxType="intra" />}
+                {(localSettings.invoice.template || 'Classic') === 'Classic' && <ClassicInvoiceTemplate settings={localSettings} data={null} taxType={isPreviewIGST ? 'inter' : 'intra'} />}
+                {localSettings.invoice.template === 'Compact' && <CompactInvoiceTemplate settings={localSettings} data={null} taxType={isPreviewIGST ? 'inter' : 'intra'} />}
+                {localSettings.invoice.template === 'Detailed' && <DetailedInvoiceTemplate settings={localSettings} taxType={isPreviewIGST ? 'inter' : 'intra'} />}
+                {localSettings.invoice.template === 'Minimal' && <MinimalInvoiceTemplate settings={localSettings} taxType={isPreviewIGST ? 'inter' : 'intra'} />}
               </View>
 
               <Text style={{ fontSize: 10, color: '#94a3b8', textAlign: 'center', marginTop: 12, fontWeight: '700' }}>
@@ -1833,8 +1921,7 @@ const SettingsPage = ({ navigation, route }) => {
                     {[
                       { id: 'showLogo', label: 'Show Business Logo', icon: <ImageIcon size={18} color="#000" /> },
                       { id: 'showSignature', label: 'Authorized Signatory', icon: <Fingerprint size={18} color="#000" /> },
-                      { id: 'showTaxBreakup', label: 'Detailed Tax Breakup', icon: <Calculator size={18} color="#000" /> },
-                      { id: 'showQrcode', label: 'Payment QR Code', icon: <Layout size={18} color="#000" /> }
+                      { id: 'showTaxBreakup', label: 'Detailed Tax Breakup', icon: <Calculator size={18} color="#000" /> }
                     ].map((item) => (
                       <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: '#f8fafc', borderRadius: 16 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -1999,11 +2086,13 @@ const SettingsPage = ({ navigation, route }) => {
 
                         {/* IGST Preview Toggle */}
                         <TouchableOpacity
+                          activeOpacity={0.7}
                           onPress={() => setIsPreviewIGST(!isPreviewIGST)}
-                          style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: isPreviewIGST ? '#000' : '#fff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#000' }}
+                          style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#cbd5e1', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2 }}
                         >
-                          <Text style={{ fontSize: 11, fontWeight: '800', color: isPreviewIGST ? '#fff' : '#000' }}>
-                            {isPreviewIGST ? 'SHOWING IGST BILL' : 'PREVIEW IGST BILL'}
+                          <RefreshCw size={11} color="#334155" style={{ marginRight: 6 }} />
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#334155', letterSpacing: 0.5 }}>
+                            {isPreviewIGST ? 'CHANGE TO CGST VIEW' : 'CHANGE TO IGST VIEW'}
                           </Text>
                         </TouchableOpacity>
                       </View>
@@ -3935,6 +4024,71 @@ const SettingsPage = ({ navigation, route }) => {
         </View>
       </Modal>
 
+      {/* Initialize New Master PIN Modal */}
+      <Modal
+        visible={isPinResetModalVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closePinResetModal}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View
+            style={[
+              styles.modalBackdrop,
+              { opacity: pinResetFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+            ]}
+          />
+          <Pressable style={styles.modalPressable} onPress={closePinResetModal}>
+            <Animated.View
+              style={[
+                styles.logoutModalContainer,
+                {
+                  transform: [
+                    { scale: pinResetFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                    { translateY: pinResetFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
+                  ],
+                  opacity: pinResetFadeAnim,
+                  borderColor: '#000',
+                  borderWidth: 2,
+                }
+              ]}
+            >
+              <View style={[styles.logoutIconContainer, { backgroundColor: '#000' }]}>
+                <Lock size={32} color="#fff" />
+              </View>
+
+              <Text style={styles.logoutModalTitle}>Reset Master PIN?</Text>
+              <Text style={styles.logoutModalDesc}>
+                This will clear your current Manager PIN and reset vault security. {"\n\n"}
+                <Text style={{ fontWeight: '800', color: '#000' }}>Process:</Text> You will be asked to set a new 4-digit PIN immediately.
+              </Text>
+
+              <View style={styles.logoutModalFooter}>
+                <TouchableOpacity
+                  onPress={closePinResetModal}
+                  style={styles.logoutModalCancel}
+                >
+                  <Text style={styles.logoutModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={async () => {
+                    closePinResetModal();
+                    previousPinRef.current = settings?.security?.managerPin;
+                    await updateSettings('security', { managerPin: null });
+                    setIsChangingPin(true);
+                    setIsPinVerified(false);
+                  }}
+                  style={[styles.logoutModalConfirm, { backgroundColor: '#000' }]}
+                >
+                  <Text style={styles.logoutModalConfirmText}>Reset PIN</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </Pressable>
+        </View>
+      </Modal>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         enabled={Platform.OS === 'ios'}
@@ -3949,7 +4103,7 @@ const SettingsPage = ({ navigation, route }) => {
           {renderTabContent()}
           <View style={styles.footer}>
             <Text style={styles.footerText}>KWIQ BILL • {APP_VERSION}</Text>
-            <Text style={{ fontSize: 9, color: '#cbd5e1', fontWeight: '700', marginTop: 4 }}>POWERED BY ZILLING</Text>
+            <Text style={{ fontSize: 9, color: '#cbd5e1', fontWeight: '700', marginTop: 4 }}>POWERED BY ZIPPY</Text>
           </View>
 
         </ScrollView>

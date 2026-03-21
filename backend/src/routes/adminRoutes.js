@@ -11,7 +11,8 @@ const {
     createBroadcast,
     getBroadcasts,
     triggerBackup,
-    getBackups
+    getBackups,
+    generateAdminResetCode
 } = require('../controllers/adminController');
 
 // All routes are protected via adminKey check inside the controller for now.
@@ -26,5 +27,6 @@ router.post('/broadcast', createBroadcast);
 router.get('/broadcast', getBroadcasts);
 router.post('/backup', triggerBackup);
 router.get('/backup', getBackups);
+router.post('/security/admin/generate-reset-code/:userId', generateAdminResetCode);
 
 module.exports = router;
