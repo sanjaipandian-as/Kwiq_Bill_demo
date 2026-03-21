@@ -377,8 +377,6 @@ export const SettingsProvider = ({ children, user }) => {
                         }
                     } catch (e) {
                         console.warn('[SettingsContext] Alignment check failed:', e.message);
-                    } finally {
-                        setLoading(false);
                     }
 
                     try {
@@ -467,6 +465,10 @@ export const SettingsProvider = ({ children, user }) => {
                                 setDbProfileComplete(false);
                             }
                         }
+                    } finally {
+                        // FIX: Only turn off the loading overlay AFTER we fetch the database profile
+                        // This prevents the "flash of onboarding form" on fresh logins.
+                        setLoading(false);
                     }
                 })();
             } else {

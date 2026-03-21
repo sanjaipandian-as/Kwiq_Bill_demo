@@ -219,7 +219,7 @@ export const SecurityService = {
 
       // Get iterations from metadata for migration support
       const metaStr = await AsyncStorage.getItem(VAULT_METADATA_KEY);
-      const iterations = metaStr ? (JSON.parse(metaStr).pinIterations || PIN_PBKDF2_ITERATIONS) : PIN_PBKDF2_ITERATIONS;
+      let iterations = metaStr ? (JSON.parse(metaStr).pinIterations || PIN_PBKDF2_ITERATIONS) : PIN_PBKDF2_ITERATIONS;
 
       let inputHash = CryptoJS.PBKDF2(inputPin, savedSalt, {
         keySize: PBKDF2_KEYSIZE,
