@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 
-const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceInter = false }) => {
+const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceInter = false, options = {} }) => {
+
     // Fallback/Demo Data
     const store = settings?.store || {
         name: 'KWIQ BILLING STORE',
@@ -209,10 +210,10 @@ const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceI
                     </View>
                 )}
 
-                {/* Formal Details (Only if Toggle ON) */}
+                {/* Formal Details (Respecting Options) */}
                 {settings?.invoice?.showBankAndSignature && (
                     <View style={{ width: '100%', marginTop: 8 }}>
-                        {settings?.bankDetails?.bankName && (
+                        {!options?.hideAccountDetails && settings?.bankDetails?.bankName && (
                             <View style={{ borderTopWidth: 1, borderTopColor: '#000', borderStyle: 'dashed', paddingTop: 4 }}>
                                 <Text style={[styles.infoText, { fontSize: 10 }]}>BANK DETAILS:</Text>
                                 <Text style={[styles.infoText, { fontSize: 9 }]}>Bank: {settings.bankDetails.bankName}</Text>
@@ -221,14 +222,20 @@ const ProfessionalThermalTemplate = ({ settings, data, taxType = 'intra', forceI
                                 <View style={[styles.dashedLine, { marginTop: 4 }]} />
                             </View>
                         )}
-                        <View style={{ alignItems: 'flex-end', marginTop: 15, paddingRight: 10 }}>
-                            <Text style={[styles.infoText, { fontSize: 11, marginBottom: 2 }]}>For {store.name}</Text>
-                            <View style={{ height: 25 }} />
-                            <Text style={[styles.footerText, { fontSize: 10 }]}>Authorised Signatory</Text>
-                        </View>
+                        {!options?.isNonAuthorized && (
+                            <View style={{ alignItems: 'flex-end', marginTop: 15, paddingRight: 10 }}>
+                                <Text style={[styles.infoText, { fontSize: 11, marginBottom: 2 }]}>For {store.name}</Text>
+                                <View style={{ height: 25 }} />
+                                <Text style={[styles.footerText, { fontSize: 10 }]}>Authorised Signatory</Text>
+                                {invoice.receptionist_name ? (
+                                    <Text style={{ fontSize: 9, color: '#444' }}>({invoice.receptionist_name.toUpperCase()})</Text>
+                                ) : null}
+                            </View>
+                        )}
                         <View style={[styles.dashedLine, { marginVertical: 8 }]} />
                     </View>
                 )}
+
             </View>
 
             <View style={{ height: 20 }} />

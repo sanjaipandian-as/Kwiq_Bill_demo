@@ -16,6 +16,7 @@ import {
   TextInput,
   Dimensions,
   Animated,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -182,7 +183,12 @@ export default function CustomersPage({ route }) {
     isOpen: false, title: '', message: '', onConfirm: () => { }, variant: 'danger'
   });
 
-  useEffect(() => { refreshCustomers(); }, []);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      refreshCustomers();
+    });
+    return () => task.cancel();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -345,23 +351,26 @@ export default function CustomersPage({ route }) {
 
       {/* ── Header ─────────────────────────────────── */}
       <View style={styles.headerContainer}>
-        <LinearGradient colors={['#000', '#111']} style={styles.headerGradient}>
+        <LinearGradient colors={['#000000ff', '#000000ff']} style={styles.headerGradient}>
           <SafeAreaView edges={['top']}>
             {/* Top nav */}
             <View style={styles.mainHeader}>
-              <View>
-                <Text style={styles.navTitle}>Parties</Text>
-                <Text style={styles.navSubtitle}>{customers.length} Contacts saved</Text>
-              </View>
-              <View style={styles.headerActions}>
+              <View style={styles.headerLeft}>
                 <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
                   <ChevronLeft size={22} color="#fff" />
                 </TouchableOpacity>
+                <View>
+                  <Text style={styles.navTitle}>Parties</Text>
+                  <Text style={styles.navSubtitle}>{customers.length} Contacts saved</Text>
+                </View>
+              </View>
+              <View style={styles.headerActions}>
                 <TouchableOpacity style={styles.addBtn} onPress={handleAddNew}>
-                  <UserPlus size={22} color="#000" strokeWidth={2.5} />
+                  <UserPlus size={22} color="#000000ff" strokeWidth={2.5} />
                 </TouchableOpacity>
               </View>
             </View>
+
 
             {/* Portfolio Stats Row */}
             <View style={styles.statsRow}>
@@ -510,7 +519,9 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 4
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   headerActions: { flexDirection: 'row', gap: 10 },
+
   headerBtn: {
     width: 46,
     height: 46,

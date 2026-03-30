@@ -15,13 +15,13 @@ try {
   LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP;
 }
 if (!LOCAL_IP) {
-  LOCAL_IP = '10.149.174.96';
+  LOCAL_IP = '10.68.134.96';
 }
 
 // Emulators use 10.0.2.2, but physical phones over USB/WiFi must use the actual IPv4 Address of your PC.
-// Since we detected 10.149.174.96 from your ipconfig, let's force that so physical phones work.
-let androidIp = LOCAL_IP === '127.0.0.1' || LOCAL_IP === 'localhost' || LOCAL_IP === '10.0.2.2' 
-  ? '10.149.174.96' 
+// Since we detected 10.146.104.244 from your ipconfig, let's force that so physical phones work.
+let androidIp = LOCAL_IP === '127.0.0.1' || LOCAL_IP === 'localhost' || LOCAL_IP === '10.0.2.2'
+  ? '10.68.134.96'
   : LOCAL_IP;
 
 const LOCAL_URL = Platform.OS === 'android'
@@ -51,15 +51,15 @@ import { initializeSslPinning } from 'react-native-ssl-public-key-pinning';
 
 // We initialize SSL pinning immediately to protect the production node
 if (IS_PRODUCTION) {
-   initializeSslPinning({
-       'kwiq-bill.onrender.com': {
-           includeSubdomains: true,
-           publicKeyHashes: [
-               'sha256/WoiWRyIOVNa9ihaBciRSC7XHjliYS9VwUGOIud4PB18=', // Primary Let's Encrypt / Render Hash
-               'sha256/8Rw90Ej3Ttt8RRkrg+WYDS9n7y03zkV7vHym1mYf4s4='  // Backup CA Hash
-           ],
-       }
-   }).catch(err => console.error('[SSL_PINNING] Failed to initialize', err));
+  initializeSslPinning({
+    'kwiq-bill.onrender.com': {
+      includeSubdomains: true,
+      publicKeyHashes: [
+        'sha256/WoiWRyIOVNa9ihaBciRSC7XHjliYS9VwUGOIud4PB18=', // Primary Let's Encrypt / Render Hash
+        'sha256/8Rw90Ej3Ttt8RRkrg+WYDS9n7y03zkV7vHym1mYf4s4='  // Backup CA Hash
+      ],
+    }
+  }).catch(err => console.error('[SSL_PINNING] Failed to initialize', err));
 }
 
 // Attach token automatically
@@ -228,6 +228,20 @@ export const services = {
     backupKey: async (data) => { const res = await API.post('/security/backup-key', data); return res.data; },
     recoverKey: async (data) => { const res = await API.post('/security/recover', data); return res.data; },
     auditLog: async (data) => { const res = await API.post('/security/audit', data); return res.data; },
+  },
+  requests: {
+    createCustomizeRequest: (data) => API.post('/customize-requests', data),
+    getMyRequestStatus: (email) => API.get('/customize-requests/my-status', { params: { email } }),
+  },
+  sync: {
+    uploadEvent: (data) => API.post('/backup/event', data),
+    syncEvents: (lastSyncedAt) => API.post('/backup/sync', { lastSyncedAt }),
+    getStatus: () => API.get('/backup/status'),
+    pushAllData: (clearExisting = false) => API.post('/backup/push-all', { clearExisting }),
+  },
+  payment: {
+    createOrder: (data) => API.post('/payment/order', data),
+    verifyPayment: (data) => API.post('/payment/verify', data),
   }
 };
 

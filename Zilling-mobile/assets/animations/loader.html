@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+  
+  html, body { 
+    margin: 0; 
+    padding: 0; 
+    width: 100%; 
+    height: 100%; 
+    background: #ffffff;
+    overflow: hidden;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  .root {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 320px;
+  }
+
+  /* Stage dots */
+  .track {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 56px;
+  }
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #e5e5e5;
+    transition: all .5s cubic-bezier(.4,0,.2,1);
+  }
+  .dot.done { 
+    background: #111; 
+  }
+  .dot.active { 
+    background: #111; 
+    width: 24px; 
+    border-radius: 4px; 
+  }
+  .track-line {
+    width: 20px; height: 2px;
+    background: #f0f0f0;
+    transition: background .5s ease;
+    border-radius: 1px;
+  }
+  .track-line.done { 
+    background: #d4d4d4; 
+  }
+
+  /* Icon container */
+  .icon-box {
+    width: 88px; height: 88px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 40px;
+  }
+
+  /* ── STAGE 1: Connecting ── */
+  .s1 { width: 100%; height: 100%; position: absolute; display: flex; align-items: center; justify-content: center; }
+  .s1-core {
+    width: 24px; height: 24px; border-radius: 50%;
+    border: 2px solid #111;
+    background: transparent;
+  }
+  .s1-ring1 {
+    position: absolute; inset: 4px; border-radius: 50%;
+    border: 1.5px solid transparent;
+    border-top-color: #111;
+    animation: spin 1s linear infinite;
+  }
+  .s1-ring2 {
+    position: absolute; inset: 14px; border-radius: 50%;
+    border: 1px solid transparent;
+    border-bottom-color: #888;
+    animation: spin 1.5s linear infinite reverse;
+  }
+  .s1-dot {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 6px; height: 6px; border-radius: 50%; background: #111;
+    animation: orbit-dot 1.2s linear infinite;
+  }
+  .s1-scan-beam {
+    position: absolute; left: 50%; top: 50%;
+    width: 50%; height: 1px;
+    background: linear-gradient(to right, #111, transparent);
+    transform-origin: left center;
+    animation: spin 2s linear infinite;
+  }
+  
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes orbit-dot {
+    0%   { transform: translate(-50%,-50%) rotate(0deg)   translateX(38px); }
+    100% { transform: translate(-50%,-50%) rotate(360deg) translateX(38px); }
+  }
+
+  /* ── STAGE 2: Scanning Data ── */
+  .s2 { width: 100%; height: 100%; position: absolute; display: flex; align-items: center; justify-content: center; }
+  .s2-core {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid #111;
+    background: transparent;
+    position: relative; z-index: 2;
+    animation: s2-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes s2-pulse {
+    0%,100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+  }
+  .s2-p {
+    position: absolute;
+    width: 6px; height: 6px; border-radius: 50%; background: #111;
+    animation: converge 1.5s cubic-bezier(.4,0,.2,1) infinite;
+  }
+  .s2-p:nth-child(2)  { --ax:-36px; --ay:-18px; animation-delay:0s; }
+  .s2-p:nth-child(3)  { --ax: 36px; --ay:-18px; animation-delay:.2s; }
+  .s2-p:nth-child(4)  { --ax: 40px; --ay: 14px; animation-delay:.4s; }
+  .s2-p:nth-child(5)  { --ax:  0px; --ay: 40px; animation-delay:.6s; }
+  .s2-p:nth-child(6)  { --ax:-40px; --ay: 14px; animation-delay:.8s; }
+  
+  .s2-expand {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 1px solid #e0e0e0;
+    animation: ring-expand 1.5s ease-out infinite;
+  }
+  @keyframes converge {
+    0%   { transform: translate(var(--ax),var(--ay)) scale(1); opacity:0; }
+    35%  { opacity:1; }
+    80%  { transform: translate(0,0) scale(.4); opacity:.5; }
+    100% { transform: translate(0,0) scale(0); opacity:0; }
+  }
+  @keyframes ring-expand {
+    0%   { transform:scale(.2); opacity:.8; }
+    100% { transform:scale(1.5); opacity:0; }
+  }
+
+  /* ── STAGE 3: Decrypting ── */
+  .s3 { width: 100%; height: 100%; position: absolute; display: flex; align-items: center; justify-content: center; }
+  .s3-center {
+    width: 18px; height: 18px; border-radius: 4px;
+    background: #111;
+    position: relative; z-index: 2;
+    animation: lock-beat 1.6s ease-in-out infinite;
+  }
+  @keyframes lock-beat {
+    0%,100% { transform:scale(1) rotate(0deg); border-radius: 4px; }
+    50% { transform:scale(1.15) rotate(45deg); border-radius: 8px; background: #444; }
+  }
+  .s3-node {
+    position: absolute;
+    width: 8px; height: 8px; border-radius: 50%;
+    border: 2px solid #111; background: #fff;
+    animation: node-flash 1.6s ease-in-out infinite;
+  }
+  .s3-node:nth-child(2) { top:12px;  left:12px;  animation-delay:0s; }
+  .s3-node:nth-child(3) { top:12px;  right:12px; animation-delay:.4s; }
+  .s3-node:nth-child(4) { bottom:12px; left:12px;  animation-delay:.8s; }
+  .s3-node:nth-child(5) { bottom:12px; right:12px; animation-delay:.2s; }
+  
+  .s3-svg {
+    position: absolute; inset:0; width:100%; height:100%; overflow:visible;
+  }
+  .s3-ln {
+    stroke: #d4d4d4; stroke-width: 1.5; fill: none;
+    stroke-dasharray: 6 4;
+    animation: dash-travel 1.2s linear infinite;
+  }
+  @keyframes dash-travel { 0% { stroke-dashoffset:20; } 100% { stroke-dashoffset:0; } }
+  @keyframes node-flash {
+    0%, 100% { transform: scale(1); background: #fff; }
+    50% { transform: scale(1.3); background: #111; }
+  }
+
+  /* ── STAGE 4: Success ── */
+  .s4 { width: 100%; height: 100%; position: absolute; display: flex; align-items: center; justify-content: center; }
+  .s4-bg {
+    position: absolute; inset:4px; border-radius:50%;
+    background: #f8f8f8;
+    animation: scale-in .4s cubic-bezier(.4,0,.2,1) both;
+    transform: scale(0);
+  }
+  @keyframes scale-in { to { transform:scale(1); } }
+  .s4-border {
+    position: absolute; inset:4px; border-radius:50%;
+    border: 2.5px solid #111;
+    animation: scale-in .45s .05s cubic-bezier(.4,0,.2,1) both;
+    transform: scale(0);
+  }
+  .s4-ripple {
+    position: absolute; inset:-12px; border-radius:50%;
+    border: 1.5px solid #eaeaea;
+    animation: ripple-out 2s ease-out .5s infinite;
+  }
+  @keyframes ripple-out {
+    0%   { transform:scale(.6); opacity:1; }
+    100% { transform:scale(1.5); opacity:0; }
+  }
+  .s4-check {
+    position: relative; z-index:3;
+    animation: scale-in .35s .25s cubic-bezier(.34,1.56,.64,1) both;
+    transform: scale(0);
+  }
+  .s4-path {
+    stroke: #111; stroke-width: 3;
+    stroke-linecap: round; stroke-linejoin: round;
+    fill: none;
+    stroke-dasharray: 24; stroke-dashoffset: 24;
+    animation: draw .4s .45s cubic-bezier(.4,0,.2,1) forwards;
+  }
+  @keyframes draw { to { stroke-dashoffset:0; } }
+
+  /* Typography */
+  .lbl-title {
+    font-size: 18px; font-weight: 600;
+    color: #111;
+    text-align: center;
+    letter-spacing: -0.02em;
+    animation: lbl-in .4s cubic-bezier(.4,0,.2,1) both;
+  }
+  .lbl-sub {
+    font-size: 13px; font-weight: 400;
+    color: #666;
+    text-align: center;
+    margin-top: 8px;
+    letter-spacing: 0.01em;
+    animation: lbl-in .4s .1s cubic-bezier(.4,0,.2,1) both;
+  }
+  @keyframes lbl-in {
+    from { opacity:0; transform:translateY(8px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+
+  /* Progress Bar */
+  .bar-wrap {
+    width: 100%; height: 3px;
+    background: #f0f0f0;
+    border-radius: 2px;
+    margin-top: 36px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%; background: #111; border-radius: 2px;
+    width: 0%; transition: width 0.8s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* Utility */
+  .hidden { display: none !important; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="root">
+  <div class="card">
+
+    <div class="track">
+      <div class="dot active" id="d0"></div>
+      <div class="track-line" id="l0"></div>
+      <div class="dot" id="d1"></div>
+      <div class="track-line" id="l1"></div>
+      <div class="dot" id="d2"></div>
+      <div class="track-line" id="l2"></div>
+      <div class="dot" id="d3"></div>
+    </div>
+
+    <div class="icon-box">
+
+      <div id="s1" class="s1">
+        <div class="s1-core"></div>
+        <div class="s1-ring1"></div>
+        <div class="s1-ring2"></div>
+        <div class="s1-scan-beam"></div>
+        <div class="s1-dot"></div>
+      </div>
+
+      <div id="s2" class="s2 hidden">
+        <div class="s2-expand"></div>
+        <div class="s2-core"></div>
+        <div class="s2-p"></div>
+        <div class="s2-p"></div>
+        <div class="s2-p"></div>
+        <div class="s2-p"></div>
+        <div class="s2-p"></div>
+      </div>
+
+      <div id="s3" class="s3 hidden">
+        <svg class="s3-svg" viewBox="0 0 88 88">
+          <line class="s3-ln" x1="16" y1="16" x2="44" y2="44"/>
+          <line class="s3-ln" x1="72" y1="16" x2="44" y2="44" style="animation-delay:.3s"/>
+          <line class="s3-ln" x1="16" y1="72" x2="44" y2="44" style="animation-delay:.6s"/>
+          <line class="s3-ln" x1="72" y1="72" x2="44" y2="44" style="animation-delay:.9s"/>
+        </svg>
+        <div class="s3-node"></div>
+        <div class="s3-node"></div>
+        <div class="s3-node"></div>
+        <div class="s3-node"></div>
+        <div class="s3-center"></div>
+      </div>
+
+      <div id="s4" class="s4 hidden">
+        <div class="s4-ripple"></div>
+        <div class="s4-bg"></div>
+        <div class="s4-border"></div>
+        <div class="s4-check">
+          <svg width="36" height="36" viewBox="0 0 36 36">
+            <path class="s4-path" d="M10 18.5 L15.5 24 L26 12"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="lbl-title" id="t">Authenticating...</div>
+    <div class="lbl-sub"   id="s">Securing your connection</div>
+
+    <div class="bar-wrap"><div class="bar-fill" id="bar"></div></div>
+  </div>
+</div>
+
+<script>
+  // Tailored specifically for the Kwiq Bill login experience
+  const stages = [
+    { id:'s1', t:'Authenticating...',        s:'Securing your connection',       p:15,  dur:1500 },
+    { id:'s2', t:'Searching for Store...',   s:'Checking cloud records',         p:45,  dur:1800 },
+    { id:'s3', t:'Loading Settings...',      s:'Decrypting secure profile',      p:80,  dur:2500 },
+    { id:'s4', t:'Store Ready',              s:'Launching Kwiq Bill',            p:100, dur:0    },
+  ];
+
+  function runAnimation() {
+    let elapsed = 0;
+    
+    stages.forEach((c, i) => {
+      setTimeout(() => {
+        // Toggle icon stages
+        stages.forEach((x, j) => {
+          const el = document.getElementById(x.id);
+          if (j !== i) {
+            el.classList.add('hidden');
+          } else {
+            el.classList.remove('hidden');
+          }
+        });
+
+        // Update Text & Trigger fade-in animation
+        const titleEl = document.getElementById('t');
+        const subEl = document.getElementById('s');
+        titleEl.style.animation = 'none'; void titleEl.offsetWidth; titleEl.style.animation = '';
+        subEl.style.animation = 'none'; void subEl.offsetWidth; subEl.style.animation = '';
+        
+        titleEl.textContent = c.t;
+        subEl.textContent = c.s;
+        document.getElementById('bar').style.width = c.p + '%';
+
+        // Update dots track
+        for (let k = 0; k < 4; k++) {
+          const d = document.getElementById('d' + k);
+          d.className = 'dot' + (k < i ? ' done' : k === i ? ' active' : '');
+          if (k < 3) document.getElementById('l' + k).className = 'track-line' + (k < i ? ' done' : '');
+        }
+
+      }, elapsed);
+      
+      elapsed += c.dur;
+    });
+  }
+
+  // Start sequence immediately
+  runAnimation();
+</script>
+
+</body>
+</html>

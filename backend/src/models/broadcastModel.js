@@ -32,6 +32,18 @@ const broadcastSchema = mongoose.Schema({
     interactionRate: {
         type: Number,
         default: 0
+    },
+    startTime: {
+        type: Date,
+        default: Date.now
+    },
+    expiryTime: {
+        type: Date,
+        default: null
+    },
+    priority: {
+        type: String, // low, medium, high
+        default: 'medium'
     }
 }, {
     timestamps: true

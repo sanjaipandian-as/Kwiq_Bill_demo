@@ -8,6 +8,7 @@ import ClassicInvoiceTemplate from './ClassicInvoiceTemplate';
 import ThermalInvoiceTemplate from './ThermalInvoiceTemplate';
 import ProfessionalThermalTemplate from './ProfessionalThermalTemplate';
 import ManagerPinGate from './ManagerPinGate';
+import ContactPage from './Settingscomponents/Contact/Contact';
 import { BLEPrinter } from 'react-native-thermal-receipt-printer-image-qr';
 import * as Device from 'expo-device';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -87,15 +88,73 @@ import services from '../../services/api';
 import { testPrinter, resetPrinterConnection } from '../../utils/printUtils';
 import { APP_VERSION } from '../../config/version';
 
+// ── DetailRow ──────────────────────────────────────────────────────────────
+// Defined OUTSIDE SettingsPage so its own useState hook lives in a separate
+// component namespace — never affecting SettingsPage's hook order.
+const DetailRow = ({ label, value, icon: Icon, shimmerAnim, isDecryptionReady, isEncryptedRaw, onRetry }) => {
+  const [retried, setRetried] = React.useState(false);
+
+  // Case 1: Keys not ready yet — show shimmer skeleton
+  if (!isDecryptionReady) {
+    return (
+      <View style={styles.detailRow}>
+        {Icon && <Icon size={18} color="#e2e8f0" style={styles.detailIcon} />}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.detailLabel}>{label}</Text>
+          <Animated.View style={{
+            height: 14, width: '60%', borderRadius: 7,
+            backgroundColor: '#e2e8f0', marginTop: 4,
+            opacity: shimmerAnim
+          }} />
+        </View>
+      </View>
+    );
+  }
+
+  // Case 2: Value is still raw encrypted — auto-retry once, then show tap-to-reload
+  const isEncrypted = typeof value === 'string' && (value.startsWith('U2FsdGVkX1') || value.startsWith('KWIQV2:'));
+  if (isEncrypted) {
+    if (!retried) {
+      setTimeout(() => { onRetry?.(); setRetried(true); }, 100);
+    }
+    return (
+      <View style={styles.detailRow}>
+        {Icon && <Icon size={18} color="#f59e0b" style={styles.detailIcon} />}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.detailLabel}>{label}</Text>
+          <TouchableOpacity onPress={() => onRetry?.()} activeOpacity={0.7}>
+            <Text style={{ fontSize: 13, color: '#f59e0b', fontWeight: '700', marginTop: 2 }}>
+              {retried ? '⚠ Tap to reload' : 'Decrypting...'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // Case 3: Normal display
+  return (
+    <View style={styles.detailRow}>
+      {Icon && <Icon size={18} color="#64748b" style={styles.detailIcon} />}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        <Text style={styles.detailValue}>{value ?? ''}</Text>
+      </View>
+    </View>
+  );
+};
+// ──────────────────────────────────────────────────────────────────────────────
+
 const SettingsPage = ({ navigation, route }) => {
 
   // Trigger clear cache
   const { user, logout, refreshUser } = useAuth();
   const {
-    settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, backupDataToCloud,
-    forceResync, repairSync, deepRepair, lastEventSyncTime, syncStatus, loading,
+    settings, updateSettings, saveFullSettings, syncAllData, syncSettingsWithCloud, syncToCloud, backupDataToCloud,
+    forceResync, repairSync, deepRepair, nuclearWipe, lastEventSyncTime, syncStatus, loading,
     queueLength, isUploading, isLogoUploading, estimatedUploadTime, isConnected, checkQueueStatus,
-    addReceptionist, updateReceptionist, toggleReceptionistActive, deleteReceptionist
+    addReceptionist, updateReceptionist, toggleReceptionistActive, deleteReceptionist,
+    isDecryptionReady
   } = useSettings();
   const { fetchCustomers } = useCustomers();
   const { fetchProducts } = useProducts();
@@ -143,6 +202,27 @@ const SettingsPage = ({ navigation, route }) => {
   const backupLogsBufferRef = React.useRef([]);
   const backupLogsRef = React.useRef(null);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [isNuclearModalVisible, setIsNuclearModalVisible] = useState(false);
+  const nuclearFadeAnim = React.useRef(new Animated.Value(0)).current;
+
+  // Fix #4 (HOOKS FIX): shimmerAnim must be declared here at the TOP LEVEL,
+  // before any conditional early returns, to satisfy the Rules of Hooks.
+  // Previously it was below the `if (loading) return ...` which caused the
+  // "Rendered more hooks than during previous render" crash.
+  const shimmerAnim = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    if (!isDecryptionReady) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(shimmerAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+          Animated.timing(shimmerAnim, { toValue: 0.3, duration: 700, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      shimmerAnim.stopAnimation();
+      shimmerAnim.setValue(1);
+    }
+  }, [isDecryptionReady]);
 
   // --- Swipe Navigation Logic ---
   const tabs = [
@@ -204,7 +284,10 @@ const SettingsPage = ({ navigation, route }) => {
       }
       // Auto-refresh user profile when settings page is focused
       refreshUser();
-    }, [activeTab, initBluetooth, refreshUser])
+      
+      // 🚀 SOURCE-OF-TRUTH SYNC: Pull latest store & bank details from MongoDB
+      syncSettingsWithCloud();
+    }, [activeTab, initBluetooth, refreshUser, syncSettingsWithCloud])
   );
 
   useEffect(() => {
@@ -575,6 +658,29 @@ const SettingsPage = ({ navigation, route }) => {
       return next;
     });
   };
+  
+  const openNuclearModal = () => {
+    setIsNuclearModalVisible(true);
+    Animated.timing(nuclearFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  };
+
+  const closeNuclearModal = () => {
+    Animated.timing(nuclearFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
+      setIsNuclearModalVisible(false);
+    });
+  };
+
+  const confirmNuclearWipe = async () => {
+    closeNuclearModal();
+    const success = await nuclearWipe();
+    if (success) {
+      showToast("All local data has been purged. Signing out...", "success", 3000, null, "Nuclear Wipe");
+      // Give the toast a moment before logout
+      setTimeout(() => logout(), 1000);
+    } else {
+      showToast("Wipe engine encountered an error.", "error", 4000, null, "Failed");
+    }
+  };
 
 
   const pickImage = async () => {
@@ -665,15 +771,12 @@ const SettingsPage = ({ navigation, route }) => {
     );
   }
 
-  const DetailRow = ({ label, value, icon: Icon }) => (
-    <View style={styles.detailRow}>
-      {Icon && <Icon size={18} color="#64748b" style={styles.detailIcon} />}
-      <View style={{ flex: 1 }}>
-        <Text style={styles.detailLabel}>{label}</Text>
-        <Text style={styles.detailValue}>{value || 'Not set'}</Text>
-      </View>
-    </View>
-  );
+  // Shared props for every DetailRow — avoids repeating on each call site
+  const detailRowProps = {
+    shimmerAnim,
+    isDecryptionReady,
+    onRetry: () => syncSettingsWithCloud().catch(() => {}),
+  };
 
   const renderTabContent = () => {
 
@@ -1069,16 +1172,16 @@ const SettingsPage = ({ navigation, route }) => {
                   </View>
                 ) : (
                   <View style={{ gap: 4 }}>
-                    <DetailRow label="Display Name" value={settings?.store?.name} icon={Store} />
+                    <DetailRow {...detailRowProps} label="Display Name" value={settings?.store?.name} icon={Store} />
                     <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 8 }} />
-                    <DetailRow label="Legal Name" value={settings?.store?.legalName} icon={Building} />
+                    <DetailRow {...detailRowProps} label="Legal Name" value={settings?.store?.legalName} icon={Building} />
                     <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 8 }} />
                     <View style={{ flexDirection: 'row', gap: 24 }}>
                       <View style={{ flex: 1 }}>
-                        <DetailRow label="Contact" value={settings?.store?.contact} icon={Phone} />
+                        <DetailRow {...detailRowProps} label="Contact" value={settings?.store?.contact} icon={Phone} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <DetailRow label="Email" value={settings?.store?.email} icon={Mail} />
+                        <DetailRow {...detailRowProps} label="Email" value={settings?.store?.email} icon={Mail} />
                       </View>
                     </View>
                   </View>
@@ -1138,14 +1241,14 @@ const SettingsPage = ({ navigation, route }) => {
                   </View>
                 ) : (
                   <View style={{ gap: 4 }}>
-                    <DetailRow label="Physical Address" value={settings?.store?.address?.street} icon={MapPin} />
+                    <DetailRow {...detailRowProps} label="Physical Address" value={settings?.store?.address?.street} icon={MapPin} />
                     <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 8 }} />
                     <View style={{ flexDirection: 'row', gap: 24 }}>
                       <View style={{ flex: 1.5 }}>
-                        <DetailRow label="City & State" value={settings?.store?.address?.city} icon={Building} />
+                        <DetailRow {...detailRowProps} label="City & State" value={settings?.store?.address?.city} icon={Building} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <DetailRow label="Pincode" value={settings?.store?.address?.pincode} icon={MapPin} />
+                        <DetailRow {...detailRowProps} label="Pincode" value={settings?.store?.address?.pincode} icon={MapPin} />
                       </View>
                     </View>
                   </View>
@@ -1459,8 +1562,8 @@ const SettingsPage = ({ navigation, route }) => {
                   </View>
                 ) : (
                   <View style={{ gap: 2 }}>
-                    <DetailRow label="Account Verification" value={isBankComplete ? "Verified Profile" : "Incomplete Details"} icon={ShieldCheck} />
-                    <DetailRow label="Secure Storage" value="AES-256 Encrypted" icon={Fingerprint} />
+                    <DetailRow {...detailRowProps} label="Account Verification" value={isBankComplete ? "Verified Profile" : "Incomplete Details"} icon={ShieldCheck} />
+                    <DetailRow {...detailRowProps} label="Secure Storage" value="AES-256 Encrypted" icon={Fingerprint} />
 
                     <TouchableOpacity
                       onPress={() => setIsEditing(true)}
@@ -3181,17 +3284,53 @@ const SettingsPage = ({ navigation, route }) => {
                 </View>
               </View>
             </Card>
+
+            {/* NUCLEAR WIPE - DANGER ZONE */}
+            <View style={{ marginTop: 24, marginBottom: 32 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <View style={{ width: 36, height: 36, backgroundColor: '#000', borderRadius: 10, justifyContent: 'center', alignItems: 'center' }}>
+                  <Trash2 size={18} color="#fff" />
+                </View>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#000' }}>Deep Local Cleanup</Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={openNuclearModal}
+                style={{
+                  backgroundColor: '#000',
+                  padding: 32,
+                  borderRadius: 32,
+                  alignItems: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 12 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 24,
+                  elevation: 10
+                }}
+              >
+                <View style={{ width: 64, height: 64, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+                  <Trash2 size={32} color="#fff" />
+                </View>
+                <Text style={{ fontSize: 22, fontWeight: '900', color: '#fff', marginBottom: 8 }}>Nuclear Wipe</Text>
+                <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', textAlign: 'center', fontWeight: '600', lineHeight: 20 }}>
+                  Clears all local records from this phone. Your data remains perfectly safe in your <Text style={{ color: '#fff', fontWeight: '900' }}>Google Drive</Text>.
+                </Text>
+                <View style={{ marginTop: 24, backgroundColor: '#fff', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 18 }}>
+                  <Text style={{ color: '#000', fontSize: 12, fontWeight: '900', letterSpacing: 1.5 }}>RESET LOCAL PHONE STORAGE</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
           </View>
         );
       case 'contact':
         return (
-          <View style={styles.tabContent}>
+          <View style={[styles.tabContent, { paddingBottom: 0 }]}>
             {/* SUPPORT HERO SECTION */}
             <View style={{ marginBottom: 32 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#10b981' }} />
+                    {/* <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#10b981' }} /> */}
                     <Text style={{ fontSize: 10, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Support is Online</Text>
                   </View>
                   <Text style={{ fontSize: 28, fontWeight: '900', color: '#000', letterSpacing: -1 }}>Help Center</Text>
@@ -3262,8 +3401,8 @@ const SettingsPage = ({ navigation, route }) => {
                   <Text style={{ fontSize: 17, fontWeight: '900', color: '#000' }}>Official WhatsApp</Text>
                   <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2, fontWeight: '600' }}>Fastest for screenshots & docs</Text>
                 </View>
-                <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                  <Text style={{ fontSize: 9, fontWeight: '900', color: '#166534' }}>ACTIVE</Text>
+                <View style={{ backgroundColor: '#000000', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '900', color: '#ffffff' }}>ACTIVE</Text>
                 </View>
               </TouchableOpacity>
 
@@ -3358,6 +3497,9 @@ const SettingsPage = ({ navigation, route }) => {
                 </View>
               </View> */}
             </View>
+
+            {/* NEW ADDED COMPONENT */}
+            <ContactPage />
           </View>
         );
       case 'logout':
@@ -4089,6 +4231,65 @@ const SettingsPage = ({ navigation, route }) => {
         </View>
       </Modal>
 
+      {/* NUCLEAR WIPE Confirmation Modal */}
+      <Modal
+        visible={isNuclearModalVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closeNuclearModal}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View
+            style={[
+              styles.modalBackdrop,
+              { opacity: nuclearFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.4] }) }
+            ]}
+          />
+          <Pressable style={styles.modalPressable} onPress={closeNuclearModal}>
+            <Animated.View
+              style={[
+                styles.logoutModalContainer,
+                {
+                  transform: [
+                    { scale: nuclearFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                    { translateY: nuclearFadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }
+                  ],
+                  opacity: nuclearFadeAnim,
+                  borderColor: '#000',
+                  borderWidth: 2,
+                }
+              ]}
+            >
+              <View style={[styles.logoutIconContainer, { backgroundColor: '#000' }]}>
+                <Trash2 size={32} color="#fff" />
+              </View>
+
+              <Text style={[styles.logoutModalTitle, { color: '#000' }]}>Confirm Local Wipe?</Text>
+              <Text style={styles.logoutModalDesc}>
+                This will delete all invoices and inventory <Text style={{ fontWeight: '900' }}>from this device only</Text>. {"\n\n"}
+                <Text style={{ fontWeight: '900', color: '#000' }}>✅ Google Drive data is safe.</Text> This action resets your local storage to a clean state.
+              </Text>
+
+              <View style={styles.logoutModalFooter}>
+                <TouchableOpacity
+                  onPress={closeNuclearModal}
+                  style={styles.logoutModalCancel}
+                >
+                  <Text style={styles.logoutModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={confirmNuclearWipe}
+                  style={[styles.logoutModalConfirm, { backgroundColor: '#000' }]}
+                >
+                  <Text style={styles.logoutModalConfirmText}>Purge Phone Storage</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </Pressable>
+        </View>
+      </Modal>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         enabled={Platform.OS === 'ios'}
@@ -4101,10 +4302,13 @@ const SettingsPage = ({ navigation, route }) => {
           removeClippedSubviews={false}
         >
           {renderTabContent()}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>KWIQ BILL • {APP_VERSION}</Text>
-            <Text style={{ fontSize: 9, color: '#cbd5e1', fontWeight: '700', marginTop: 4 }}>POWERED BY ZIPPY</Text>
-          </View>
+          {activeTab !== 'contact' && (
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>KWIQ BILL • {APP_VERSION}</Text>
+              <Text style={{ fontSize: 9, color: '#cbd5e1', fontWeight: '700', marginTop: 4 }}>POWERED BY ZIPPY</Text>
+            </View>
+          )}
+
 
         </ScrollView>
       </KeyboardAvoidingView>

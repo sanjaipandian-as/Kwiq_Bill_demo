@@ -15,6 +15,19 @@ const hasIndianScript = (text) => {
     return regex.test(text);
 };
 
+const formatSafeDate = (dateVal) => {
+    const d = new Date(dateVal || Date.now());
+    if (isNaN(d.getTime())) return new Date().toLocaleDateString('en-GB');
+    return d.toLocaleDateString('en-GB');
+};
+
+const formatSafeTime = (dateVal) => {
+    const d = new Date(dateVal || Date.now());
+    if (isNaN(d.getTime())) return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+};
+
+
 // Global state to track printer connection to avoid redundant connects which can crash native side
 let lastConnectedAddress = null;
 let connectionTimestamp = 0;
@@ -283,19 +296,10 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
         }
 
         // Meta rows — Bill No + Date + Time on one line
-        const now = new Date(bill.date || Date.now());
-        const ds = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
-        // Manual AM/PM -- toLocaleTimeString on Android outputs U+202F (narrow no-break space) before
-        // AM/PM which ESC/POS printers render as garbage like 'c>'. Build the string manually.
-        const rawH = now.getHours();
-        const rawM = now.getMinutes();
-        const ampm = rawH >= 12 ? 'PM' : 'AM';
-        const h12 = rawH % 12 || 12;
-        const ts = h12 + ':' + rawM.toString().padStart(2, '0') + ' ' + ampm;
-
         const bNo = `Bill: ${bill.weekly_sequence || (bill.id ? String(bill.id).slice(-6).toUpperCase() : '-')}`;
-        const dtStr = `${ds} ${ts}`;
+        const dtStr = `${formatSafeDate(bill.date)} ${formatSafeTime(bill.date)}`;
         header += padR(bNo, width - dtStr.length) + dtStr + "\n";
+
 
         // Payment mode — show readable name, not numeric code
         const customer = bill.customer || {};
@@ -444,7 +448,7 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
         }
 
         // Final Authorized Signatory Footer (absolute bottom)
-        if (settings?.invoice?.showBankAndSignature) {
+        if (settings?.invoice?.showBankAndSignature && !options.isNonAuthorized) {
             receiptBody += drawLine('-'); // Divider line
             receiptBody += "\n\n" + center("_______________________");
             receiptBody += center("AUTHORIZED SIGNATORY") + "\n";
@@ -453,8 +457,8 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
             }
         }
 
-        // Optional Bank Details and Authorized Signatory
-        if (settings?.invoice?.showBankAndSignature) {
+        // Optional Bank Details
+        if (settings?.invoice?.showBankAndSignature && !options.hideAccountDetails) {
             const bank = settings?.bankDetails || {};
             if (bank.bankName) {
                 receiptBody += drawLine('-');
@@ -465,6 +469,7 @@ export const printBluetoothReceipt = async (bill, settings = {}, format = '80mm'
             }
             receiptBody += drawLine('-');
         }
+
 
         receiptBody += "\n\n\n\n";
 
@@ -734,7 +739,7 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         }
 
         // Final Authorized Signatory Footer (bottom-most row)
-        if (settings?.invoice?.showBankAndSignature) {
+        if (settings?.invoice?.showBankAndSignature && !options.isNonAuthorized) {
             printData += drawLine('-'); // Divider line
             printData += "\n\n" + center("_______________________");
             printData += center("AUTHORIZED SIGNATORY") + "\n";
@@ -744,11 +749,12 @@ export const printProfessionalBluetoothReceipt = async (bill, settings = {}, for
         }
 
         // Signatory (Only for Invoices)
-        if (mode === 'invoice') {
+        if (mode === 'invoice' && !options.isNonAuthorized) {
             printData += drawLine('-');
             printData += "\n" + center("_______________________");
             printData += center("Authorized Signatory\n");
         }
+
 
         printData += "\n\n\n\n";
 
@@ -791,8 +797,8 @@ export const numberToWords = (num) => {
     return words + 'Only';
 };
 
-const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
-    const paperSize = '80mm';
+const generateThermalReceiptHTML = (bill, settings, mode = 'invoice', options = {}) => {
+    const paperSize = settings?.invoice?.paperSize || '80mm';
     const storeName = settings?.store?.name || 'Store Name';
     const storeAddressObj = settings?.store?.address || {};
     const storeAddress = `${storeAddressObj.street || ''}, ${storeAddressObj.city || ''}`;
@@ -804,10 +810,10 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
     const vip = isVIP(customer);
     const customerName = bill.customerName || customer.fullName || customer.name || '';
 
-    // Date formatting
-    const date = new Date(bill.date || Date.now());
-    const dateStr = date.toLocaleDateString('en-GB');
-    const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    // Date formatting using safe helpers
+    const dateStr = formatSafeDate(bill.date);
+    const timeStr = formatSafeTime(bill.date);
+
 
     const totalQty = items.reduce((acc, item) => acc + (parseFloat(item.quantity) || 0), 0);
     const subtotal = bill.totals?.subtotal || bill.subtotal || 0;
@@ -1028,13 +1034,14 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                     </div>
                     ` : ''}
 
-                    ${settings?.invoice?.showBankAndSignature ? `
+                    ${(settings?.invoice?.showBankAndSignature && !options.isNonAuthorized) ? `
                     <div style="margin-top: 15px; border-top: 1px dashed #000; padding-top: 25px; text-align: center;">
                         <div style="margin-bottom: 5px; opacity: 0.5;">____________________________</div>
                         <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">AUTHORIZED SIGNATORY</div>
                         ${bill.receptionist_name ? `<div style="font-size: 10px; margin-top: 2px;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
                     </div>
                     ` : ''}
+
                 </div>
             </body>
         </html>
@@ -1214,7 +1221,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
             <div class="dashed"></div>
             ` : ''}
             <div class="footer">
-                ${settings?.bankDetails?.accountNumber ? `
+                ${(settings?.bankDetails?.accountNumber && !options.hideAccountDetails) ? `
                     <div style="font-weight: 900; margin-bottom: 2px;">BANK DETAILS</div>
                     <div>${settings.bankDetails.bankName}</div>
                     <div>A/c: ${settings.bankDetails.accountNumber}</div>
@@ -1230,7 +1237,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 </div>
                 ` : ''}
 
-                ${settings?.invoice?.showBankAndSignature ? `
+                ${(settings?.invoice?.showBankAndSignature && !options.isNonAuthorized) ? `
                 <div style="margin-top: 15px; border-top: 1px dashed #000; padding-top: 25px; text-align: center;">
                     <div style="margin-bottom: 5px; opacity: 0.5;">____________________________</div>
                     <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">AUTHORIZED SIGNATORY</div>
@@ -1238,6 +1245,7 @@ const generateThermalReceiptHTML = (bill, settings, mode = 'invoice') => {
                 </div>
                 ` : ''}
             </div>
+
         </body>
     </html>
     `;
@@ -1251,7 +1259,8 @@ const generateDetailedHTML = (bill, settings, colors) => {
     const customer = bill.customer || {};
     const customerName = bill.customerName || customer.fullName || customer.name || '';
     const isInter = bill.taxType === 'inter';
-    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+    const invoiceDate = formatSafeDate(bill.date);
+
     const { showLogo = true, showHsn = true, showQrcode = true } = settings?.invoice || {};
 
     const subtotal = Number(bill.totals?.subtotal || 0);
@@ -1414,6 +1423,7 @@ const generateDetailedHTML = (bill, settings, colors) => {
                 <div class="col" style="flex: 1.5;">
                     <div class="bold">Total Invoice Amount in Words:</div>
                     <div style="font-style: italic; margin-top: 5px;">${numberToWords(total)}</div>
+                    ${(settings?.invoice?.showBankAndSignature && !options?.hideAccountDetails) ? `
                     <div style="margin-top: 10px;">
                         <div class="bold">Bank Details:</div>
                         <div>A/c Name: ${bank.accountName || '-'}</div>
@@ -1421,7 +1431,9 @@ const generateDetailedHTML = (bill, settings, colors) => {
                         <div>A/c No: ${bank.accountNumber || '-'}</div>
                         <div>IFSC: ${bank.ifsc || '-'}</div>
                     </div>
+                    ` : ''}
                 </div>
+
                 <div class="col" style="flex: 1; padding: 0;">
                     <div style="display: flex; justify-content: space-between; padding: 2px 5px; border-bottom: 1px solid #000;">
                         <span>Total Amount before Tax:</span><span>${subtotal.toFixed(2)}</span>
@@ -1500,10 +1512,15 @@ const generateDetailedHTML = (bill, settings, colors) => {
                 </div>
                 <div class="col" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; text-align: right;">
                     <div class="bold">For ${store.name || ''}</div>
-                    <div style="margin-top: 30px;">Authorised Signatory</div>
-                    ${bill.receptionist_name ? `<div style="font-size: 9px; margin-top: 2px;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
+                    ${(settings?.invoice?.showBankAndSignature && !options?.isNonAuthorized) ? `
+                    <div style="margin-top: 30px;">
+                        <div>Authorised Signatory</div>
+                        ${bill.receptionist_name ? `<div style="font-size: 9px; margin-top: 2px;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
+                    </div>
+                    ` : ''}
                 </div>
             </div>
+
         </div>
     </body>
     </html>
@@ -1518,7 +1535,8 @@ const generateClassicHTML = (bill, settings, colors) => {
     const vip = isVIP(customer);
     const customerName = bill.customerName || customer.fullName || customer.name || '';
     const isInter = bill.taxType === 'inter';
-    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+    const invoiceDate = formatSafeDate(bill.date);
+
 
     const currency = settings?.defaults?.currency || '₹';
     const bank = settings?.bankDetails || {};
@@ -1597,12 +1615,12 @@ const generateClassicHTML = (bill, settings, colors) => {
                 <div style="flex: 1.5; padding: 20px; border-right: 1px solid #e2e8f0;">
                     <div style="font-weight: bold; font-size: 12px; margin-bottom: 10px;">Terms & Notes</div>
                     <div style="font-size: 11px; line-height: 1.6; color: #64748b;">
-                        ${bank.accountNumber ? `
+                        ${(bank.accountNumber && !options?.hideAccountDetails) ? `
                             <div style="margin-bottom: 8px;">
                                 <div style="font-weight: bold; color: #1e293b;">Bank Details:</div>
                                 <div>A/c Name: ${bank.accountName || '-'}</div>
                                 <div>Bank: ${bank.bankName || '-'} | A/c: ${bank.accountNumber || '-'}</div>
-                                IFSC: ${bank.ifsc || '-'}</div>
+                                <div>IFSC: ${bank.ifsc || '-'}</div>
                             </div>
                         ` : ''}
                         ${remarks.trim() ? `
@@ -1619,7 +1637,16 @@ const generateClassicHTML = (bill, settings, colors) => {
                         ${vip ? `<div style="font-weight: bold; color: ${colors.primary}; margin-top: 2px;">Thank you for your business with us!</div>` : ''}
                     </div>
                 </div>
-                <div style="flex: 1;">
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; padding: 20px;">
+                    <div class="bold">For ${store.name || ''}</div>
+                    ${(settings?.invoice?.showBankAndSignature && !options?.isNonAuthorized) ? `
+                    <div style="margin-top: 30px; text-align: right;">
+                        <div style="margin-bottom: 2px;">Authorised Signatory</div>
+                        ${bill.receptionist_name ? `<div style="font-size: 9px;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
                     <div style="padding: 15px; font-size: 12px;">
                         <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                             <span>Subtotal:</span><span class="bold">${currency}${Number(bill.totals.subtotal).toFixed(2)}</span>
@@ -1690,16 +1717,17 @@ const generateClassicHTML = (bill, settings, colors) => {
     `;
 };
 
-const generateMinimalHTML = (bill, settings, colors) => {
+const generateMinimalHTML = (bill, settings, colors, options = {}) => {
     const store = settings?.store || {};
     const storeAddress = store.address || {};
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
     const customerName = bill.customerName || customer.fullName || customer.name || '';
     const isInter = bill.taxType === 'inter';
-    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+    const invoiceDate = formatSafeDate(bill.date);
     const currency = settings?.defaults?.currency || '₹';
     const bank = settings?.bankDetails || {};
+
     const { showLogo = true } = settings?.invoice || {};
     const additionalCharges = Number(bill.totals?.additionalCharges || bill.additionalCharges || 0);
     const remarks = bill.internalNotes || bill.remarks || '';
@@ -1847,7 +1875,27 @@ const generateMinimalHTML = (bill, settings, colors) => {
                             <span>Change Returned:</span><span style="font-weight: 700;">${currency}${(Number(bill.amountReceived || 0) - Number(bill.totals.total)).toFixed(2)}</span>
                         </div>
                         ` : ''}
-                        <div style="margin-top: 10px; font-size: 10px; color: #9ca3af; text-align: right;">Mode: ${bill.paymentMode || 'Cash'}</div>
+                    </div>
+                </div>
+                <!-- Final Signatory Row for Minimal -->
+                <div style="margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end; padding: 0 40px 40px 40px;">
+                    <div style="font-size: 10px; color: #6b7280;">
+                        ${(settings?.bankDetails?.bankName && !options?.hideAccountDetails) ? `
+                            <b>Bank Details:</b><br/>
+                            ${settings.bankDetails.bankName} | A/c: ${settings.bankDetails.accountNumber}<br/>
+                            IFSC: ${settings.bankDetails.ifsc}
+                        ` : ''}
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-weight: bold; font-size: 14px;">For ${store.name || ''}</div>
+                        ${(settings?.invoice?.showBankAndSignature && !options?.isNonAuthorized) ? `
+                        <div style="margin-top: 30px; border-top: 1px solid #000; padding-top: 5px;">Authorised Signatory</div>
+                        ${bill.receptionist_name ? `<div style="font-size: 10px; margin-top: 2px;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
+                        ` : ''}
+                    </div>
+                </div>
+                <div style="margin-top: 10px; font-size: 10px; color: #9ca3af; text-align: right; padding-right: 40px;">Mode: ${bill.paymentMode || 'Cash'}</div>
+
                     </div>
                 </div>
             </div>
@@ -1857,16 +1905,17 @@ const generateMinimalHTML = (bill, settings, colors) => {
     `;
 };
 
-const generateCompactHTML = (bill, settings, colors) => {
+const generateCompactHTML = (bill, settings, colors, options = {}) => {
     const store = settings?.store || {};
     const storeAddress = store.address || {};
     const items = bill.cart || bill.items || [];
     const customer = bill.customer || {};
     const customerName = bill.customerName || customer.fullName || customer.name || '';
     const isInter = bill.taxType === 'inter';
-    const invoiceDate = bill.date ? new Date(bill.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+    const invoiceDate = formatSafeDate(bill.date);
     const currency = settings?.defaults?.currency || '₹';
     const bank = settings?.bankDetails || {};
+
     const { showLogo = true } = settings?.invoice || {};
     const additionalCharges = Number(bill.totals?.additionalCharges || bill.additionalCharges || 0);
     const remarks = bill.internalNotes || bill.remarks || '';
@@ -1997,6 +2046,19 @@ const generateCompactHTML = (bill, settings, colors) => {
                         </div>
                         ` : ''}
                         <div style="font-size: 9px; opacity: 0.6; text-align: right; margin-top: 5px;">Mode: ${bill.paymentMode || 'Cash'}</div>
+                        ${(settings?.bankDetails?.bankName && !options?.hideAccountDetails) ? `
+                            <div style="font-size: 8px; margin-top: 10px; color: ${colors.primary}; opacity: 0.7; border-top: 1px dashed #e2e8f0; padding-top: 5px;">
+                                <b>Bank:</b> ${settings.bankDetails.bankName} | <b>A/c:</b> ${settings.bankDetails.accountNumber} | <b>IFSC:</b> ${settings.bankDetails.ifsc}
+                            </div>
+                        ` : ''}
+
+                        <div style="margin-top: 25px; text-align: center;">
+                            <div style="font-weight: bold; font-size: 11px; color: ${colors.primary};">For ${store.name || ''}</div>
+                            ${(settings?.invoice?.showBankAndSignature && !options?.isNonAuthorized) ? `
+                                <div style="margin-top: 30px; border-top: 1px solid ${colors.primary}; padding-top: 4px; font-weight: bold; font-size: 10px; color: ${colors.primary};">Authorised Signatory</div>
+                                ${bill.receptionist_name ? `<div style="font-size: 8px; color: #64748b;">(${bill.receptionist_name.toUpperCase()})</div>` : ''}
+                            ` : ''}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2004,13 +2066,14 @@ const generateCompactHTML = (bill, settings, colors) => {
     </body>
     </html>
     `;
+
 };
 
-export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
+export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice', options = {}) => {
     const paperSize = settings?.invoice?.paperSize || '80mm';
     // For customer/bw mode, we always use thermal
     if (mode === 'customer' || mode === 'bw') {
-        return generateThermalReceiptHTML(bill, settings, mode);
+        return generateThermalReceiptHTML(bill, settings, mode, options);
     }
 
     const isThermalSize = paperSize === '80mm' || paperSize === '58mm';
@@ -2020,14 +2083,13 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
     // We want a shrunk-down version of the actual Invoice Template instead.
     if (mode === 'invoice') {
         if (isThermalTemplate) {
-
             isThermalTemplate = false;
             settings = { ...settings, invoice: { ...settings.invoice, template: 'Classic' } };
         }
     } else {
         // Only return the plain receipt bill template if we are NOT in 'invoice' mode
         if (isThermalTemplate || isThermalSize) {
-            return generateThermalReceiptHTML(bill, settings, mode);
+            return generateThermalReceiptHTML(bill, settings, mode, options);
         }
     }
 
@@ -2057,13 +2119,14 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
         settings = { ...settings, invoice: { ...settings.invoice, isThermalOverride: true } };
     }
 
-    if (template === 'Detailed' || template === 'GST') return generateDetailedHTML(bill, settings, colors);
-    if (template === 'Classic') return generateClassicHTML(bill, settings, colors);
-    if (template === 'Minimal') return generateMinimalHTML(bill, settings, colors);
-    if (template === 'Compact') return generateCompactHTML(bill, settings, colors);
+    if (template === 'Detailed' || template === 'GST') return generateDetailedHTML(bill, settings, colors, options);
+    if (template === 'Classic') return generateClassicHTML(bill, settings, colors, options);
+    if (template === 'Minimal') return generateMinimalHTML(bill, settings, colors, options);
+    if (template === 'Compact') return generateCompactHTML(bill, settings, colors, options);
 
-    return generateClassicHTML(bill, settings, colors);
+    return generateClassicHTML(bill, settings, colors, options);
 };
+
 
 /**
  * Generates HTML for Business Analytics Reports (Modern Template)
@@ -2397,8 +2460,10 @@ export const printReceipt = async (bill, arg2, arg3, arg4, options = {}) => {
             }
         } else {
             // Using expo-print logic
-            const html = generateReceiptHTML(bill, settings, mode);
+            const html = generateReceiptHTML(bill, settings, mode, options);
             const paperSize = format;
+
+
 
             // Define width based on paper size
             let width = 302; // Default for 80mm
@@ -2504,11 +2569,12 @@ export const printMultipleReceipts = async (bills, arg2, arg3) => {
 let isSharingInProgress = false;
 
 
-export const shareReceiptPDF = async (bill, settings = {}, mode = 'invoice') => {
+export const shareReceiptPDF = async (bill, settings = {}, mode = 'invoice', options = {}) => {
     if (isSharingInProgress) return;
     isSharingInProgress = true;
     try {
-        const html = generateReceiptHTML(bill, settings, mode);
+        const html = generateReceiptHTML(bill, settings, mode, options);
+
         const { uri } = await Print.printToFileAsync({ html });
         await shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
     } catch (error) {
@@ -2592,11 +2658,12 @@ export const shareCombinedReceiptPDF = async (bill, settings = {}) => {
  * "Download" Logic: On Android, uses SAF to save directly to a folder.
  * On iOS, uses the share sheet (which includes Save to Files).
  */
-export const saveReceiptPDF = async (bill, settings = {}, mode = 'invoice') => {
+export const saveReceiptPDF = async (bill, settings = {}, mode = 'invoice', options = {}) => {
     if (isSharingInProgress) return;
     isSharingInProgress = true;
     try {
-        const html = generateReceiptHTML(bill, settings, mode);
+        const html = generateReceiptHTML(bill, settings, mode, options);
+
         const { uri } = await Print.printToFileAsync({ html });
         
         const fileName = `Invoice_${bill.weekly_sequence || bill.id || Date.now()}.pdf`;

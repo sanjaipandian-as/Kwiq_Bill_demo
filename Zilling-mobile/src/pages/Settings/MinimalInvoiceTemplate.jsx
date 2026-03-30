@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 
-const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra' }) => {
+const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra', options = {} }) => {
     // Default dummy data if not provided (matching the image style)
     const store = settings?.store || {
         name: 'kaviraja',
@@ -26,6 +26,7 @@ const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra' }) => {
         total: '210.00',
         taxAmount: '10.00'
     };
+
 
     return (
         <View style={styles.container}>
@@ -97,19 +98,19 @@ const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra' }) => {
                 <View style={styles.footer}>
                     {/* Left: Notes & Bank Details */}
                     <View style={styles.notesContainer}>
-                        {bank.accountNumber && (
+                        {!options?.hideAccountDetails && bank.accountNumber && (
                             <View style={{ marginBottom: 16 }}>
                                 <Text style={styles.notesTitle}>PAYMENT DETAILS</Text>
                                 <Text style={styles.bankInfoText}>{bank.bankName}</Text>
                                 <Text style={styles.bankInfoText}>{bank.accountName}</Text>
-                                <Text style={styles.bankInfoText}>A/c: <Text style={{fontWeight: '700', color: '#334155'}}>{bank.accountNumber}</Text></Text>
-                                <Text style={styles.bankInfoText}>IFSC: <Text style={{fontWeight: '700', color: '#334155'}}>{bank.ifsc}</Text></Text>
+                                <Text style={styles.bankInfoText}>A/c: <Text style={{ fontWeight: '700', color: '#334155' }}>{bank.accountNumber}</Text></Text>
+                                <Text style={styles.bankInfoText}>IFSC: <Text style={{ fontWeight: '700', color: '#334155' }}>{bank.ifsc}</Text></Text>
                             </View>
                         )}
                         <Text style={styles.notesTitle}>NOTES & REMARKS</Text>
                         <Text style={styles.notesText}>{settings?.invoice?.footerNote || 'Thank you for your business!'}</Text>
-                        
-                        {(settings?.invoice?.termsAndConditions || settings?.invoice?.conditionsText) && (
+
+                        {(settings?.invoice?.showTerms !== false) && (settings?.invoice?.termsAndConditions || settings?.invoice?.conditionsText) && (
                             <View style={{ marginTop: 12 }}>
                                 <Text style={styles.termsTitle}>TERMS & CONDITIONS</Text>
                                 {settings?.invoice?.termsAndConditions ? (
@@ -161,13 +162,19 @@ const MinimalInvoiceTemplate = ({ data, settings, taxType = 'intra' }) => {
                                 </Text>
                             </View>
                         </View>
-                        
-                        <View style={{ marginTop: 24, alignItems: 'flex-end' }}>
-                            <View style={{ width: 100, height: 1.5, backgroundColor: '#0d9488', marginBottom: 6 }} />
-                            <Text style={{ fontSize: 9, color: '#0d9488', fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }}>Authorized Signatory</Text>
-                        </View>
+
+                        {!options?.isNonAuthorized && (
+                            <View style={{ marginTop: 24, alignItems: 'flex-end' }}>
+                                <View style={{ width: 100, height: 1.5, backgroundColor: '#0d9488', marginBottom: 6 }} />
+                                <Text style={{ fontSize: 9, color: '#0d9488', fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }}>Authorized Signatory</Text>
+                                {invoiceData.receptionist_name ? (
+                                    <Text style={{ fontSize: 7, color: '#444', marginTop: 2 }}>({invoiceData.receptionist_name.toUpperCase()})</Text>
+                                ) : null}
+                            </View>
+                        )}
                     </View>
                 </View>
+
             </View>
         </View>
     );

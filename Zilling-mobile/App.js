@@ -27,13 +27,14 @@ WebBrowser.maybeCompleteAuthSession();
 GoogleSignin.configure({
   webClientId: "346340397259-6bimnha1f8j3u1tc0lmon55j398trdib.apps.googleusercontent.com",
   offlineAccess: true,
-  scopes: ['profile', 'email', 'https://www.googleapis.com/auth/drive.file'],
+  scopes: ['profile', 'email', 'https://www.googleapis.com/auth/drive'],
 });
 
 // 1. Extract the inner stack that depends on User Data
 const AuthenticatedApp = () => {
   const { useAuth } = require('./src/context/AuthContext');
-  const { user } = useAuth();
+  const auth = useAuth();
+  const user = auth ? auth.user : null;
 
   const TrialGuard = require('./src/components/TrialGuard').default;
 

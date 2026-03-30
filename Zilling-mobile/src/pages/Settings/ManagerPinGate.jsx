@@ -11,7 +11,8 @@ import * as LocalAuthentication from 'expo-local-authentication';
 
 const ManagerPinGate = ({ onUnlocked }) => {
     const { settings, updateSettings, verifyManagerPin } = useSettings();
-    const { user } = useAuth();
+    const auth = useAuth();
+    const user = auth ? auth.user : null;
     const { showToast } = useToast();
     const [isChecking, setIsChecking] = useState(true);
     const [mode, setMode] = useState('enter'); // Default to enter, adjusted in useEffect

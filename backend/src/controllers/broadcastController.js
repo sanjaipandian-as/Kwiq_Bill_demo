@@ -5,14 +5,21 @@ const Broadcast = require('../models/broadcastModel');
 // @route   GET /broadcasts/latest
 // @access  Public (or User)
 const getLatestBroadcast = asyncHandler(async (req, res) => {
-    // Get the most recent broadcast
-    const broadcast = await Broadcast.findOne().sort({ createdAt: -1 });
+    const now = new Date();
+    // Get the most recent broadcast that is currently active
+    const broadcast = await Broadcast.findOne({
+        startTime: { $lte: now },
+        $or: [
+            { expiryTime: null },
+            { expiryTime: { $gt: now } }
+        ]
+    }).sort({ createdAt: -1 });
     
     if (broadcast) {
         res.json(broadcast);
     } else {
         res.status(404);
-        throw new Error('No broadcasts found');
+        res.json({ message: 'No active broadcasts found' }); // Return JSON instead of throwing for cleaner mobile handling
     }
 });
 

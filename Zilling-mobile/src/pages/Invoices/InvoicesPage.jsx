@@ -15,6 +15,7 @@ import {
   LayoutAnimation,
   UIManager,
   Switch,
+  InteractionManager,
 } from 'react-native';
 
 if (
@@ -52,7 +53,10 @@ import {
   AlertCircle,
   PieChart,
   Info,
+  UserX,
+  Landmark,
 } from 'lucide-react-native';
+
 
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -76,8 +80,10 @@ import ThermalInvoiceTemplate from '../Settings/ThermalInvoiceTemplate';
 import ProfessionalThermalTemplate from '../Settings/ProfessionalThermalTemplate';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useToast } from '../../context/ToastContext';
+import InvoiceItem from '../../components/invoices/InvoiceItem';
 
 import { LinearGradient } from 'expo-linear-gradient';
+import { debouncedNavigate } from '../../utils/navigationUtils';
 
 const safeTax = (val) => Number(val) || 0;
 const safeDateDisplay = (dateStr) => {
@@ -137,6 +143,9 @@ export default function InvoicesPage() {
   const [previewThermalTemplate, setPreviewThermalTemplate] = useState('Professional');
   const [showBankAndSignature, setShowBankAndSignature] = useState(false);
 
+  const [isNonAuthorizedSignatory, setIsNonAuthorizedSignatory] = useState(false);
+  const [hideAccountDetails, setHideAccountDetails] = useState(false);
+
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -150,7 +159,10 @@ export default function InvoicesPage() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchTransactions();
+      const task = InteractionManager.runAfterInteractions(() => {
+        fetchTransactions();
+      });
+      return () => task.cancel();
     }, [])
   );
 
@@ -291,12 +303,16 @@ export default function InvoicesPage() {
         }
       };
 
-      await shareReceiptPDF(billData, invoiceSettings);
+      await shareReceiptPDF(billData, invoiceSettings, 'invoice', {
+        isNonAuthorized: isNonAuthorizedSignatory,
+        hideAccountDetails: hideAccountDetails
+      });
     } catch (error) {
       console.error("Share Error:", error);
       showToast("Failed to share invoice", "error");
     }
   };
+
 
   const handleDownload = (invoice) => {
     setInvoiceToDownload(invoice);
@@ -309,23 +325,28 @@ export default function InvoicesPage() {
       if (!invoiceToDownload) return;
       
       const billData = mapInvoiceToBillData(invoiceToDownload);
+      const downloadOptions = {
+        isNonAuthorized: isNonAuthorizedSignatory,
+        hideAccountDetails: hideAccountDetails
+      };
 
       if (type === 'bill') {
         // Force Thermal Mode
         await saveReceiptPDF(billData, { 
           ...settings, 
           invoice: { ...settings.invoice, paperSize: settings?.invoice?.billPaperSize || '80mm' } 
-        }, 'customer');
+        }, 'customer', downloadOptions);
       } else if (type === 'invoice') {
         // Force A4 Mode
         await saveReceiptPDF(billData, { 
           ...settings, 
           invoice: { ...settings.invoice, paperSize: 'A4' } 
-        }, 'invoice');
+        }, 'invoice', downloadOptions);
       } else if (type === 'both') {
         // Combined PDF
         await saveCombinedReceiptPDF(billData, settings);
       }
+
     } catch (error) {
       console.error("Download Error:", error);
       showToast("Download failed", "error");
@@ -531,11 +552,11 @@ export default function InvoicesPage() {
     }
   };
 
-  const stats = [
+  const stats = useMemo(() => [
     { label: 'Total Revenue', value: `₹${transactions.reduce((sum, t) => sum + (t.total || 0), 0).toLocaleString()}`, icon: TrendingUp, color: '#000000', bg: '#f8fafc' },
     { label: 'Unpaid', value: `₹${transactions.filter(t => t.status !== 'PAID').reduce((sum, t) => sum + (t.balance || 0), 0).toLocaleString()}`, icon: Clock, color: '#ef4444', bg: '#fffafa' },
     { label: 'Paid', value: `₹${transactions.filter(t => t.status === 'PAID').reduce((sum, t) => sum + (t.total || 0), 0).toLocaleString()}`, icon: CheckCircle2, color: '#15803d', bg: '#dcfce7' },
-  ];
+  ], [transactions]);
 
   const handlePrint = (invoice) => {
     setInvoiceToPrint(invoice);
@@ -652,79 +673,17 @@ export default function InvoicesPage() {
   };
 
 
-  const renderInvoiceItem = ({ item }) => {
-    const status = getStatusStyle(item.status);
-    const initial = (item.customerName || 'G').charAt(0).toUpperCase();
-
-    return (
-      <TouchableOpacity
-        style={styles.invoiceModernCard}
-        onPress={() => handleInvoicePress(item)}
-        activeOpacity={0.8}
-      >
-        <View style={styles.cardMainRow}>
-          {/* Avatar Area */}
-          <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>{initial}</Text>
-          </View>
-
-          {/* Info Area */}
-          <View style={styles.infoContainer}>
-            <View style={[styles.nameHeader, { alignItems: 'flex-start' }]}>
-              <Text style={styles.modernCustomerName} numberOfLines={1}>{item.customerName || 'Guest Customer'}</Text>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.modernAmount}>₹{(item.total || 0).toLocaleString()}</Text>
-                <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: '700', marginTop: 2 }}>
-                  {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.metaRow}>
-              <View style={styles.idTag}>
-                <Text style={styles.idTagText}>#{item.invoiceNumber || item.id?.toString().slice(-6).toUpperCase()}</Text>
-              </View>
-              <View style={[styles.idTag, { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
-                <FileText size={10} color="#64748b" />
-                <Text style={styles.idTagText}>{settings?.invoice?.billTemplate || 'Professional'}</Text>
-              </View>
-              <View style={styles.dateMeta}>
-                <Clock size={10} color="#94a3b8" />
-                <Text style={styles.dateMetaText}>
-                  {new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.cardSeparator} />
-
-        <View style={styles.cardActionFooter}>
-          <View style={[styles.statusModernPill, { backgroundColor: status.solidBg, borderColor: status.border, gap: 6 }]}>
-            <status.icon size={12} color={status.text} strokeWidth={3} />
-            <Text style={[styles.statusModernText, { color: status.text }]}>{status.label}</Text>
-          </View>
-
-          <View style={styles.actionGroup}>
-            <TouchableOpacity onPress={() => handlePrint(item)} style={styles.modernIconAction}>
-              <Printer size={16} color="#475569" strokeWidth={2.5} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleDownload(item)} style={styles.modernIconAction}>
-              <Download size={16} color="#475569" strokeWidth={2.5} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleDelete(item)} style={styles.modernIconActionDanger}>
-              <Trash2 size={16} color="#ef4444" strokeWidth={2.5} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handlePreview(item)} style={styles.modernOpenBtn}>
-              <Text style={styles.modernOpenText}>View Bill</Text>
-              <ChevronRight size={12} color="#fff" strokeWidth={4} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  const renderInvoiceItem = useCallback(({ item }) => (
+    <InvoiceItem 
+      item={item} 
+      settings={settings}
+      onPress={handleInvoicePress}
+      onPrint={handlePrint}
+      onDownload={handleDownload}
+      onDelete={handleDelete}
+      onPreview={handlePreview}
+    />
+  ), [settings, handleInvoicePress, handlePrint, handleDownload, handleDelete, handlePreview]);
 
   return (
     <View style={styles.mainContainer}>
@@ -742,7 +701,7 @@ export default function InvoicesPage() {
                 <Text style={styles.navSubtitle}>{filteredInvoices.length} transactions found</Text>
               </View>
               <View style={styles.headerActionsStack}>
-                <TouchableOpacity style={styles.headerActionBtnWhite} onPress={() => navigation.navigate('RecycleBin')}>
+                <TouchableOpacity style={styles.headerActionBtnWhite} onPress={() => debouncedNavigate(navigation, 'RecycleBin')}>
                   <Recycle size={18} color="#000" strokeWidth={2.5} />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.headerActionBtnWhite} onPress={handlePrintAll}>
@@ -884,6 +843,10 @@ export default function InvoicesPage() {
         renderItem={renderInvoiceItem}
         contentContainerStyle={styles.listPadding}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={8}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={true}
         ListEmptyComponent={
           <View style={styles.emptyStateContainer}>
             <FileText size={64} color="#cbd5e1" strokeWidth={1} />
@@ -1371,6 +1334,39 @@ export default function InvoicesPage() {
             </View>
 
             <View style={{ gap: 16, marginTop: 10 }}>
+              <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', gap: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '900', color: '#64748b', letterSpacing: 1.2, textTransform: 'uppercase' }}>Configuration Settings</Text>
+                  <View style={{ flex: 1, height: 1.5, backgroundColor: '#f1f5f9' }} />
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity 
+                    onPress={() => setIsNonAuthorizedSignatory(!isNonAuthorizedSignatory)}
+                    style={{ flex: 1, backgroundColor: isNonAuthorizedSignatory ? '#000' : '#fff', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#000' : '#e2e8f0', elevation: isNonAuthorizedSignatory ? 2 : 0 }}
+                  >
+                    <UserX size={14} color={isNonAuthorizedSignatory ? '#fff' : '#64748b'} strokeWidth={2.5} />
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: isNonAuthorizedSignatory ? '#fff' : '#000' }}>SKIP SIGN</Text>
+                    <View style={{ flex: 1 }} />
+                    <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#fff' : '#000', backgroundColor: isNonAuthorizedSignatory ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {isNonAuthorizedSignatory && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    onPress={() => setHideAccountDetails(!hideAccountDetails)}
+                    style={{ flex: 1, backgroundColor: hideAccountDetails ? '#000' : '#fff', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: hideAccountDetails ? '#000' : '#e2e8f0', elevation: hideAccountDetails ? 2 : 0 }}
+                  >
+                    <Landmark size={14} color={hideAccountDetails ? '#fff' : '#64748b'} strokeWidth={2.5} />
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: hideAccountDetails ? '#fff' : '#000' }}>HIDE BANK</Text>
+                    <View style={{ flex: 1 }} />
+                    <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: hideAccountDetails ? '#fff' : '#000', backgroundColor: hideAccountDetails ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {hideAccountDetails && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+
               <TouchableOpacity style={styles.statusOption} onPress={() => executePrint(settings?.invoice?.billPaperSize || '80mm')}>
                 <Printer size={20} color="#000" />
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>Thermal Invoice</Text>
@@ -1380,12 +1376,9 @@ export default function InvoicesPage() {
                 <FileText size={20} color="#000" />
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>A4 Invoice (Full Page)</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity style={styles.statusOption} onPress={() => executePrint('A5')}>
-                <FileText size={20} color="#000" />
-                <Text style={[styles.statusOptionText, { color: '#000' }]}>A5 Invoice (Half Page)</Text>
-              </TouchableOpacity>
             </View>
+
+
           </View>
         </Pressable>
       </Modal>
@@ -1405,6 +1398,39 @@ export default function InvoicesPage() {
             </View>
 
             <View style={{ gap: 16, marginTop: 10 }}>
+              <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', gap: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '900', color: '#64748b', letterSpacing: 1.2, textTransform: 'uppercase' }}>Configuration Settings</Text>
+                  <View style={{ flex: 1, height: 1.5, backgroundColor: '#f1f5f9' }} />
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity 
+                    onPress={() => setIsNonAuthorizedSignatory(!isNonAuthorizedSignatory)}
+                    style={{ flex: 1, backgroundColor: isNonAuthorizedSignatory ? '#000' : '#fff', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#000' : '#e2e8f0', elevation: isNonAuthorizedSignatory ? 2 : 0 }}
+                  >
+                    <UserX size={14} color={isNonAuthorizedSignatory ? '#fff' : '#64748b'} strokeWidth={2.5} />
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: isNonAuthorizedSignatory ? '#fff' : '#000' }}>SKIP SIGN</Text>
+                    <View style={{ flex: 1 }} />
+                    <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#fff' : '#000', backgroundColor: isNonAuthorizedSignatory ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {isNonAuthorizedSignatory && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    onPress={() => setHideAccountDetails(!hideAccountDetails)}
+                    style={{ flex: 1, backgroundColor: hideAccountDetails ? '#000' : '#fff', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: hideAccountDetails ? '#000' : '#e2e8f0', elevation: hideAccountDetails ? 2 : 0 }}
+                  >
+                    <Landmark size={14} color={hideAccountDetails ? '#fff' : '#64748b'} strokeWidth={2.5} />
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: hideAccountDetails ? '#fff' : '#000' }}>HIDE BANK</Text>
+                    <View style={{ flex: 1 }} />
+                    <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: hideAccountDetails ? '#fff' : '#000', backgroundColor: hideAccountDetails ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {hideAccountDetails && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+
               <TouchableOpacity style={styles.statusOption} onPress={() => executePreview(settings?.invoice?.billPaperSize || '80mm')}>
                 <Printer size={20} color="#000" />
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>Thermal Bill Format</Text>
@@ -1415,9 +1441,11 @@ export default function InvoicesPage() {
                 <Text style={[styles.statusOptionText, { color: '#000' }]}>A4 Invoice Format</Text>
               </TouchableOpacity>
             </View>
+
           </View>
         </Pressable>
       </Modal>
+
 
       {/* --- DOWNLOAD FORMAT MODAL --- */}
       <Modal visible={downloadFormatModalVisible} animationType="fade" transparent={true}>
@@ -1457,18 +1485,21 @@ export default function InvoicesPage() {
       <Modal
         visible={previewVisible}
         animationType="slide"
-        transparent={true}
+        transparent={false}
         onRequestClose={() => setPreviewVisible(false)}
       >
+
         <View style={styles.a4PreviewOverlay}>
-          <SafeAreaView edges={['top']} style={styles.a4PreviewContent}>
+          <View style={styles.a4PreviewContent}>
+
+
             {/* Header */}
             <View style={styles.a4PreviewHeader}>
               <View>
                 <Text style={styles.a4PreviewTitle}>{previewFormat} Preview</Text>
-                <Text style={styles.a4PreviewSubtitle}>
+                <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#000', marginTop: 2 }}>
                   {previewFormat === 'A4'
-                    ? `Format: ${previewA4Template}`
+                    ? `Template: ${previewA4Template}`
                     : `Format: ${previewThermalTemplate}`}
                 </Text>
               </View>
@@ -1525,6 +1556,39 @@ export default function InvoicesPage() {
               </ScrollView>
             </View>
 
+            {/* Quick Settings Card in Preview */}
+            <View style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+               <View style={{ backgroundColor: '#f8fafc', padding: 10, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                 <View style={{ flexDirection: 'row', gap: 10 }}>
+                   <TouchableOpacity 
+                      onPress={() => setIsNonAuthorizedSignatory(!isNonAuthorizedSignatory)}
+                      style={{ flex: 1, backgroundColor: isNonAuthorizedSignatory ? '#000' : '#fff', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#000' : '#cbd5e1' }}
+                   >
+                     <UserX size={14} color={isNonAuthorizedSignatory ? '#fff' : '#64748b'} strokeWidth={2.5} />
+                     <Text style={{ fontSize: 10, fontWeight: '900', color: isNonAuthorizedSignatory ? '#fff' : '#000', letterSpacing: 0.5 }}>SKIP SIGN</Text>
+                     <View style={{ flex: 1 }} />
+                     <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#fff' : '#000', backgroundColor: isNonAuthorizedSignatory ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                       {isNonAuthorizedSignatory && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
+                     </View>
+                   </TouchableOpacity>
+
+                   <TouchableOpacity 
+                      onPress={() => setHideAccountDetails(!hideAccountDetails)}
+                      style={{ flex: 1, backgroundColor: hideAccountDetails ? '#000' : '#fff', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: hideAccountDetails ? '#000' : '#cbd5e1' }}
+                   >
+                     <Landmark size={14} color={hideAccountDetails ? '#fff' : '#64748b'} strokeWidth={2.5} />
+                     <Text style={{ fontSize: 10, fontWeight: '900', color: hideAccountDetails ? '#fff' : '#000', letterSpacing: 0.5 }}>HIDE BANK</Text>
+                     <View style={{ flex: 1 }} />
+                     <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: hideAccountDetails ? '#fff' : '#000', backgroundColor: hideAccountDetails ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                       {hideAccountDetails && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
+                     </View>
+                   </TouchableOpacity>
+                 </View>
+               </View>
+            </View>
+
+
+
 
 
             {/* Template Rendering */}
@@ -1549,25 +1613,28 @@ export default function InvoicesPage() {
                         };
 
                         if (previewFormat === 'Thermal') {
+                          const thermalOptions = { isNonAuthorized: isNonAuthorizedSignatory, hideAccountDetails: hideAccountDetails };
                           if (previewThermalTemplate === 'Professional') {
-                            return <ProfessionalThermalTemplate settings={overrideSettings} data={previewData} taxType={previewData?.taxType || 'intra'} />;
+                            return <ProfessionalThermalTemplate settings={overrideSettings} data={previewData} taxType={previewData?.taxType || 'intra'} options={thermalOptions} />;
                           }
-                          return <ThermalInvoiceTemplate settings={overrideSettings} data={previewData} taxType={previewData?.taxType || 'intra'} />;
+                          return <ThermalInvoiceTemplate settings={overrideSettings} data={previewData} taxType={previewData?.taxType || 'intra'} options={thermalOptions} />;
                         }
+
 
                         const props = { settings: overrideSettings, data: previewData };
 
                         switch (previewA4Template) {
                           case 'Detailed':
-                            return <DetailedInvoiceTemplate {...props} />;
+                            return <DetailedInvoiceTemplate {...props} options={{ isNonAuthorized: isNonAuthorizedSignatory, hideAccountDetails: hideAccountDetails }} />;
                           case 'Compact':
-                            return <CompactInvoiceTemplate {...props} />;
+                            return <CompactInvoiceTemplate {...props} options={{ isNonAuthorized: isNonAuthorizedSignatory, hideAccountDetails: hideAccountDetails }} />;
                           case 'Minimal':
-                            return <MinimalInvoiceTemplate {...props} />;
+                            return <MinimalInvoiceTemplate {...props} options={{ isNonAuthorized: isNonAuthorizedSignatory, hideAccountDetails: hideAccountDetails }} />;
                           case 'Classic':
                           default:
-                            return <ClassicInvoiceTemplate {...props} />;
+                            return <ClassicInvoiceTemplate {...props} options={{ isNonAuthorized: isNonAuthorizedSignatory, hideAccountDetails: hideAccountDetails }} />;
                         }
+
                       })()}
                     </View>
                   </ScrollView>
@@ -1582,7 +1649,7 @@ export default function InvoicesPage() {
               </View>
             </ScrollView>
 
-            {/* Bottom Actions */}
+            {/* Bottom Actions - Now Absolute to ensure visibility */}
             <View style={styles.a4PreviewActions}>
               <TouchableOpacity
                 onPress={() => setPreviewVisible(false)}
@@ -1600,19 +1667,29 @@ export default function InvoicesPage() {
                       ...settings?.invoice,
                       template: previewA4Template,
                       billTemplate: previewThermalTemplate,
-                      showBankAndSignature: showBankAndSignature
+                      showBankAndSignature: true
                     }
                   };
-                  await printReceipt(previewData, format, overrideSettings, 'invoice');
+
+                  const options = {
+                    isNonAuthorized: isNonAuthorizedSignatory,
+                    hideAccountDetails: hideAccountDetails,
+                    isSilent: false
+                  };
+
+                  setPreviewVisible(false);
+                  await printReceipt(previewData, format, overrideSettings, 'invoice', options);
+
                 }}
                 style={styles.a4PrintBtn}
               >
-                <Printer size={18} color="#fff" />
-                <Text style={styles.a4PrintBtnText}>Print {previewA4Template !== 'Classic' || previewThermalTemplate !== 'Professional' ? 'Selection' : previewFormat}</Text>
+                <Printer size={20} color="#fff" />
+                <Text style={styles.a4PrintBtnText}>Print Bill</Text>
               </TouchableOpacity>
             </View>
-          </SafeAreaView>
+          </View>
         </View>
+
       </Modal>
     </View>
   );
@@ -2207,13 +2284,18 @@ const styles = StyleSheet.create({
   // --- A4 Preview Modal Styles ---
   a4PreviewOverlay: {
     flex: 1,
-    backgroundColor: '#f1f5f9',
+    height: '100%',
+    width: '100%',
+    backgroundColor: '#fff',
   },
+
   a4PreviewContent: {
     flex: 1,
     width: '100%',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'android' ? 0 : 40,
   },
+
   a4PreviewHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2249,8 +2331,10 @@ const styles = StyleSheet.create({
   },
   a4PreviewScrollContent: {
     padding: 20,
-    paddingBottom: 100
+    paddingBottom: 110
   },
+
+
   templateWrapper: {
     backgroundColor: '#fff',
     borderRadius: 4,
@@ -2278,14 +2362,29 @@ const styles = StyleSheet.create({
     lineHeight: 16
   },
   a4PreviewActions: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
-    padding: 20,
+    padding: 24,
     backgroundColor: '#fff',
     borderTopWidth: 1.5,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: '#f1f5f9',
     gap: 12,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20
+    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+    height: 100,
+    alignItems: 'center',
+    zIndex: 9999,
+    elevation: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
   },
+
+
+
   a4BackBtn: {
     flex: 1,
     height: 52,

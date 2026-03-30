@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 
-const CompactInvoiceTemplate = ({ settings, data, taxType }) => {
+const CompactInvoiceTemplate = ({ settings, data, taxType, options = {} }) => {
+
     // Fallback/Demo Data
     const store = settings?.store || {
         name: 'KWIQ BILL',
@@ -9,7 +10,9 @@ const CompactInvoiceTemplate = ({ settings, data, taxType }) => {
         contact: '9876543210'
     };
 
+    const bank = settings?.bankDetails || {};
     const invoice = data || {
+
         invoiceNo: '#INV-1001',
         date: '14/10/2026',
         time: '11:56 AM',
@@ -40,9 +43,16 @@ const CompactInvoiceTemplate = ({ settings, data, taxType }) => {
                     <Text style={styles.compactTitle}>INVOICE</Text>
                     <View>
                         <Text style={styles.compactStoreName}>{store.name}</Text>
-                        <Text style={styles.compactStoreDetails}>
-                            {store.address?.street}, {store.address?.city && `${store.address.city}, `}{store.address?.state}, {store.address?.pincode}
-                        </Text>
+                        {(() => {
+                            const addr = store.address;
+                            if (!addr) return null;
+                            if (typeof addr === 'string') return <Text style={styles.compactStoreDetails}>{addr}</Text>;
+                            return (
+                                <Text style={styles.compactStoreDetails}>
+                                    {[addr.street, addr.area, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ')}
+                                </Text>
+                            );
+                        })()}
                         <Text style={styles.compactStoreDetails}>Contact: {store.contact}  |  GSTIN: {store.gstin || 'N/A'}</Text>
                     </View>
                 </View>
@@ -65,12 +75,24 @@ const CompactInvoiceTemplate = ({ settings, data, taxType }) => {
                 <View style={styles.compactAddressBlock}>
                     <Text style={styles.compactLabel}>BILL TO</Text>
                     <Text style={styles.compactCustomerName}>{invoice.customer?.name || ''}</Text>
-                    <Text style={styles.compactStoreDetails}>{invoice.customer?.address || '-'}</Text>
+                    {(() => {
+                        const addr = invoice.customer?.address;
+                        if (!addr) return <Text style={styles.compactStoreDetails}>-</Text>;
+                        if (typeof addr === 'string') return <Text style={styles.compactStoreDetails}>{addr}</Text>;
+                        const parts = [addr.street, addr.area, addr.city, addr.state, addr.pincode, addr.country].filter(Boolean);
+                        return <Text style={styles.compactStoreDetails}>{parts.join(', ')}</Text>;
+                    })()}
                 </View>
                 <View style={[styles.compactAddressBlock, { paddingLeft: 10 }]}>
                     <Text style={styles.compactLabel}>SHIP TO</Text>
                     <Text style={styles.compactCustomerName}>{invoice.customer?.name || ''}</Text>
-                    <Text style={styles.compactStoreDetails}>{invoice.customer?.address || '-'}</Text>
+                    {(() => {
+                        const addr = invoice.customer?.address;
+                        if (!addr) return <Text style={styles.compactStoreDetails}>-</Text>;
+                        if (typeof addr === 'string') return <Text style={styles.compactStoreDetails}>{addr}</Text>;
+                        const parts = [addr.street, addr.area, addr.city, addr.state, addr.pincode, addr.country].filter(Boolean);
+                        return <Text style={styles.compactStoreDetails}>{parts.join(', ')}</Text>;
+                    })()}
                 </View>
             </View>
 

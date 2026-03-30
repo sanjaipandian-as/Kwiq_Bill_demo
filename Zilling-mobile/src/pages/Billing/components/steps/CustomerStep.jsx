@@ -60,7 +60,12 @@ const CustomerStep = ({ customer, onSelect, onNext }) => {
                         {customer.address && (
                             <View style={styles.detailItem}>
                                 <MapPin size={16} color="#64748b" />
-                                <Text style={styles.detailText}>{customer.address}</Text>
+                                <Text style={styles.detailText}>
+                                    {typeof customer.address === 'string' 
+                                        ? customer.address 
+                                        : [customer.address.street, customer.address.area, customer.address.city, customer.address.state, customer.address.pincode].filter(Boolean).join(', ')
+                                    }
+                                </Text>
                             </View>
                         )}
                     </View>

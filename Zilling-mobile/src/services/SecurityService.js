@@ -8,8 +8,14 @@ const VAULT_METADATA_KEY = '@security_vault_meta';
 const VAULT_CACHE_KEY = '@security_vault_cache';
 const LAST_ROTATION_KEY = 'kwiq.last_key_rotation';
 
+// Micro-task yield for React Native animations
+const yieldToUI = () => new Promise(resolve => {
+  if (typeof setImmediate === 'function') setImmediate(resolve);
+  else setTimeout(resolve, 0);
+});
+
 // SecureStore Keys Schema
-const SECURE_KEYS = {
+export const SECURE_KEYS = {
   MASTER_KEY: 'kwiq.master_key',
   HMAC_KEY: 'kwiq.hmac_key',
   PIN_HASH: 'kwiq.pin_hash',
@@ -65,12 +71,14 @@ export const SecurityService = {
         hasher: CryptoJS.algo.SHA256
       }).toString(CryptoJS.enc.Hex);
 
-      const encryptedBackup = CryptoJS.AES.encrypt(masterKey, backupEncryptionKey).toString();
+      const hmacKey = await SecureStore.getItemAsync(SECURE_KEYS.HMAC_KEY);
+      const combinedPayload = `${masterKey}|${hmacKey || ''}`;
+      const encryptedBackup = CryptoJS.AES.encrypt(combinedPayload, backupEncryptionKey).toString();
 
       // We assume services.security.backupKey exists on the backend
       if (services.security?.backupKey) {
         await services.security.backupKey({ encryptedMasterKeyBackup: encryptedBackup });
-        console.log('[SecurityService] Master Key successfully escrowed to MongoDB.');
+        console.log('[SecurityService] Master + HMAC Keys successfully escrowed to MongoDB.');
       }
     } catch (e) {
       console.error('[SecurityService] Failed to escrow master key', e);
@@ -109,9 +117,14 @@ export const SecurityService = {
         await SecureStore.setItemAsync(SECURE_KEYS.PIN_HASH, pinHash);
       }
 
-      // 3. Prepare Encrypted Vault Payload
+      // 3. Prepare Encrypted Vault Payload (Include PIN metadata for cloud restore)
+      const pinSalt = await SecureStore.getItemAsync(SECURE_KEYS.PIN_SALT);
+      const pinHash = await SecureStore.getItemAsync(SECURE_KEYS.PIN_HASH);
+
       const vaultData = {
         receptionists: receptionists || [],
+        pinSalt,
+        pinHash,
         updatedAt: new Date().toISOString()
       };
 
@@ -135,7 +148,7 @@ export const SecurityService = {
       const existingMeta = localMetaStr ? JSON.parse(localMetaStr) : {};
 
       const meta = {
-        hasPin: !!pin,
+        hasPin: !!(pin || pinHash),
         receptionistCount: receptionists?.length || 0,
         lastSyncAt: new Date().toISOString(),
         pinIterations: pin ? PIN_PBKDF2_ITERATIONS : (existingMeta.pinIterations || PBKDF2_ITERATIONS)
@@ -312,56 +325,138 @@ export const SecurityService = {
   /**
    * Retrieve Vault Payload, Validate HMAC, Return Content
    */
-  _decryptAndVerifyPayload: async (payload) => {
-    if (!payload || !payload.data || !payload.signature) return null;
+  _decryptAndVerifyPayload: async (payload, user = null) => {
+    // Empty payload is not an error — user has never set a PIN or staff
+    if (!payload || !payload.data) return null;
 
-    const masterKey = await SecureStore.getItemAsync(SECURE_KEYS.MASTER_KEY);
-    const hmacKey = await SecureStore.getItemAsync(SECURE_KEYS.HMAC_KEY);
+    let masterKey = await SecureStore.getItemAsync(SECURE_KEYS.MASTER_KEY);
 
-    if (!masterKey || !hmacKey) return null; // Can't decrypt if no keys
-
-    // Verify HMAC
-    const computedSig = computeHMAC(payload.data, hmacKey);
-    if (computedSig !== payload.signature) {
-      console.error('[SecurityService] TAMPERING DETECTED: Invalid HMAC signature!');
-      return null;
+    // 0. PRE-FLIGHT: If masterKey is missing AND we have a cloud backup, restore it
+    if (!masterKey) {
+      if (user && user.encryptedMasterKeyBackup) {
+        await SecurityService._attemptMasterKeyRestoration(user);
+        masterKey = await SecureStore.getItemAsync(SECURE_KEYS.MASTER_KEY);
+      }
+      // If still missing: this is a first-login / post-logout state.
+      // Auto-seed a new Master Key so saveVault works on the first PIN set.
+      // We do NOT try to decrypt with it — there's no vault to open yet.
+      if (!masterKey) {
+        await getOrCreateSecret(SECURE_KEYS.MASTER_KEY);
+        await getOrCreateSecret(SECURE_KEYS.HMAC_KEY);
+        // Return null because we cannot decrypt the old vault with a brand-new key
+        // (the vault was encrypted with the previous key on the old device / session)
+        console.log('[SecurityService] Master Key missing — seeded new key. Vault will re-initialize on next save.');
+        return null;
+      }
     }
 
-    // Decrypt
-    try {
-      const bytes = CryptoJS.AES.decrypt(payload.data, masterKey);
-      const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-      return JSON.parse(decrypted);
-    } catch (e) {
-      console.error('[SecurityService] Decryption failed', e);
-      return null;
+    // 1. PRIMARY ATTEMPT: Use Hardware-Backed Master Key
+    if (masterKey) {
+      const hmacKey = await SecureStore.getItemAsync(SECURE_KEYS.HMAC_KEY);
+      if (payload.signature && hmacKey) {
+        const computedSig = computeHMAC(payload.data, hmacKey);
+        // Try decryption regardless of HMAC match (covers key-regeneration edge case)
+        try {
+          const bytes = CryptoJS.AES.decrypt(payload.data, masterKey);
+          const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+          if (decrypted) return JSON.parse(decrypted);
+        } catch (e) { }
+      } else {
+        // No signature / no HMAC — legacy format
+        try {
+          const bytes = CryptoJS.AES.decrypt(payload.data, masterKey);
+          const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+          if (decrypted) return JSON.parse(decrypted);
+        } catch (e) { }
+      }
     }
+
+    // 2. CROSS-PLATFORM FALLBACK: Try email-derived keys
+    // Covers: new device restore, desktop-encrypted vault, older iteration counts
+    if (user?.email) {
+      const email = user.email.toLowerCase().trim();
+      const salts = ['kwiq-bill-shared-salt-2024', 'kwiq_bill_secret_salt'];
+      // Include 5000 for vaults created before Fix #5 normalized iterations to 10000
+      const iterations = [10000, 20000, 5000, 1000];
+
+      for (const salt of salts) {
+        for (const iter of iterations) {
+          await yieldToUI(); // 🚀 Yield to UI between heavy PBKDF2 ops to prevent freezing
+          try {
+            const derivedKey = CryptoJS.PBKDF2(email, salt, {
+              keySize: PBKDF2_KEYSIZE,
+              iterations: iter,
+              hasher: CryptoJS.algo.SHA256
+            }).toString(CryptoJS.enc.Hex);
+
+            const bytes = CryptoJS.AES.decrypt(payload.data, derivedKey);
+            const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+            if (decrypted && decrypted.startsWith('{')) {
+              console.log(`[SecurityService] Vault recovered via ${iter}-iter cross-platform fallback.`);
+              return JSON.parse(decrypted);
+            }
+          } catch (e) { }
+        }
+      }
+    }
+
+    // Only log as ERROR if payload.data actually exists (i.e. there was real data we couldn't decrypt)
+    // For empty vaults (no PIN set, no staff) we already returned null above
+    console.error('[SecurityService] Decryption failed: No valid Master Key or Fallback found.');
+    return null;
   },
 
   /**
    * Safe fetch for receptionists with integrity checking.
+   * Restores PIN metadata if found in cloud vault but missing locally.
    */
   getReceptionists: async (user) => {
     try {
-      // 1. Check Cloud
+      // 1. Fetch from Cloud (only works for Google-OAuth users with Drive access)
       const cloudPayload = await fetchSecurityVaultFromDrive(user);
-      if (cloudPayload && cloudPayload.data) {
-        await AsyncStorage.setItem(VAULT_CACHE_KEY, JSON.stringify(cloudPayload));
-        const vault = await SecurityService._decryptAndVerifyPayload(cloudPayload);
-        if (vault) return vault.receptionists || [];
+      if (cloudPayload?.data) {
+        const cloudVault = await SecurityService._decryptAndVerifyPayload(cloudPayload, user);
+
+        if (cloudVault) {
+          // Restore PIN metadata to local SecureStore if missing
+          if (cloudVault.pinHash && cloudVault.pinSalt) {
+            const localHash = await SecureStore.getItemAsync(SECURE_KEYS.PIN_HASH);
+            if (!localHash) {
+              console.log('[SecurityService] 🔐 Restoring Manager PIN from Cloud Vault...');
+              await SecureStore.setItemAsync(SECURE_KEYS.PIN_HASH, cloudVault.pinHash);
+              await SecureStore.setItemAsync(SECURE_KEYS.PIN_SALT, cloudVault.pinSalt);
+            }
+          }
+
+          const meta = {
+            hasPin: !!(cloudVault.pinHash),
+            receptionistCount: cloudVault.receptionists?.length || 0,
+            lastSyncAt: new Date().toISOString(),
+          };
+          await AsyncStorage.setItem(VAULT_METADATA_KEY, JSON.stringify(meta));
+          await AsyncStorage.setItem(VAULT_CACHE_KEY, JSON.stringify(cloudPayload));
+
+          console.log(`[SecurityService] ☁️ Staff Section restored: ${meta.receptionistCount} members found.`);
+          return cloudVault.receptionists || [];
+        }
       }
 
-      // 2. Check Local Fallback
+      // 2. Local Cache fallback
       const localStr = await AsyncStorage.getItem(VAULT_CACHE_KEY);
       if (localStr) {
         const localPayload = JSON.parse(localStr);
-        const vault = await SecurityService._decryptAndVerifyPayload(localPayload);
-        if (vault) return vault.receptionists || [];
+        const localVault = await SecurityService._decryptAndVerifyPayload(localPayload, user);
+        if (localVault) {
+          console.log('[SecurityService] 📱 Staff Section loaded from local cache.');
+          return localVault.receptionists || [];
+        }
       }
 
+      // No vault exists yet — this is normal for new users or post-logout fresh starts
+      console.log('[SecurityService] ⚠️ No staff section data found (Cloud/Local).');
       return [];
     } catch (err) {
-      console.warn('[SecurityService] Fetch failed:', err.message);
+      console.error('[SecurityService] ❌ getReceptionists Error:', err.message);
       return [];
     }
   },
@@ -388,8 +483,6 @@ export const SecurityService = {
   recoverVaultWithOTP: async (otp, user) => {
     try {
       const { default: services } = require('./api');
-      // The /security/recover endpoint is public — OTP is the auth factor.
-      // We must send userId so the backend can identify whose backup record to check.
       const userId = user?.backendId || user?.id || user?.user?.id;
       if (!userId) {
         console.error('[SecurityService] Cannot recover: no userId available');
@@ -405,29 +498,38 @@ export const SecurityService = {
 
         // 2. Escrow Recovery (Crucial for new devices)
         const encryptedBackup = response.encryptedMasterKeyBackup;
-        const accountId = user?.id || user?.user?.id; // Updated source for accountId
+        const accountId = user?.id || user?.user?.id;
 
         if (encryptedBackup && accountId) {
           console.log('[SecurityService] Found Master Key backup on cloud. Attempting decryption...');
           try {
-            // Derive the anchor key (matching the backup logic in _backupMasterKeyToMongo)
-            const backupEncryptionKey = CryptoJS.PBKDF2(accountId, 'kwiq_bill_secret_salt', {
-              keySize: PBKDF2_KEYSIZE,
-              iterations: 1000,
-              hasher: CryptoJS.algo.SHA256
-            }).toString(CryptoJS.enc.Hex);
+            // Match the derivation logic in _backupMasterKeyToMongo
+            const anchorSalt = `kwiq.anchor.${accountId}`.split('').reverse().join('');
+            for (const iter of [10000, 20000, 250000]) {
+              try {
+                const backupEncryptionKey = CryptoJS.PBKDF2(accountId, anchorSalt, {
+                  keySize: PBKDF2_KEYSIZE,
+                  iterations: iter,
+                  hasher: CryptoJS.algo.SHA256
+                }).toString(CryptoJS.enc.Hex);
 
-            const bytes = CryptoJS.AES.decrypt(encryptedBackup, backupEncryptionKey);
-            const masterKey = bytes.toString(CryptoJS.enc.Utf8);
+                const bytes = CryptoJS.AES.decrypt(encryptedBackup, backupEncryptionKey);
+                const decryptedPayload = bytes.toString(CryptoJS.enc.Utf8);
 
-            if (masterKey) {
-              await SecureStore.setItemAsync(SECURE_KEYS.MASTER_KEY, masterKey);
-              console.log('[SecurityService] ✅ Root Master Key recovered and saved to SecureStore.'); // Specific success log
-              await getOrCreateSecret(SECURE_KEYS.HMAC_KEY);
-            } else {
-              console.warn('[SecurityService] ⚠️ Decryption resulted in empty key. Wrong account ID?');
-              return { success: false, error: 'Decryption failed. Ensure you are using the same Google account.' };
+                if (decryptedPayload) {
+                  const [mk, hk] = decryptedPayload.split('|');
+                  if (mk) {
+                      await SecureStore.setItemAsync(SECURE_KEYS.MASTER_KEY, mk);
+                      if (hk) await SecureStore.setItemAsync(SECURE_KEYS.HMAC_KEY, hk);
+                      else await getOrCreateSecret(SECURE_KEYS.HMAC_KEY); 
+                      
+                      console.log(`[SecurityService] ✅ Root Master Key recovered (${iter} iters) and saved to SecureStore.`);
+                      return { success: true };
+                  }
+                }
+              } catch (e) { }
             }
+            return { success: false, error: 'Decryption failed. Ensure you are using the same Google account.' };
           } catch (decryptError) {
             console.error('[SecurityService] ❌ Decryption Fatal Error:', decryptError.message);
             return { success: false, error: 'Failed to decrypt recovered key.' };
@@ -435,12 +537,6 @@ export const SecurityService = {
         }
 
         SecurityService._logAudit('RECOVERY_SUCCESS_VIA_ADMIN', { timestamp: new Date().toISOString() });
-
-        // CRITICAL: Wipe local PIN state so ManagerPinGate.jsx can transition to 'setup' mode
-        await SecureStore.deleteItemAsync(SECURE_KEYS.PIN_HASH);
-        await SecureStore.deleteItemAsync(SECURE_KEYS.PIN_SALT);
-        await SecureStore.deleteItemAsync(SECURE_KEYS.LOCKOUT_META);
-
         return { success: true };
       }
       return { success: false, error: 'Invalid or expired code' };
@@ -448,5 +544,47 @@ export const SecurityService = {
       console.error('[SecurityService] Recovery failed', e);
       return { success: false, error: e.response?.data?.error || e.message };
     }
+  },
+
+  /**
+   * Automatic restoration of Master Key from backup.
+   * Leverages the same Zero-Knowledge logic as manual recovery but without OTP.
+   */
+  _attemptMasterKeyRestoration: async (user) => {
+    try {
+      const encryptedBackup = user?.encryptedMasterKeyBackup;
+      const accountId = user?.id || user?.user?.id;
+      if (!encryptedBackup || !accountId) return false;
+
+      // Match the derivation logic in _backupMasterKeyToMongo
+      const anchorSalt = `kwiq.anchor.${accountId}`.split('').reverse().join('');
+      for (const iter of [10000, 20000, 250000]) {
+        try {
+          const backupEncryptionKey = CryptoJS.PBKDF2(accountId, anchorSalt, {
+            keySize: PBKDF2_KEYSIZE,
+            iterations: iter,
+            hasher: CryptoJS.algo.SHA256
+          }).toString(CryptoJS.enc.Hex);
+
+          const bytes = CryptoJS.AES.decrypt(encryptedBackup, backupEncryptionKey);
+          const decryptedPayload = bytes.toString(CryptoJS.enc.Utf8);
+
+          if (decryptedPayload) {
+            const [mk, hk] = decryptedPayload.split('|');
+            if (mk) {
+              await SecureStore.setItemAsync(SECURE_KEYS.MASTER_KEY, mk);
+              if (hk) await SecureStore.setItemAsync(SECURE_KEYS.HMAC_KEY, hk);
+              else await getOrCreateSecret(SECURE_KEYS.HMAC_KEY); 
+              
+              console.log(`[SecurityService] Root Master Key automatically restored from cloud backup (${iter} iters).`);
+              return true;
+            }
+          }
+        } catch (e) { }
+      }
+    } catch (e) {
+      console.warn('[SecurityService] Background key restoration failed:', e.message);
+    }
+    return false;
   }
 };

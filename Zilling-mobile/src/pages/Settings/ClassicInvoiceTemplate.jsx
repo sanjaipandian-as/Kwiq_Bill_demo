@@ -2,13 +2,15 @@ import React from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native';
 import { Store } from 'lucide-react-native';
 
-const ClassicInvoiceTemplate = ({ settings, data, taxType }) => {
+const ClassicInvoiceTemplate = ({ settings, data, taxType, options = {} }) => {
     // Fallback/Demo Data
     const store = settings?.store || {
         name: 'KWIQ BILL',
         address: { street: '123, Market Street', city: 'Chennai', state: 'Tamil Nadu', pincode: '600001' },
         contact: '9876543210'
     };
+
+    const bank = settings?.bankDetails || {};
 
     const invoice = data || {
         invoiceNo: '#INV-1001',
@@ -28,6 +30,7 @@ const ClassicInvoiceTemplate = ({ settings, data, taxType }) => {
         },
         taxType: 'intra'
     };
+
 
     const colors = {
         primary: '#003594',
@@ -77,14 +80,29 @@ const ClassicInvoiceTemplate = ({ settings, data, taxType }) => {
                 <View style={{ flex: 1, paddingRight: 10 }}>
                     <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>COMPANY NAME</Text>
                     <Text style={styles.a4NameBold}>{store.name}</Text>
-                    <Text style={styles.a4AddressText}>{store.address?.street}, {store.address?.city}</Text>
-                    <Text style={styles.a4AddressText}>{store.address?.state}, {store.address?.pincode}</Text>
+                    {(() => {
+                        const addr = store.address;
+                        if (!addr) return null;
+                        if (typeof addr === 'string') return <Text style={styles.a4AddressText}>{addr}</Text>;
+                        return (
+                            <>
+                                <Text style={styles.a4AddressText}>{addr.street}{addr.city ? `, ${addr.city}` : ''}</Text>
+                                <Text style={styles.a4AddressText}>{addr.state}{addr.pincode ? `, ${addr.pincode}` : ''}</Text>
+                            </>
+                        );
+                    })()}
                     <Text style={styles.a4AddressText}>{store.contact}</Text>
                 </View>
                 <View style={{ flex: 1, paddingLeft: 10, alignItems: 'flex-start' }}>
                     <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>BILL TO</Text>
                     <Text style={styles.a4NameBold}>{invoice.customer?.name || ''}</Text>
-                    <Text style={styles.a4AddressText}>{invoice.customer?.address || '-'}</Text>
+                    {(() => {
+                        const addr = invoice.customer?.address;
+                        if (!addr) return <Text style={styles.a4AddressText}>-</Text>;
+                        if (typeof addr === 'string') return <Text style={styles.a4AddressText}>{addr}</Text>;
+                        const parts = [addr.street, addr.area, addr.city, addr.state, addr.pincode, addr.country].filter(Boolean);
+                        return <Text style={styles.a4AddressText}>{parts.join(', ')}</Text>;
+                    })()}
                 </View>
             </View>
 
@@ -135,20 +153,46 @@ const ClassicInvoiceTemplate = ({ settings, data, taxType }) => {
                 </View>
             </View>
 
-            {/* Terms & Conditions */}
-            {(settings?.invoice?.showTerms !== false) && (
-                <View style={{ marginTop: 20, paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10 }}>
-                    <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>Terms & Conditions:</Text>
-                    {settings?.invoice?.termsAndConditions ? (
-                        <Text style={styles.a4Notes}>{settings.invoice.termsAndConditions}</Text>
-                    ) : null}
-                    {settings?.invoice?.conditionsText ? (
-                        <Text style={[styles.a4Notes, { marginTop: 2 }]}>{settings.invoice.conditionsText}</Text>
-                    ) : null}
+            {/* Terms & Conditions & Bank Details */}
+            <View style={{ marginTop: 20, paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10, flexDirection: 'row' }}>
+                <View style={{ flex: 1.5 }}>
+                    {!options?.hideAccountDetails && bank.accountNumber && (
+                        <View style={{ marginBottom: 10 }}>
+                            <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>Bank Details:</Text>
+                            <Text style={styles.a4Notes}>A/c Name: {bank.accountName || '-'}</Text>
+                            <Text style={styles.a4Notes}>Bank: {bank.bankName || '-'} | A/c No: {bank.accountNumber || '-'}</Text>
+                            <Text style={styles.a4Notes}>IFSC: {bank.ifsc || '-'}</Text>
+                        </View>
+                    )}
+                    {(settings?.invoice?.showTerms !== false) && (
+                        <View>
+                            <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>Terms & Conditions:</Text>
+                            {settings?.invoice?.termsAndConditions ? (
+                                <Text style={styles.a4Notes}>{settings.invoice.termsAndConditions}</Text>
+                            ) : null}
+                            {settings?.invoice?.conditionsText ? (
+                                <Text style={[styles.a4Notes, { marginTop: 2 }]}>{settings.invoice.conditionsText}</Text>
+                            ) : null}
+                        </View>
+                    )}
                 </View>
-            )}
 
-            <View style={{ marginTop: 30 }}>
+                {/* Signature */}
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={[styles.a4LabelBlue, { color: colors.primary }]}>For {store.name}</Text>
+                    {!options?.isNonAuthorized && (
+                        <View style={{ alignItems: 'center', marginTop: 30 }}>
+                            <View style={{ width: 100, borderTopWidth: 1, borderTopColor: colors.primary, marginBottom: 4 }} />
+                            <Text style={[styles.a4Notes, { fontWeight: '700' }]}>Authorised Signatory</Text>
+                            {invoice.receptionist_name ? (
+                                <Text style={[styles.a4Notes, { fontSize: 8 }]}>({invoice.receptionist_name.toUpperCase()})</Text>
+                            ) : null}
+                        </View>
+                    )}
+                </View>
+            </View>
+
+            <View style={{ marginTop: 20 }}>
                 <Text style={styles.a4ThankYou}>{settings?.invoice?.footerNote || 'Thank you for your business!'}</Text>
                 {isVIP(invoice.customer) && (
                     <Text style={[styles.a4ThankYou, { fontSize: 14, color: '#1e293b', marginTop: 4 }]}>
@@ -156,6 +200,7 @@ const ClassicInvoiceTemplate = ({ settings, data, taxType }) => {
                     </Text>
                 )}
             </View>
+
         </View>
     );
 };
