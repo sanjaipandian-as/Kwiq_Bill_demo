@@ -10,21 +10,53 @@ let _initializationPromise = null;
 const DEFAULT_DB_NAME = 'zilling.db';
 
 /**
+ * Normalizes email into a safe database filename.
+ */
+const getDbNameFromEmail = (email) => {
+    if (!email) return DEFAULT_DB_NAME;
+    return `kwiq_${email.toLowerCase().replace(/[@.]/g, '_')}.db`;
+};
+
+/**
  * Async version of getDB ensuring it's ready.
  * This is the ONLY safe way to get the DB handle if you aren't 100% sure it's open.
  */
 export const getActiveDB = async () => {
-    // 1. If we already have a handle, return it
-    if (_activeDb) return _activeDb;
+    // 0. Identity Awareness: Detect who SHOULD be the active user
+    let targetEmail = null;
+    try {
+        const userStr = await AsyncStorage.getItem('user');
+        if (userStr) {
+            const user = JSON.parse(userStr);
+            targetEmail = user?.email || null;
+        }
+    } catch (e) {
+        console.warn(`[DB] Failed to check active user for DB routing:`, e.message);
+    }
+    const targetDbName = getDbNameFromEmail(targetEmail);
 
-    // 2. If an initialization is already ongoing, wait for it
-    if (_initializationPromise) {
-        return _initializationPromise;
+    // 1. If we already have the CORRECT handle, return it
+    if (_activeDb && _currentDbName === targetDbName) {
+        return _activeDb;
     }
 
-    // 3. Otherwise, start a new initialization for the default DB
-    console.log(`[DB] Triggering lazy initialization for default DB.`);
-    return switchUserDatabase(null); 
+    // 2. If an initialization is already ongoing...
+    if (_initializationPromise) {
+        // ...but it's for the WRONG database, we must wait and then re-switch
+        const currentInitializingName = _currentDbName; // This is set at the start of switch
+        if (currentInitializingName && currentInitializingName !== targetDbName) {
+           console.log(`[DB] Currently initializing ${currentInitializingName}, but need ${targetDbName}. Waiting...`);
+           await _initializationPromise;
+           // Fall through to switch below
+        } else {
+           // It's the right one (or we don't know yet), just wait
+           return _initializationPromise;
+        }
+    }
+
+    // 3. Otherwise, start/restart initialization for the target user DB
+    console.log(`[DB] Routing to database: ${targetDbName}`);
+    return switchUserDatabase(targetEmail); 
 };
 
 /**
@@ -38,9 +70,7 @@ export const getDB = () => _activeDb;
  * This is the core of "Account Isolation".
  */
 export const switchUserDatabase = async (email) => {
-    const newDbName = email 
-        ? `zilling_${email.replace(/[@.]/g, '_')}.db`
-        : DEFAULT_DB_NAME;
+    const newDbName = getDbNameFromEmail(email);
     
     // If already initialized to this DB, return it
     if (_currentDbName === newDbName && _activeDb) {
@@ -215,8 +245,10 @@ export const initializeDB = async (targetDb, logName = "passed_instance") => {
         variant TEXT,
         created_at TEXT,
         updated_at TEXT,
+        is_deleted INTEGER DEFAULT 0,
         UNIQUE(sku)
       );
+
 
       CREATE TABLE IF NOT EXISTS invoices (
         id TEXT PRIMARY KEY,
@@ -280,7 +312,19 @@ export const initializeDB = async (targetDb, logName = "passed_instance") => {
         created_at TEXT,
         FOREIGN KEY(expense_id) REFERENCES expenses(id)
       );
+
+      CREATE TABLE IF NOT EXISTS conflict_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        table_name TEXT,
+        record_id TEXT,
+        local_version JSON,
+        cloud_version JSON,
+        base_version JSON,
+        resolved INTEGER DEFAULT 0,
+        detected_at TEXT
+      );
     `);
+
 
     // 3. Schema Migrations (Sequential)
     // Customers
@@ -301,8 +345,19 @@ export const initializeDB = async (targetDb, logName = "passed_instance") => {
         if (!prodCols.includes('cost_price')) await targetDb.execAsync(`ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0;`);
     } catch (e) { console.warn("[DB] Product migration error", e.message); }
 
+
+    // Products (Soft Delete)
+    try {
+        const prodInfo = await targetDb.getAllAsync(`PRAGMA table_info(products)`);
+        const prodCols = prodInfo.map(c => c.name);
+        if (!prodCols.includes('is_deleted')) {
+            await targetDb.execAsync(`ALTER TABLE products ADD COLUMN is_deleted INTEGER DEFAULT 0;`);
+        }
+    } catch (e) { console.warn("[DB] Product is_deleted migration error", e.message); }
+
     // Invoices
     try {
+
         const invInfo = await targetDb.getAllAsync(`PRAGMA table_info(invoices)`);
         const invCols = invInfo.map(c => c.name);
         const missingInvCols = [

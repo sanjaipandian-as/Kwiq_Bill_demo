@@ -233,7 +233,7 @@ const createBroadcast = asyncHandler(async (req, res) => {
         throw new Error('Not authorized');
     }
 
-    const { title, message, target, type } = req.body;
+    const { title, message, target, type, startTime, expiryTime, priority } = req.body;
 
     // CALCULATE REAL RECIPIENT COUNT
     let query = {};
@@ -253,6 +253,9 @@ const createBroadcast = asyncHandler(async (req, res) => {
         message, 
         target, 
         type, 
+        startTime: startTime || Date.now(),
+        expiryTime: expiryTime || null,
+        priority: priority || 'medium',
         recipientCount,
         interactionRate,
         transmissionRate: 99 // 99% success rate typically

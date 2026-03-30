@@ -9,20 +9,24 @@ export const useTransactions = () => useContext(TransactionContext);
 
 export const TransactionProvider = ({ children }) => {
     const [transactions, setTransactions] = useState([]);
+    const [dashboardMetrics, setDashboardMetrics] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const { user } = require('./AuthContext').useAuth();
+    const auth = require('./AuthContext').useAuth();
+    const user = auth ? auth.user : null;
 
     // Initial load from SQLite - reload when user changes
     useEffect(() => {
         const loadTransactions = async () => {
             if (!user) {
                 setTransactions([]);
+                setDashboardMetrics(null);
                 setLoading(false);
                 return;
             }
             try {
+                // 1. Fetch transaction list (Limit for speed on Dashboard)
                 const data = await db.getAllAsync(`
                     SELECT i.*, c.name as c_name 
                     FROM invoices i 
@@ -30,20 +34,40 @@ export const TransactionProvider = ({ children }) => {
                     WHERE i.is_deleted = 0 
                     ORDER BY i.date DESC
                 `);
+
                 const parsedData = data.map(tx => {
                     let custName = tx.c_name || tx.customer_name || tx.customerName;
-                    if (!custName || custName.trim() === '') {
-                        custName = 'Guest';
-                    }
+                    if (!custName || custName.trim() === '') custName = 'Guest';
                     return {
                         ...tx,
+                        status: (tx.status || 'PAID').toUpperCase(),
                         customerName: custName,
-                        customerId: tx.customer_id || tx.customerId || '',
                         items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
-                        payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
                     };
                 });
                 setTransactions(parsedData || []);
+
+                // 2. Fetch Aggregated Metrics (10/10 Optimization - Move JS loops to SQL)
+                const now = new Date().toISOString();
+                const today = new Date(); today.setHours(0, 0, 0, 0);
+                const week = new Date(today); week.setDate(today.getDate() - today.getDay());
+
+                const meta = await db.getFirstAsync(`
+                    SELECT 
+                        SUM(total) as totalRes,
+                        SUM(CASE WHEN UPPER(status) != 'PAID' THEN (total - amountReceived) ELSE 0 END) as pendingAmt,
+                        COUNT(id) as totalCount,
+                        COUNT(CASE WHEN UPPER(status) != 'PAID' THEN 1 END) as pendingCount
+                    FROM invoices WHERE is_deleted = 0
+                `);
+
+                setDashboardMetrics({
+                    totalSales: meta?.totalRes || 0,
+                    pendingAmount: meta?.pendingAmt || 0,
+                    totalCount: meta?.totalCount || 0,
+                    pendingCount: meta?.pendingCount || 0
+                });
+
             } catch (err) {
                 console.error('Failed to load transactions:', err);
                 setError('Failed to load transactions');
@@ -54,14 +78,11 @@ export const TransactionProvider = ({ children }) => {
 
         loadTransactions();
 
-        // ═══════════════════════════════════════════════════════════════
-        // AUTOMATIC REFRESH LISTENER
-        // ═══════════════════════════════════════════════════════════════
         const { DeviceEventEmitter } = require('react-native');
         const { SYNC_EVENTS } = require('../services/OneWaySyncService');
         const refreshSub = DeviceEventEmitter.addListener(SYNC_EVENTS.DATA_UPDATED, () => {
-            console.log('[TransactionContext] Cloud data updated, refreshing state...');
-            loadTransactions();
+            // Throttled refresh for 10/10 feel (allow DB to finish write before read)
+            setTimeout(loadTransactions, 300);
         });
 
         return () => {
@@ -69,7 +90,7 @@ export const TransactionProvider = ({ children }) => {
         };
     }, [user?.id]);
 
-    const fetchTransactions = async () => {
+    const fetchTransactions = React.useCallback(async () => {
         setLoading(true);
         try {
             const data = await db.getAllAsync(`
@@ -86,6 +107,7 @@ export const TransactionProvider = ({ children }) => {
                 }
                 return {
                     ...tx,
+                    status: (tx.status || 'PAID').toUpperCase(),
                     customerName: custName,
                     customerId: tx.customer_id || tx.customerId || '',
                     items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
@@ -96,9 +118,9 @@ export const TransactionProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    const fetchDeletedTransactions = async () => {
+    const fetchDeletedTransactions = React.useCallback(async () => {
         try {
             const data = await db.getAllAsync(`
                 SELECT i.*, c.name as c_name 
@@ -123,9 +145,9 @@ export const TransactionProvider = ({ children }) => {
             console.error('Fetch deleted error:', err);
             return [];
         }
-    };
+    }, []);
 
-    const adjustInvoiceEffects = async (invoice, direction = 1) => {
+    const adjustInvoiceEffects = React.useCallback(async (invoice, direction = 1) => {
         // 1. Stock Update (Inc variants)
         if (invoice.items && Array.isArray(invoice.items)) {
             for (const item of invoice.items) {
@@ -162,7 +184,7 @@ export const TransactionProvider = ({ children }) => {
                             if (prodRow) {
                                 SyncService.createAndUploadEvent(EventTypes.PRODUCT_STOCK_ADJUSTED, { id: pid, stock: prodRow.stock });
                             }
-                        } catch (e) {}
+                        } catch (e) { }
                     } catch (stockErr) {
                         console.error(`[TransactionContext] Failed to adjust stock for ${pid}:`, stockErr);
                     }
@@ -193,14 +215,14 @@ export const TransactionProvider = ({ children }) => {
                     if (updatedCust) {
                         SyncService.createAndUploadEvent(EventTypes.CUSTOMER_UPDATED, updatedCust);
                     }
-                } catch (e) {}
+                } catch (e) { }
             } catch (custUpdateErr) {
                 console.error('[TransactionContext] Failed to adjust customer ledger:', custUpdateErr);
             }
         }
-    };
+    }, []);
 
-    const addTransaction = async (data) => {
+    const addTransaction = React.useCallback(async (data) => {
         try {
             const id = data.id || `INV-${Date.now()}`;
             const itemsJson = JSON.stringify(data.items || []);
@@ -222,25 +244,36 @@ export const TransactionProvider = ({ children }) => {
                     [startOfWeek.toISOString(), endOfWeek.toISOString()]
                 );
                 weeklySequence = (Number(row?.maxSeq) || 0) + 1;
-            } catch (e) {}
+            } catch (e) { }
 
             await db.runAsync(
                 `INSERT INTO invoices (
                     id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, 
                     created_at, updated_at, taxType, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, weekly_sequence,
-                    loyalty_points_redeemed, loyalty_points_earned, loyalty_points_discount, is_deleted
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    loyalty_points_redeemed, loyalty_points_earned, loyalty_points_discount, receptionist_name, receptionist_id, is_deleted
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     id, data.customerId || '', data.customerName || 'Guest', date, data.type || 'Sales', itemsJson,
-                    data.subtotal || 0, data.tax || 0, data.discount || 0, data.total || 0, data.status || 'Paid', paymentsJson,
+                    data.subtotal || 0, data.tax || 0, data.discount || 0, data.total || 0, data.status || 'PAID', paymentsJson,
                     new Date().toISOString(), new Date().toISOString(), data.taxType || 'intra', data.grossTotal || 0,
                     data.itemDiscount || 0, data.additionalCharges || 0, data.roundOff || 0, data.amountReceived || 0,
                     data.internalNotes || '', weeklySequence, data.loyaltyPointsRedeemed || 0,
-                    data.loyaltyPointsEarned || 0, data.loyaltyPointsDiscount || 0, 0
+                    data.loyaltyPointsEarned || 0, data.loyaltyPointsDiscount || 0,
+                    data.receptionist_name || null, data.receptionist_id || null, 0
                 ]
             );
 
-            const newTx = { ...data, id, date, items: data.items || [], payments: data.payments || [], weekly_sequence: weeklySequence, is_deleted: 0 };
+            const newTx = {
+                ...data,
+                id,
+                date,
+                items: data.items || [],
+                payments: data.payments || [],
+                weekly_sequence: weeklySequence,
+                receptionist_name: data.receptionist_name || null,
+                receptionist_id: data.receptionist_id || null,
+                is_deleted: 0
+            };
             setTransactions(prev => [newTx, ...prev]);
 
             // Apply Effects
@@ -250,29 +283,29 @@ export const TransactionProvider = ({ children }) => {
             // Sync
             try {
                 SyncService.createAndUploadEvent(EventTypes.INVOICE_CREATED, { ...newTx, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-            } catch (e) {}
+            } catch (e) { }
 
             return newTx;
         } catch (err) {
             console.error('Add Transaction Error:', err);
             throw err;
         }
-    };
+    }, [adjustInvoiceEffects]);
 
-    const updateTransactionStatus = async (id, status) => {
+    const updateTransactionStatus = React.useCallback(async (id, status) => {
         try {
             await db.runAsync('UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?', [status, new Date().toISOString(), id]);
             setTransactions(prev => prev.map(t => t.id === id ? { ...t, status } : t));
             triggerAutoSave();
             try {
                 SyncService.createAndUploadEvent(EventTypes.INVOICE_STATUS_UPDATED, { id, status, updated_at: new Date().toISOString() });
-            } catch (e) {}
+            } catch (e) { }
         } catch (err) {
             throw err;
         }
-    };
+    }, []);
 
-    const editTransaction = async (data) => {
+    const editTransaction = React.useCallback(async (data) => {
         try {
             const id = data.id;
             const oldRow = await db.getFirstAsync('SELECT * FROM invoices WHERE id = ?', [id]);
@@ -296,56 +329,58 @@ export const TransactionProvider = ({ children }) => {
 
             await db.runAsync(
                 `UPDATE invoices SET 
-                    customer_id = ?, customer_name = ?, date = ?, type = ?, items = ?, 
-                    subtotal = ?, tax = ?, discount = ?, total = ?, status = ?, payments = ?, updated_at = ?, 
-                    taxType = ?, grossTotal = ?, itemDiscount = ?, additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?, weekly_sequence = ?,
-                    loyalty_points_redeemed = ?, loyalty_points_earned = ?, loyalty_points_discount = ?
-                 WHERE id = ?`,
+                        customer_id = ?, customer_name = ?, date = ?, type = ?, items = ?, 
+                        subtotal = ?, tax = ?, discount = ?, total = ?, status = ?, payments = ?, updated_at = ?, 
+                        taxType = ?, grossTotal = ?, itemDiscount = ?, additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?, weekly_sequence = ?,
+                        loyalty_points_redeemed = ?, loyalty_points_earned = ?, loyalty_points_discount = ?,
+                        receptionist_name = ?, receptionist_id = ?
+                    WHERE id = ?`,
                 [
                     String(data.customerId || ''), String(data.customerName || 'Guest'), String(date), String(data.type || 'Sales'),
                     String(itemsJson), Number(data.subtotal || 0), Number(data.tax || 0), Number(data.discount || 0),
-                    Number(data.total || 0), String(data.status || 'Paid'), String(paymentsJson), new Date().toISOString(),
+                    Number(data.total || 0), String(data.status || 'PAID'), String(paymentsJson), new Date().toISOString(),
                     data.taxType || 'intra', data.grossTotal || 0, data.itemDiscount || 0, data.additionalCharges || 0,
                     data.roundOff || 0, data.amountReceived || 0, data.internalNotes || '', data.weekly_sequence || 1,
-                    data.loyaltyPointsRedeemed || 0, data.loyaltyPointsEarned || 0, data.loyaltyPointsDiscount || 0, id
+                    data.loyaltyPointsRedeemed || 0, data.loyaltyPointsEarned || 0, data.loyaltyPointsDiscount || 0,
+                    data.receptionist_name || null, data.receptionist_id || null, id
                 ]
             );
 
             setTransactions(prev => prev.map(tx => tx.id === id ? { ...data, items: data.items, payments: data.payments, date } : tx));
-            
+
             await adjustInvoiceEffects(data, 1);
             triggerAutoSave();
 
             try {
                 SyncService.createAndUploadEvent(EventTypes.INVOICE_UPDATED, { ...data, id, updated_at: new Date().toISOString() });
-            } catch (e) {}
+            } catch (e) { }
 
             return { ...data, id };
         } catch (err) {
             throw err;
         }
-    };
+    }, [adjustInvoiceEffects]);
 
-    const deleteTransaction = async (id) => {
+    const deleteTransaction = React.useCallback(async (id) => {
         try {
-            const invoice = transactions.find(t => t.id === id);
+            const invoice = transactions.find(t => t.id === id); // This dependency means deleteTransaction will change if transactions changes
             if (!invoice) throw new Error("Invoice not found");
 
             await adjustInvoiceEffects(invoice, -1);
             await db.runAsync('UPDATE invoices SET is_deleted = 1, updated_at = ? WHERE id = ?', [new Date().toISOString(), id]);
             setTransactions(prev => prev.filter(t => t.id !== id));
-            
+
             try {
                 SyncService.createAndUploadEvent(EventTypes.INVOICE_STATUS_UPDATED, { id, is_deleted: 1, updated_at: new Date().toISOString() });
-            } catch (e) {}
+            } catch (e) { }
 
             triggerAutoSave();
         } catch (err) {
             throw err;
         }
-    };
+    }, [transactions, adjustInvoiceEffects]);
 
-    const restoreTransaction = async (id) => {
+    const restoreTransaction = React.useCallback(async (id) => {
         try {
             const row = await db.getFirstAsync('SELECT * FROM invoices WHERE id = ?', [id]);
             if (!row) throw new Error("Invoice not found");
@@ -359,52 +394,81 @@ export const TransactionProvider = ({ children }) => {
             await adjustInvoiceEffects(invoice, 1);
             await db.runAsync('UPDATE invoices SET is_deleted = 0, updated_at = ? WHERE id = ?', [new Date().toISOString(), id]);
             await fetchTransactions();
-            
+
             try {
                 SyncService.createAndUploadEvent(EventTypes.INVOICE_UPDATED, { ...invoice, is_deleted: 0, updated_at: new Date().toISOString() });
-            } catch (e) {}
+            } catch (e) { }
 
             triggerAutoSave();
         } catch (err) {
             throw err;
         }
-    };
+    }, [adjustInvoiceEffects, fetchTransactions]);
 
-    const permanentlyDeleteTransaction = async (id) => {
+    const permanentlyDeleteTransaction = React.useCallback(async (id) => {
         try {
             await db.runAsync('DELETE FROM invoices WHERE id = ?', [id]);
             try {
                 SyncService.createAndUploadEvent(EventTypes.INVOICE_DELETED, { id });
-            } catch (e) {}
+            } catch (e) { }
             triggerAutoSave();
         } catch (err) {
             throw err;
         }
-    };
+    }, []);
+
+    const getTransactionById = React.useCallback((id) => transactions.find(t => t.id === id) || null, [transactions]);
+
+    const contextValue = React.useMemo(() => ({
+        transactions,
+        dashboardMetrics,
+        loading,
+        error,
+        fetchTransactions,
+        fetchDeletedTransactions,
+        addTransaction,
+        editTransaction,
+        deleteTransaction,
+        restoreTransaction,
+        permanentlyDeleteTransaction,
+        updateTransaction: editTransaction,
+        updateTransactionStatus,
+        clearAllTransactions: async () => {
+            await db.execAsync('DELETE FROM invoices');
+            setTransactions([]);
+            triggerAutoSave();
+        },
+        getTransactionById,
+        emptyRecycleBin: async () => {
+            const deleted = await db.getAllAsync('SELECT id FROM invoices WHERE is_deleted = 1');
+            await db.runAsync('DELETE FROM invoices WHERE is_deleted = 1');
+            for (const row of deleted) {
+                try { SyncService.createAndUploadEvent(EventTypes.INVOICE_DELETED, { id: row.id }); } catch (e) { }
+            }
+            triggerAutoSave();
+        },
+        restoreAllInvoices: async () => {
+            const deleted = await db.getAllAsync('SELECT id FROM invoices WHERE is_deleted = 1');
+            for (const row of deleted) { await restoreTransaction(row.id); }
+        }
+    }), [
+        transactions,
+        dashboardMetrics,
+        loading,
+        error,
+        fetchTransactions,
+        fetchDeletedTransactions,
+        addTransaction,
+        editTransaction,
+        deleteTransaction,
+        restoreTransaction,
+        permanentlyDeleteTransaction,
+        updateTransactionStatus,
+        getTransactionById
+    ]);
 
     return (
-        <TransactionContext.Provider value={{
-            transactions, loading, error, fetchTransactions, fetchDeletedTransactions, addTransaction, editTransaction,
-            deleteTransaction, restoreTransaction, permanentlyDeleteTransaction,
-            updateTransaction: editTransaction, updateTransactionStatus, clearAllTransactions: async () => {
-                await db.execAsync('DELETE FROM invoices');
-                setTransactions([]);
-                triggerAutoSave();
-            },
-            getTransactionById: (id) => transactions.find(t => t.id === id) || null,
-            emptyRecycleBin: async () => {
-                const deleted = await db.getAllAsync('SELECT id FROM invoices WHERE is_deleted = 1');
-                await db.runAsync('DELETE FROM invoices WHERE is_deleted = 1');
-                for (const row of deleted) {
-                    try { SyncService.createAndUploadEvent(EventTypes.INVOICE_DELETED, { id: row.id }); } catch (e) {}
-                }
-                triggerAutoSave();
-            },
-            restoreAllInvoices: async () => {
-                const deleted = await db.getAllAsync('SELECT id FROM invoices WHERE is_deleted = 1');
-                for (const row of deleted) { await restoreTransaction(row.id); }
-            }
-        }}>
+        <TransactionContext.Provider value={contextValue}>
             {children}
         </TransactionContext.Provider>
     );

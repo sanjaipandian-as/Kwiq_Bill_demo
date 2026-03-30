@@ -102,6 +102,10 @@ const googleLogin = asyncHandler(async (req, res) => {
             }
         }
 
+        // Fix #14: Return the Zero-Knowledge Master Key backup for automatic restoration on new devices
+        const SecurityBackup = require('../models/SecurityBackup');
+        const backup = await SecurityBackup.findOne({ user: user._id }).select('encryptedMasterKeyBackup');
+
         res.json({
             user: {
                 id: user._id,
@@ -112,6 +116,7 @@ const googleLogin = asyncHandler(async (req, res) => {
                 plan: user.plan,
                 planExpiresAt: user.planExpiresAt,
                 isBlocked: user.isBlocked,
+                encryptedMasterKeyBackup: backup ? backup.encryptedMasterKeyBackup : null,
             },
             token: generateToken(user._id),
         });
@@ -130,6 +135,9 @@ const getUserProfile = asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id);
 
     if (user) {
+        const SecurityBackup = require('../models/SecurityBackup');
+        const backup = await SecurityBackup.findOne({ user: user._id }).select('encryptedMasterKeyBackup');
+
         res.json({
             id: user._id,
             name: user.name,
@@ -139,6 +147,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
             plan: user.plan,
             planExpiresAt: user.planExpiresAt,
             isBlocked: user.isBlocked,
+            encryptedMasterKeyBackup: backup ? backup.encryptedMasterKeyBackup : null,
         });
     } else {
         res.status(404);

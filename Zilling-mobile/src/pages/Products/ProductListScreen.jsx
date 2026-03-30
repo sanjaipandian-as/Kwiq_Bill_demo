@@ -1,16 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, Platform, Modal, Dimensions } from 'react-native';
-import { Plus, Search, Edit, Trash2, CheckSquare, Package, Tag, Filter, Upload, AlertCircle, ChevronRight, ChevronDown, Barcode, Layers, Box, Printer, Store, X, TrendingUp, ArrowUpDown } from 'lucide-react-native';
+import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, Platform, Modal, Dimensions, InteractionManager } from 'react-native';
+import { Plus, Search, Edit, Trash2, CheckSquare, Package, Tag, Filter, Upload, AlertCircle, ChevronRight, ChevronDown, Barcode, Layers, Box, Printer, Store, X, TrendingUp, ArrowUpDown, AlertTriangle, Copy, Check } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useProducts } from '../../context/ProductContext';
 import { useSettings } from '../../context/SettingsContext';
 import ProductDrawer from './ProductDrawer';
-import BulkUploadModal from './BulkUploadModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CategoryFilter } from '../../components/Expenses/CategoryFilter';
 import { printBarcode } from '../../utils/printUtils';
 import { useToast } from '../../context/ToastContext';
 import Svg, { Circle } from 'react-native-svg';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import { debouncedNavigate } from '../../utils/navigationUtils';
 
 const MarginInsightModal = ({ visible, onClose, product }) => {
   if (!product) return null;
@@ -592,14 +594,69 @@ const vmStyles = StyleSheet.create({
 });
 
 // ─────────────────────────────────────────────────────────────────
+const BarcodeViewModal = ({ isOpen, onClose, barcode, name, onCopy, isCopied }) => {
+    if (!isOpen) return null;
+
+    return (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }}>
+            <TouchableOpacity 
+                activeOpacity={1} 
+                onPress={onClose}
+                style={styles.modalOverlay}
+            >
+                <TouchableOpacity activeOpacity={1} style={{ width: '100%', maxWidth: 360 }}>
+                    <View style={styles.barcodeModalContent}>
+                        <View style={styles.modalHeaderRow}>
+                            <View style={styles.modalIconBox}>
+                                <Barcode size={24} color="#000" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalTitleSmall}>PRODUCT BARCODE</Text>
+                                <Text style={styles.modalProductName} numberOfLines={1}>{name}</Text>
+                            </View>
+                            <TouchableOpacity onPress={onClose} style={styles.modalCloseBtnSmall}>
+                                <X size={20} color="#94a3b8" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.barcodeDisplayBox}>
+                            <Text style={styles.barcodeStringText}>{barcode}</Text>
+                            <TouchableOpacity 
+                                style={[styles.copyBtnLarge, isCopied && styles.copyBtnSuccess]} 
+                                onPress={() => onCopy(barcode)}
+                            >
+                                {isCopied ? <Check size={20} color="#fff" /> : <Copy size={20} color="#000" />}
+                                <Text style={[styles.copyBtnText, isCopied && { color: '#fff' }]}>
+                                    {isCopied ? 'COPIED!' : 'COPY CODE'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity style={styles.modalDoneBtn} onPress={onClose}>
+                            <Text style={styles.modalDoneBtnText}>CLOSE</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </TouchableOpacity>
+        </View>
+    );
+};
+
 const ProductsListScreen = ({ navigation }) => {
-  const { products, loading, deleteProduct, bulkDeleteProducts, addProduct, updateProduct, fetchProducts, importProducts } = useProducts();
+  const { products, loading, deleteProduct, bulkDeleteProducts, addProduct, updateProduct, fetchProducts, importProducts, restoreProduct } = useProducts();
   const { settings } = useSettings();
   const { showToast } = useToast();
+  const [barcodeModal, setBarcodeModal] = useState({ isOpen: false, barcode: '', name: '' });
+  const [isCopied, setIsCopied] = useState(false);
+
+    const copyToClipboard = async (text) => {
+        await Clipboard.setStringAsync(text);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+    };
 
   const [savingProductId, setSavingProductId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [bulkUploadVisible, setBulkUploadVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
@@ -616,8 +673,22 @@ const ProductsListScreen = ({ navigation }) => {
   const [variantMarginData, setVariantMarginData] = useState({ variant: null, productName: '' });
   const [variantMarginVisible, setVariantMarginVisible] = useState(false);
   const [barcodeActionData, setBarcodeActionData] = useState(null);
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => { },
+    variant: 'danger',
+    confirmLabel: 'Confirm',
+    cancelLabel: 'Cancel'
+  });
 
-  useEffect(() => { fetchProducts(); }, []);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchProducts();
+    });
+    return () => task.cancel();
+  }, []);
 
   const categories = useMemo(() => {
     const cats = new Set(products.map(p => p.category).filter(c => c && c.trim() !== ''));
@@ -732,25 +803,38 @@ const ProductsListScreen = ({ navigation }) => {
   };
 
   const handleDelete = (id) => {
-    Alert.alert(
-      'Delete Product',
-      'Are you sure you want to delete this product? This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Yes, Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteProduct(id);
-              showToast('Product deleted successfully', 'success');
-            } catch (err) {
-              showToast('Failed to delete product', 'error');
+    const item = products.find(p => p.id === id);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Product',
+      message: `Are you sure you want to delete ${item?.name || 'this product'}? This will move it to the Recycle Bin.`,
+      variant: 'danger',
+      confirmLabel: 'YES, DELETE',
+      cancelLabel: 'CANCEL',
+      onConfirm: async () => {
+        try {
+          await deleteProduct(id);
+          showToast(
+            `${item?.name || 'Product'} moved to Recycle Bin`,
+            'trash',
+            5000,
+            {
+              label: 'UNDO',
+              onPress: async () => {
+                try {
+                  await restoreProduct(id);
+                  showToast('Product restored successfully!', 'success');
+                } catch (e) {
+                  showToast('Failed to undo deletion', 'error');
+                }
+              }
             }
-          }
+          );
+        } catch (err) {
+          showToast('Failed to delete product', 'error');
         }
-      ]
-    );
+      }
+    });
   };
 
   const totalStockValue = useMemo(() => products.reduce((s, p) => s + (parseFloat(p.price || 0) * parseFloat(p.stock || 0)), 0), [products]);
@@ -812,10 +896,18 @@ const ProductsListScreen = ({ navigation }) => {
             </View>
             <View style={styles.tagRow}>
               {item.sku ? (
-                <View style={styles.tag}>
-                  <Barcode size={11} color="#888" />
-                  <Text style={styles.tagText}>{item.sku}</Text>
-                </View>
+                <TouchableOpacity
+                  onPress={() => setBarcodeModal({ isOpen: true, barcode: item.sku, name: item.name })}
+                >
+                  <View style={styles.tag}>
+                    <Barcode size={11} color="#888" />
+                    <Text style={styles.tagText}>
+                      {item.sku.length > 10
+                        ? `${item.sku.substring(0, 10)}...`
+                        : item.sku}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
               ) : null}
               {item.category ? (
                 <View style={styles.tag}>
@@ -1011,7 +1103,7 @@ const ProductsListScreen = ({ navigation }) => {
                 <Text style={styles.subTitle}>{products.length} Products</Text>
               </View>
               <View style={styles.headerActions}>
-                <TouchableOpacity style={styles.headerBtn} onPress={() => setBulkUploadVisible(true)}>
+                <TouchableOpacity style={styles.headerBtn} onPress={() => debouncedNavigate(navigation, 'BulkUpload')}>
                   <Upload color="#fff" size={22} strokeWidth={2} />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.addBtn} onPress={handleAddNew}>
@@ -1154,10 +1246,24 @@ const ProductsListScreen = ({ navigation }) => {
           </View>
           <View style={styles.selectionRight}>
             <TouchableOpacity style={styles.selDeleteBtn} onPress={() => {
-              Alert.alert("Delete", `Delete ${selectedRows.size} items?`, [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete', style: 'destructive', onPress: async () => { await bulkDeleteProducts(Array.from(selectedRows)); setSelectionMode(false); setSelectedRows(new Set()); } }
-              ]);
+              setConfirmModal({
+                isOpen: true,
+                title: 'Delete Items',
+                message: `Are you sure you want to delete ${selectedRows.size} selected items?`,
+                variant: 'danger',
+                confirmLabel: 'DELETE ALL',
+                cancelLabel: 'CANCEL',
+                onConfirm: async () => {
+                  try {
+                    await bulkDeleteProducts(Array.from(selectedRows));
+                    showToast(`${selectedRows.size} products moved to Recycle Bin`, 'trash');
+                    setSelectionMode(false);
+                    setSelectedRows(new Set());
+                  } catch (e) {
+                    showToast('Bulk delete failed', 'error');
+                  }
+                }
+              });
             }}>
               <Trash2 size={20} color="#fff" />
             </TouchableOpacity>
@@ -1169,7 +1275,6 @@ const ProductsListScreen = ({ navigation }) => {
       )}
 
       <ProductDrawer visible={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} onSave={handleSaveProduct} product={editingProduct} />
-      <BulkUploadModal visible={bulkUploadVisible} onClose={() => { setBulkUploadVisible(false); fetchProducts(); }} onImport={async (data) => { await importProducts(data); }} />
       <MarginInsightModal visible={insightVisible} onClose={() => setInsightVisible(false)} product={insightProduct} />
       <BarcodeSelectionModal visible={!!barcodeActionData} data={barcodeActionData} onClose={() => setBarcodeActionData(null)} settings={settings} />
       <VariantsModal
@@ -1190,6 +1295,24 @@ const ProductsListScreen = ({ navigation }) => {
         visible={variantMarginVisible}
         onClose={() => setVariantMarginVisible(false)}
         product={variantsProduct}
+      />
+      <ConfirmationModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmLabel={confirmModal.confirmLabel}
+        cancelLabel={confirmModal.cancelLabel}
+        onConfirm={confirmModal.onConfirm}
+      />
+      <BarcodeViewModal 
+        isOpen={barcodeModal.isOpen}
+        onClose={() => setBarcodeModal({ ...barcodeModal, isOpen: false })}
+        barcode={barcodeModal.barcode}
+        name={barcodeModal.name}
+        onCopy={copyToClipboard}
+        isCopied={isCopied}
       />
     </View>
   );
@@ -1444,5 +1567,103 @@ const styles = StyleSheet.create({
   barcodeOptionCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fafafa', borderWidth: 1.5, borderColor: '#eee', borderRadius: 16, padding: 14, marginBottom: 10, gap: 14 },
   barcodeOptionIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#eee' },
   barcodeOptionName: { fontSize: 14, fontWeight: '800', color: '#000', marginBottom: 2 },
-  barcodeOptionVal: { fontSize: 12, fontWeight: '600', color: '#888', letterSpacing: 0.5 }
+  barcodeOptionVal: { fontSize: 12, fontWeight: '600', color: '#888', letterSpacing: 0.5 },
+    // Barcode Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        justifyContent: 'center',
+        padding: 24,
+    },
+    barcodeModalContent: {
+        backgroundColor: '#fff',
+        borderRadius: 28,
+        padding: 24,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    modalHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 24,
+    },
+    modalIconBox: {
+        width: 48,
+        height: 48,
+        borderRadius: 16,
+        backgroundColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalTitleSmall: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#94a3b8',
+        letterSpacing: 1.5,
+    },
+    modalProductName: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#000',
+    },
+    modalCloseBtnSmall: {
+        padding: 8,
+    },
+    barcodeDisplayBox: {
+        backgroundColor: '#f8fafc',
+        borderRadius: 20,
+        padding: 20,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        marginBottom: 24,
+    },
+    barcodeStringText: {
+        fontSize: 22,
+        fontWeight: '900',
+        color: '#000',
+        textAlign: 'center',
+        marginBottom: 20,
+        letterSpacing: 0.5,
+    },
+    copyBtnLarge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: '#fff',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 14,
+        width: '100%',
+        borderWidth: 1.5,
+        borderColor: '#000',
+    },
+    copyBtnSuccess: {
+        backgroundColor: '#10b981',
+        borderColor: '#10b981',
+    },
+    copyBtnText: {
+        fontSize: 13,
+        fontWeight: '900',
+        color: '#000',
+        letterSpacing: 0.5,
+    },
+    modalDoneBtn: {
+        backgroundColor: '#000',
+        height: 54,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalDoneBtnText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: '900',
+        letterSpacing: 1,
+    },
 });

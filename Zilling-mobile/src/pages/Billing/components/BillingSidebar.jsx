@@ -91,7 +91,7 @@ const BillingSidebar = ({
                             </View>
                         )}
                     </View>
-                    <Text style={styles.customerNameMain}>{customer ? customer.name : 'Select Customer'}</Text>
+                    <Text style={styles.customerNameMain}>{customer ? String(customer.name) : 'Select Customer'}</Text>
                 </View>
                 <View style={styles.addBtnCircle}>
                     <Plus size={16} color="#000" />
@@ -107,7 +107,7 @@ const BillingSidebar = ({
                     <View style={{ flex: 1 }}>
                         <Text style={styles.labelSmall}>ISSUED BY</Text>
                         <Text style={[styles.customerNameMain, !receptionist && { color: '#94a3b8' }]}>
-                            {receptionist ? receptionist.name : 'Select Staff'}
+                            {receptionist ? String(receptionist.name) : 'Select Staff'}
                         </Text>
                     </View>
                     {receptionist && (

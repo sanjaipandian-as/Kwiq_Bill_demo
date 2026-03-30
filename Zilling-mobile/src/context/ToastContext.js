@@ -12,7 +12,7 @@ import {
     Vibration,
     Image
 } from 'react-native';
-import { CheckCircle2, AlertCircle, Info, X, AlertTriangle, BellRing, User, Contact, Printer, ShieldAlert } from 'lucide-react-native';
+import { CheckCircle2, AlertCircle, Info, X, AlertTriangle, BellRing, User, Contact, Printer, ShieldAlert, Trash2 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const ToastContext = createContext();
@@ -158,39 +158,68 @@ const ToastItem = ({ toast, onRemove }) => {
         };
     }, []);
 
-    const getIcon = () => {
+    const getTypeConfig = () => {
         switch (type) {
-            case 'security': return <ShieldAlert size={20} color="#fff" strokeWidth={2.5} />;
-            case 'error': return <AlertCircle size={20} color="#ff0000" strokeWidth={2.5} />;
-            case 'warning': return <AlertTriangle size={20} color="#f59e0b" strokeWidth={2.5} />;
-            case 'info': return <Info size={20} color="#3b82f6" strokeWidth={2.5} />;
-            case 'success': return <CheckCircle2 size={20} color="#22c55e" strokeWidth={2.5} />;
-            case 'customer': return <User size={20} color="#8b5cf6" strokeWidth={2.5} />;
-            case 'black': return <BellRing size={20} color="#000" strokeWidth={2.5} />;
-            case 'stock': return <AlertTriangle size={20} color="#f59e0b" strokeWidth={2.5} />;
-            case 'receptionist': return <Contact size={20} color="#10b981" strokeWidth={2.5} />;
-            case 'printer': return <Printer size={20} color="#fff" strokeWidth={2.5} />;
-            default: return <BellRing size={20} color="#000" strokeWidth={2.5} />;
+            case 'success': return {
+                colors: ['#059669', '#10b981'],
+                icon: <CheckCircle2 size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#34d399',
+                title: 'SUCCESS'
+            };
+            case 'error': return {
+                colors: ['#991b1b', '#ef4444'],
+                icon: <AlertCircle size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#fca5a5',
+                title: 'ERROR'
+            };
+            case 'warning':
+            case 'stock': return {
+                colors: ['#b45309', '#f59e0b'],
+                icon: <AlertTriangle size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#fcd34d',
+                title: type === 'stock' ? 'STOCK ALERT' : 'WARNING'
+            };
+            case 'trash': return {
+                colors: ['#1e1e1e', '#ef4444'],
+                icon: <Trash2 size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#ff8080',
+                title: 'RECYCLE BIN'
+            };
+            case 'customer': return {
+                colors: ['#5b21b6', '#8b5cf6'],
+                icon: <User size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#ddd6fe',
+                title: 'CUSTOMER'
+            };
+            case 'printer': return {
+                colors: ['#0f172a', '#334155'],
+                icon: <Printer size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#94a3b8',
+                title: 'PRINTER'
+            };
+            case 'security': return {
+                colors: ['#1e1e1e', '#000000'],
+                icon: <ShieldAlert size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#ef4444',
+                title: 'SECURITY'
+            };
+            case 'receptionist': return {
+                colors: ['#065f46', '#059669'],
+                icon: <Contact size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#a7f3d0',
+                title: 'STAFF'
+            };
+            default: return {
+                colors: ['#1e293b', '#475569'],
+                icon: <BellRing size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#cbd5e1',
+                title: 'NOTIFICATION'
+            };
         }
     };
 
-    const getStatusColor = () => {
-        switch (type) {
-            case 'security': return '#ffffff';
-            case 'error': return '#ff0000';
-            case 'warning': return '#f59e0b';
-            case 'success': return '#22c55e';
-            case 'customer': return '#8b5cf6';
-            case 'info': return '#3b82f6';
-            case 'black': return '#000000';
-            case 'stock': return '#f59e0b';
-            case 'receptionist': return '#10b981';
-            case 'printer': return '#ffffff';
-            default: return '#000000';
-        }
-    };
-
-    const isStockType = type === 'stock';
+    const config = getTypeConfig();
+    const isDark = true; // All our new types are dark/vibrant
 
     return (
         <Animated.View
@@ -200,54 +229,55 @@ const ToastItem = ({ toast, onRemove }) => {
             ]}
             {...panResponder.panHandlers}
         >
-            <View style={[
-                styles.blurContainer, 
-                (type === 'printer' || type === 'security') && styles.premiumBlurContainer
-            ]}>
+            <LinearGradient 
+                colors={config.colors} 
+                start={{x: 0, y: 0}} 
+                end={{x: 1, y: 0}}
+                style={styles.premiumBlurContainer}
+            >
                 <View style={styles.content}>
-                    <View style={[
-                        styles.iconContainer, 
-                        (type === 'printer' || type === 'security') && { backgroundColor: '#111', borderColor: '#222', width: 44, height: 44 }
-                    ]}>
+                    <View style={styles.iconContainerPremium}>
                         {image ? (
                             <Image source={typeof image === 'string' ? { uri: image } : image} style={{ width: 34, height: 34, borderRadius: 8 }} />
                         ) : (
-                            getIcon()
+                            config.icon
                         )}
-                        <View style={[
-                            styles.statusDot, 
-                            { backgroundColor: getStatusColor(), borderColor: (type === 'printer' || type === 'security') ? '#000' : '#fff' }, 
-                            (type === 'printer' || type === 'security') && { width: 12, height: 12, borderRadius: 6, bottom: -4, right: -4 }
-                        ]} />
+                        <View style={[styles.statusDotPremium, { backgroundColor: config.accent }]} />
                     </View>
 
                     <View style={styles.textContainer}>
-                        {title && <Text style={[styles.titleText, { color: (type === 'printer' || type === 'security') ? '#fff' : getStatusColor() }]}>{title}</Text>}
-                        <Text style={[styles.messageText, (type === 'printer' || type === 'security') && { color: '#fff' }]}>{message}</Text>
+                        <Text style={[styles.titleTextPremium, { color: config.accent }]}>
+                            {title || config.title}
+                        </Text>
+                        <Text style={styles.messageTextPremium}>{message}</Text>
+                        
                         {action && (
                             <TouchableOpacity
-                                onPress={() => {
+                                 onPress={() => {
+                                    if (Platform.OS !== 'web') Vibration.vibrate(40);
                                     action.onPress();
                                     animateOut();
                                 }}
-                                style={[styles.actionBtn, { borderColor: getStatusColor(), borderWidth: 1 }, type === 'printer' && { backgroundColor: '#fff' }]}
+                                style={styles.actionBtnPremium}
                             >
-                                <Text style={[styles.actionBtnText, type === 'printer' && { color: '#000' }]}>{action.label}</Text>
+                                <Text style={[styles.actionBtnTextPremium, { color: config.colors[1] }]}>
+                                    {action.label}
+                                </Text>
                             </TouchableOpacity>
                         )}
                     </View>
 
-                    <TouchableOpacity onPress={animateOut} style={[styles.closeBtn, (type === 'printer' || type === 'security') && { backgroundColor: '#333', borderColor: '#444' }]}>
-                        <X size={16} color={(type === 'printer' || type === 'security') ? '#fff' : '#64748b'} strokeWidth={3} />
+                    <TouchableOpacity onPress={animateOut} style={styles.closeBtnPremium}>
+                        <X size={14} color="rgba(255,255,255,0.6)" strokeWidth={3} />
                     </TouchableOpacity>
 
                     {/* Duration Progress Bar */}
-                    <View style={styles.progressBackground}>
+                    <View style={styles.progressBackgroundPremium}>
                         <Animated.View
                             style={[
-                                styles.progressBar,
+                                styles.progressBarPremium,
                                 {
-                                    backgroundColor: (type === 'printer' || type === 'security') ? '#fff' : '#000',
+                                    backgroundColor: config.accent,
                                     width: progressWidth.interpolate({
                                         inputRange: [0, 100],
                                         outputRange: ['0%', '100%']
@@ -257,7 +287,7 @@ const ToastItem = ({ toast, onRemove }) => {
                         />
                     </View>
                 </View>
-            </View>
+            </LinearGradient>
         </Animated.View>
     );
 };
@@ -265,122 +295,114 @@ const ToastItem = ({ toast, onRemove }) => {
 const styles = StyleSheet.create({
     container: {
         position: 'absolute',
-        top: Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight || 24) + 10,
+        top: Platform.OS === 'ios' ? 54 : (StatusBar.currentHeight || 24) + 8,
         left: 0,
         right: 0,
         alignItems: 'center',
         zIndex: 999999,
-        paddingHorizontal: 20,
+        paddingHorizontal: 16,
     },
     toastWrapper: {
         width: '100%',
-        maxWidth: 420,
-        marginBottom: 10,
-    },
-    blurContainer: {
-        borderRadius: 20,
-        overflow: 'hidden',
-        borderWidth: 2,
-        borderColor: '#000',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.2,
-        shadowRadius: 15,
-        elevation: 12,
-        backgroundColor: '#fff',
+        maxWidth: 400,
+        marginBottom: 8,
     },
     premiumBlurContainer: {
-        backgroundColor: '#000',
-        borderColor: '#111',
-        borderWidth: 2,
+        borderRadius: 24,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.15)',
         shadowColor: '#000',
-        elevation: 25,
-        shadowOpacity: 0.4,
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        elevation: 15,
     },
     content: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 12,
-        paddingHorizontal: 16,
-        minHeight: 60,
+        paddingVertical: 14,
+        paddingHorizontal: 18,
+        minHeight: 70,
     },
-    iconContainer: {
-        width: 36,
-        height: 36,
-        borderRadius: 12,
-        backgroundColor: '#f5f5f5',
+    iconContainerPremium: {
+        width: 42,
+        height: 42,
+        borderRadius: 14,
+        backgroundColor: 'rgba(0,0,0,0.2)',
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 14,
         borderWidth: 1,
-        borderColor: '#eee',
+        borderColor: 'rgba(255,255,255,0.1)',
     },
-    statusDot: {
+    statusDotPremium: {
         position: 'absolute',
         bottom: -2,
         right: -2,
-        width: 10,
-        height: 10,
-        borderRadius: 5,
+        width: 12,
+        height: 12,
+        borderRadius: 6,
         borderWidth: 2,
-        borderColor: '#fff',
+        borderColor: 'rgba(0,0,0,0.3)',
     },
     textContainer: {
         flex: 1,
-        marginRight: 10,
+        marginRight: 8,
     },
-    titleText: {
-        fontSize: 10,
+    titleTextPremium: {
+        fontSize: 9,
         fontWeight: '900',
         textTransform: 'uppercase',
-        letterSpacing: 1,
+        letterSpacing: 1.2,
         marginBottom: 2,
+        opacity: 0.9,
     },
-    messageText: {
-        color: '#000',
+    messageTextPremium: {
+        color: '#fff',
         fontSize: 14,
-        fontWeight: '900',
-        letterSpacing: -0.3,
+        fontWeight: '800',
+        letterSpacing: -0.2,
         lineHeight: 18,
     },
-    closeBtn: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: '#f5f5f5',
+    closeBtnPremium: {
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        backgroundColor: 'rgba(0,0,0,0.15)',
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: '#eee',
     },
-    actionBtn: {
-        marginTop: 8,
+    actionBtnPremium: {
+        marginTop: 10,
         backgroundColor: '#fff',
-        paddingHorizontal: 14,
-        paddingVertical: 7,
-        borderRadius: 10,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 12,
         alignSelf: 'flex-start',
-        shadowColor: '#fff',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 6,
+        elevation: 3,
     },
-    actionBtnText: {
-        color: '#fff',
-        fontSize: 12,
+    actionBtnTextPremium: {
+        fontSize: 11,
         fontWeight: '900',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
-    progressBackground: {
+    progressBackgroundPremium: {
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
-        height: 4,
-        backgroundColor: '#f0f0f0',
+        height: 3,
+        backgroundColor: 'rgba(0,0,0,0.1)',
     },
-    progressBar: {
+    progressBarPremium: {
         height: '100%',
-        backgroundColor: '#000',
+        opacity: 0.6,
     }
 });
 

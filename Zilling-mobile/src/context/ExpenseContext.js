@@ -19,7 +19,8 @@ export const ExpenseProvider = ({ children }) => {
         paymentMethod: row.payment_method || row.paymentMethod || 'Cash',
     });
 
-    const { user } = require('./AuthContext').useAuth();
+    const auth = require('./AuthContext').useAuth();
+    const user = auth ? auth.user : null;
 
     // Initial load from SQLite - reload when user changes
     useEffect(() => {

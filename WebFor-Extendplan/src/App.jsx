@@ -11,7 +11,9 @@ import {
     LogOut,
     TrendingUp,
     Cloud,
-    Megaphone
+    Megaphone,
+    MessageSquare,
+    Heart
 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -23,6 +25,8 @@ import SecurityLogsView from './components/SecurityLogsView';
 import RevenueView from './components/RevenueView';
 import BackupView from './components/BackupView';
 import BroadcastView from './components/BroadcastView';
+import CustomizeRequestsView from './components/CustomizeRequestsView';
+import DonationsView from './components/DonationsView';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/admin';
 const ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY || 'KWIQ_ADMIN_MASTER_2026';
@@ -34,6 +38,8 @@ const App = () => {
     const [systemMetrics, setSystemMetrics] = useState(null);
     const [broadcasts, setBroadcasts] = useState([]);
     const [backups, setBackups] = useState([]);
+    const [customizeRequests, setCustomizeRequests] = useState([]);
+    const [donations, setDonations] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -59,13 +65,15 @@ const App = () => {
             const headers = { 'x-admin-key': ADMIN_KEY };
 
             // Parallel fetch for speed
-            const [usersRes, logsRes, revenueRes, metricsRes, broadcastRes, backupRes] = await Promise.all([
+            const [usersRes, logsRes, revenueRes, metricsRes, broadcastRes, backupRes, customizeRes, donationsRes] = await Promise.all([
                 axios.get(`${API_URL}/users`, { headers }),
                 axios.get(`${API_URL}/logs`, { headers }),
                 axios.get(`${API_URL}/revenue`, { headers }),
                 axios.get(`${API_URL}/system/metrics`, { headers }),
                 axios.get(`${API_URL}/broadcast`, { headers }),
-                axios.get(`${API_URL}/backup`, { headers })
+                axios.get(`${API_URL}/backup`, { headers }),
+                axios.get(API_URL.replace('/admin', '/customize-requests'), { headers }),
+                axios.get(API_URL.replace('/admin', '/payment/all'), { headers })
             ]);
 
             setUsers(usersRes.data);
@@ -74,9 +82,12 @@ const App = () => {
             setSystemMetrics(metricsRes.data);
             setBroadcasts(broadcastRes.data);
             setBackups(backupRes.data);
+            setCustomizeRequests(customizeRes.data.data);
+            setDonations(donationsRes.data);
             setError(null);
         } catch (err) {
-            setError('System Link Failed. Verify API and Admin Master Key.');
+            console.error("Dashboard Fetch Error:", err.response || err);
+            setError(`System Link Failed: ${err.response?.status} - ${err.response?.data?.message || err.response?.data?.error || err.message}`);
         } finally {
             setLoading(false);
         }
@@ -195,6 +206,8 @@ const App = () => {
         { id: 'plans', label: 'Subscription Hub', icon: Zap },
         { id: 'revenue', label: 'Financial Hub', icon: TrendingUp },
         { id: 'broadcast', label: 'Global Broadcast', icon: Megaphone },
+        { id: 'customize', label: 'Customize Requests', icon: MessageSquare },
+        { id: 'donations', label: 'Donations Area', icon: Heart },
         { id: 'backup', label: 'Backup & Recovery', icon: Cloud },
         { id: 'system', label: 'Security & Logs', icon: Database },
     ];
@@ -360,6 +373,14 @@ const App = () => {
 
                     {activeSection === 'broadcast' && (
                         <BroadcastView history={broadcasts} onRefresh={fetchUsers} />
+                    )}
+
+                    {activeSection === 'customize' && (
+                        <CustomizeRequestsView requests={customizeRequests} onRefresh={fetchUsers} />
+                    )}
+
+                    {activeSection === 'donations' && (
+                        <DonationsView donations={donations} onRefresh={fetchUsers} />
                     )}
                 </div>
             </main>

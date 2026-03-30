@@ -265,6 +265,9 @@ export const buildCartPayload = (product, variant) => {
     // Variant identification fields (consumed by BillingPage.addItemToCart)
     _resolvedVariant: variant,
     variantName: variant.name || (variant.options && variant.options[0]) || null,
+    // Barcode/SKU Overrides
+    sku: variant.barcode || variant.sku || product.sku,
+    barcode: variant.barcode || variant.barcode || product.barcode,
     // Preserve the original DB product ID for stock updates
     _dbProductId: product.id,
   };

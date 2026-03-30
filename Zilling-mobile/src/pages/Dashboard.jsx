@@ -21,6 +21,14 @@ import { useCustomers } from '../context/CustomerContext';
 import ScanBarcodeModal from '../components/ScanBarcodeModal';
 import { useSettings } from '../context/SettingsContext';
 import { APP_VERSION } from '../config/version';
+import { useSmartSync } from '../hooks/useSmartSync';
+import { InteractionManager } from 'react-native';
+
+// Optimized Sub-components
+import DashboardHeader from '../components/dashboard/DashboardHeader';
+import ActionGrid from '../components/dashboard/ActionGrid';
+import FinancialSummary from '../components/dashboard/FinancialSummary';
+import PerformanceList from '../components/dashboard/PerformanceList';
 
 
 const { width } = Dimensions.get('window');
@@ -34,15 +42,15 @@ const getStartOfWeek = (date) => {
   return d;
 };
 
-const StatTile = ({ title, value, sub }) => (
+const StatTile = React.memo(({ title, value, sub }) => (
   <View style={styles.statTile}>
     <Text style={styles.statTileTitle}>{title}</Text>
     <Text style={styles.statTileValue}>{value}</Text>
     <Text style={styles.statTileSub}>{sub}</Text>
   </View>
-);
+));
 
-const IconButton = ({ icon: Icon, label, color, onPress }) => (
+const IconButton = React.memo(({ icon: Icon, label, color, onPress }) => (
   <Pressable style={styles.iconBtnWrapper} onPress={onPress}>
     <LinearGradient
       colors={color === '#22c55e' ? ['#22c55e', '#16a34a'] : ['#ef4444', '#dc2626']}
@@ -52,9 +60,9 @@ const IconButton = ({ icon: Icon, label, color, onPress }) => (
     </LinearGradient>
     <Text style={styles.iconLabel}>{label}</Text>
   </Pressable>
-);
+));
 
-const FinancialCard = ({ title, value, icon: Icon, isPositive }) => (
+const FinancialCard = React.memo(({ title, value, icon: Icon, isPositive }) => (
   <View style={styles.finCard}>
     <View style={[styles.finIcon, { backgroundColor: isPositive ? '#22c55e' : '#ef4444' }]}>
       <Icon size={20} color="#fff" />
@@ -64,137 +72,120 @@ const FinancialCard = ({ title, value, icon: Icon, isPositive }) => (
       <Text style={[styles.finValue, { color: isPositive ? '#22c55e' : '#ef4444' }]}>{value}</Text>
     </View>
   </View>
-);
+));
+
+import { debouncedNavigate } from '../utils/navigationUtils';
 
 export default function Dashboard() {
   const navigation = useNavigation();
   const { products } = useProducts();
-  const { transactions } = useTransactions();
+  const { transactions, dashboardMetrics } = useTransactions();
   const { expenses } = useExpenses();
   const { customers } = useCustomers();
-  const { user } = useAuth();
+  const auth = useAuth();
+  const user = auth ? auth.user : null;
   const { settings } = useSettings();
   const storeLogo = settings?.store?.logo;
 
+  // Smart Sync Integration
+  const { isSyncing } = useSmartSync(user);
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  React.useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setIsReady(true));
+    return () => task.cancel();
+  }, []);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [dateFilter, setDateFilter] = useState('This Week');
+  const [dateFilter, setDateFilter] = useState('All');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [productFilter, setProductFilter] = useState('All');
   const [showProductFilter, setShowProductFilter] = useState(false);
 
+  const handleAction = React.useCallback((screen) => {
+    if (screen === 'Expenses') setIsExpenseModalOpen(true);
+    else debouncedNavigate(navigation, screen);
+  }, [navigation]);
 
+  const handleMenuPress = React.useCallback(() => setIsMenuOpen(true), []);
+  const handleDatePickerPress = React.useCallback(() => setShowDatePicker(true), []);
 
   const metrics = useMemo(() => {
+    if (!isReady || !Array.isArray(transactions) || !Array.isArray(products) || !Array.isArray(expenses)) {
+        return { totalSales: 0, totalExpenses: 0, netProfit: 0, pendingCount: 0, pendingAmount: 0, paidCount: 0, lowStock: [], topCust: [], topProd: [], featuredProduct: null, totalInvoices: 0 };
+    }
+
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    let filteredTx = [];
-    let filteredExp = [];
-
-    // OPTIMIZATION: One single pass filter
-    const weekStart = getStartOfWeek(now);
-    const yestStart = new Date(todayStart);
-    yestStart.setDate(todayStart.getDate() - 1);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-    const sevenDaysAgo = new Date(todayStart);
-    sevenDaysAgo.setDate(todayStart.getDate() - 7);
-
-    filteredTx = transactions.filter(t => {
-      const d = new Date(t.date);
+    const isGlobalFilter = dateFilter === 'All';
+    
+    const isDateInRange = (dateStr) => {
+      if (isGlobalFilter) return true;
+      if (!dateStr) return false;
+      
+      // Handle various date formats (ISO string, timestamp, etc.)
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return false;
+      
+      // Important: Use local day boundaries for comparison with todayStart
+      const checkDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      
       switch (dateFilter) {
-        case 'Today': return d >= todayStart;
-        case 'Yesterday': return d >= yestStart && d < todayStart;
-        case 'This Week': return d >= weekStart;
-        case 'This Month': return d >= monthStart;
-        case 'Last Month': return d >= lastMonthStart && d <= lastMonthEnd;
-        case 'All': return true;
-        default: return d >= sevenDaysAgo;
+        case 'Today':
+          return checkDate.getTime() === todayStart.getTime();
+        case 'Yesterday':
+          const yesterdayStart = new Date(todayStart);
+          yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+          return checkDate.getTime() === yesterdayStart.getTime();
+        case 'This Week':
+          return checkDate >= getStartOfWeek(now);
+        case 'This Month':
+          return checkDate >= new Date(now.getFullYear(), now.getMonth(), 1);
+        case 'Last Month':
+          const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+          return checkDate >= lastMonthStart && checkDate < firstOfThisMonth;
+        default:
+          return true;
       }
-    });
+    };
 
-    filteredExp = expenses.filter(e => {
-      const d = new Date(e.date);
-      switch (dateFilter) {
-        case 'Today': return d >= todayStart;
-        case 'Yesterday': return d >= yestStart && d < todayStart;
-        case 'This Week': return d >= weekStart;
-        case 'This Month': return d >= monthStart;
-        case 'Last Month': return d >= lastMonthStart && d <= lastMonthEnd;
-        case 'All': return true;
-        default: return d >= sevenDaysAgo;
-      }
-    });
+    let filteredTx = isGlobalFilter ? transactions : transactions.filter(t => isDateInRange(t.date));
+    let filteredExp = isGlobalFilter ? expenses : expenses.filter(e => isDateInRange(e.date));
 
-    const totalSales = filteredTx.reduce((sum, t) => sum + (t.total || 0), 0);
-    const totalExpenses = filteredExp.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const totalSales = isGlobalFilter && dashboardMetrics ? dashboardMetrics.totalSales : filteredTx.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0);
+    const totalExpenses = filteredExp.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
     const netProfit = totalSales - totalExpenses;
-    const pending = filteredTx.filter(t => (t.status || '').toUpperCase() !== 'PAID');
-    const pendingAmount = pending.reduce((sum, t) => sum + (t.total || 0), 0);
-    const paid = filteredTx.length - pending.length;
+    
+    const pendingCount = isGlobalFilter && dashboardMetrics ? dashboardMetrics.pendingCount : filteredTx.filter(t => (t.status || '').toUpperCase() !== 'PAID').length;
+    // FIX: pendingAmount was hardcoded to 0 for filtered views
+    const pendingAmount = isGlobalFilter && dashboardMetrics ? dashboardMetrics.pendingAmount : filteredTx.reduce((sum, t) => {
+        if ((t.status || '').toUpperCase() !== 'PAID') {
+            return sum + (parseFloat(t.total) - (parseFloat(t.amountReceived) || 0));
+        }
+        return sum;
+    }, 0);
+
+    const totalInvoices = isGlobalFilter && dashboardMetrics ? dashboardMetrics.totalCount : filteredTx.length;
+    const paidCount = totalInvoices - pendingCount;
 
     // Low Stock (independent of date)
     const lowStock = products.filter(p => {
+      if (!p) return false;
       const stock = parseFloat(p.stock) || 0;
       const minStock = parseFloat(p.min_stock) || parseFloat(p.minStock) || 0;
       return minStock > 0 && stock <= minStock;
     });
 
-    // Top Customers
-    const custMap = {};
-    filteredTx.forEach(t => {
-      const name = t.customerName || 'Guest';
-      if (!custMap[name]) custMap[name] = 0;
-      custMap[name] += (t.total || 0);
-    });
-    const topCust = Object.entries(custMap)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5)
-      .map(([name, total]) => ({ name, total }));
-
-    // Top Products - Separate Filter
-    let productFilteredTx = [];
-    switch (productFilter) {
-      case 'Today':
-        productFilteredTx = transactions.filter(t => new Date(t.date) >= todayStart);
-        break;
-      case 'Yesterday':
-        const prodYestStart = new Date(todayStart);
-        prodYestStart.setDate(todayStart.getDate() - 1);
-        productFilteredTx = transactions.filter(t => {
-          const d = new Date(t.date);
-          return d >= prodYestStart && d < todayStart;
-        });
-        break;
-      case 'This Week':
-        const prodWeekStart = getStartOfWeek(now);
-        productFilteredTx = transactions.filter(t => new Date(t.date) >= prodWeekStart);
-        break;
-      case 'This Month':
-        const prodMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        productFilteredTx = transactions.filter(t => new Date(t.date) >= prodMonthStart);
-        break;
-      case 'Last Month':
-        const prodLastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const prodLastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-        productFilteredTx = transactions.filter(t => {
-          const d = new Date(t.date);
-          return d >= prodLastMonthStart && d <= prodLastMonthEnd;
-        });
-        break;
-      default: // All
-        productFilteredTx = transactions;
-    }
-
+    // Top Lists (Slice early for speed)
     const prodMap = {};
-    productFilteredTx.forEach(t => {
+    filteredTx.forEach(t => {
       (t.items || []).forEach(item => {
         if (!prodMap[item.name]) prodMap[item.name] = { qty: 0, revenue: 0 };
-        prodMap[item.name].qty += (item.quantity || 0);
-        prodMap[item.name].revenue += (item.total || 0);
+        prodMap[item.name].qty += (parseFloat(item.quantity) || 0);
+        prodMap[item.name].revenue += (parseFloat(item.total) || 0);
       });
     });
     const topProd = Object.entries(prodMap)
@@ -202,27 +193,31 @@ export default function Dashboard() {
       .slice(0, 10)
       .map(([name, data]) => ({ name, ...data }));
 
-    // Global Pending Due (Total Outstanding Debt - Date Independent)
-    const globalPendingAmount = transactions.reduce((sum, t) => {
-      const total = parseFloat(t.total || 0);
-      const received = parseFloat(t.amountReceived || 0);
-      const due = Math.max(0, total - received);
-      return sum + due;
-    }, 0);
+    const custMap = {};
+    filteredTx.forEach(t => {
+      const name = t.customerName || 'Guest';
+      if (!custMap[name]) custMap[name] = 0;
+      custMap[name] += (parseFloat(t.total) || 0);
+    });
+    const topCust = Object.entries(custMap)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([name, total]) => ({ name, total }));
 
     return {
       totalSales,
       totalExpenses,
       netProfit,
-      pendingCount: pending.length,
-      pendingAmount: globalPendingAmount, // Use Global Pending for the Dashboard Card
-      paidCount: paid,
+      pendingCount,
+      pendingAmount, 
+      paidCount,
       lowStock,
       topCust,
       topProd,
-      featuredProduct: topProd[0] || null
+      featuredProduct: topProd[0] || null,
+      totalInvoices
     };
-  }, [transactions, products, expenses, dateFilter, productFilter]);
+  }, [isReady, transactions, products, expenses, dateFilter, productFilter, dashboardMetrics]);
 
   const planInfo = useMemo(() => {
     if (!user) return null;
@@ -259,215 +254,97 @@ export default function Dashboard() {
       <SideMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
 
       {/* 1. Enhanced Mesh Gradient Header */}
-      <View style={styles.headerWrapper}>
-        <LinearGradient
-          colors={['#000000', '#1a1a1a']}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <SafeAreaView edges={['top']}>
-            <View style={styles.topBar}>
-              <View style={styles.leftSection}>
-                <Pressable onPress={() => setIsMenuOpen(true)} style={styles.hamburger}>
-                  <Menu size={24} color="#fff" />
-                </Pressable>
-                <View>
-                  <Text style={styles.greeting}>Hello,</Text>
-                  <Text style={styles.userName}>{user?.name || user?.email?.split('@')[0] || 'Administrator'}</Text>
-                </View>
-              </View>
-
-              <View style={styles.rightActions}>
-                <Image
-                  source={storeLogo ? { uri: storeLogo } : require('../../assets/kwiq.png')}
-                  style={styles.topLogo}
-                  resizeMode="contain"
-                />
-              </View>
-
-
-            </View>
-
-            {/* Date Filter Section - Full Width */}
-            <Pressable style={styles.dateFilterSection} onPress={() => setShowDatePicker(true)}>
-              <View style={styles.dateFilterContent}>
-                <Text style={styles.dateFilterLabel}>Period</Text>
-                <View style={styles.dateFilterValueRow}>
-                  <Text style={styles.dateFilterValue}>{dateFilter}</Text>
-                  <ChevronDown size={18} color="#fff" />
-                </View>
-              </View>
-            </Pressable>
-
-            <View style={styles.summaryCard}>
-              <StatTile title="Total Invoices" value={metrics.paidCount + metrics.pendingCount} sub={dateFilter} />
-              <View style={styles.vDivider} />
-              <StatTile title="Paid" value={metrics.paidCount} sub={dateFilter} />
-              <View style={styles.vDivider} />
-              <StatTile title="Pending" value={metrics.pendingCount} sub={dateFilter} />
-            </View>
-          </SafeAreaView>
-        </LinearGradient>
-      </View>
+      <DashboardHeader 
+        user={user}
+        storeLogo={storeLogo}
+        isSyncing={isSyncing}
+        onMenuPress={handleMenuPress}
+        dateFilter={dateFilter}
+        onDatePickerPress={handleDatePickerPress}
+        totalInvoices={metrics.totalInvoices}
+        paidCount={metrics.paidCount}
+        pendingCount={metrics.pendingCount}
+      />
 
       <ScrollView style={styles.contentScroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.bodyWrapper}>
-
-
-          {/* Action Grid */}
-          <View style={styles.actionGrid}>
-            <IconButton icon={FileText} label="Create Invoice" color="#22c55e" onPress={() => navigation.navigate('Billing')} />
-            <IconButton icon={BarChart3} label="Reports" color="#22c55e" onPress={() => navigation.navigate('Reports')} />
-            <IconButton icon={Percent} label="GST" color="#22c55e" onPress={() => navigation.navigate('GST')} />
-            <IconButton icon={Package} label="Products" color="#22c55e" onPress={() => navigation.navigate('Products')} />
-            <IconButton icon={IndianRupee} label="Expenses" color="#ef4444" onPress={() => setIsExpenseModalOpen(true)} />
-            <IconButton icon={Settings} label="Settings" color="#ef4444" onPress={() => navigation.navigate('Settings')} />
+        {!isReady ? (
+          <View style={{ height: 400, justifyContent: 'center', alignItems: 'center' }}>
+            <Text style={{ color: '#64748b', fontWeight: 'bold' }}>Optimizing your dashboard...</Text>
           </View>
+        ) : (
+          <View style={styles.bodyWrapper}>
+            <ActionGrid onAction={handleAction} />
 
-          {/* Financial Cards */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.finScroll}>
-            <FinancialCard title="Total Revenue" value={`₹${metrics.totalSales.toLocaleString()}`} icon={TrendingUp} isPositive={true} />
-            <FinancialCard title="Total Expenses" value={`₹${metrics.totalExpenses.toLocaleString()}`} icon={IndianRupee} isPositive={false} />
-            <FinancialCard title="Net Profit" value={`₹${metrics.netProfit.toLocaleString()}`} icon={IndianRupee} isPositive={metrics.netProfit >= 0} />
-            <FinancialCard title="Pending Due" value={`₹${metrics.pendingAmount.toLocaleString()}`} icon={Clock} isPositive={false} />
-          </ScrollView>
+            <FinancialSummary 
+              totalSales={metrics.totalSales}
+              totalExpenses={metrics.totalExpenses}
+              netProfit={metrics.netProfit}
+              pendingAmount={metrics.pendingAmount}
+            />
 
-          {/* Alerts Section (Conditional) */}
-          {metrics.lowStock.length > 0 ? (
-            <Pressable style={styles.alertBox} onPress={() => navigation.navigate('LowStock')}>
-              <View style={styles.alertIconBg}>
-                <AlertTriangle size={20} color="#dc2626" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.alertTitle}>Stock Warning</Text>
-                <Text style={styles.alertSub}>{metrics.lowStock.length} items are running low on stock</Text>
-              </View>
-              <ChevronRight size={20} color="#cbd5e1" />
-            </Pressable>
-          ) : (
-            <View style={[styles.alertBox, { backgroundColor: '#ecfdf5', borderColor: '#d1fae5' }]}>
-              <View style={styles.alertIconBg}>
-                <CheckCircle2 size={20} color="#10b981" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.alertTitle, { color: '#047857' }]}>Inventory is Good</Text>
-                <Text style={[styles.alertSub, { color: '#059669' }]}>All products are sufficiently stocked</Text>
-              </View>
-            </View>
-          )}
-
-          {/* Top Selling Card - Hero Section */}
-          {metrics.featuredProduct && (
-            <View style={[styles.contentCard, { backgroundColor: '#000', paddingVertical: 25 }]}>
-              <View style={[styles.cardHeaderRow, { marginBottom: 20 }]}>
-                <Trophy size={20} color="#fff" />
-                <Text style={[styles.cardHeaderTitle, { color: '#fff' }]}>Best Selling Period Item</Text>
-              </View>
-              <View style={{ paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 20 }}>
-                <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 10 }}>
-                  <Text style={{ fontSize: 24, fontWeight: '900', color: '#000' }}>#1</Text>
+            {/* Alerts Section (Conditional) */}
+            {metrics.lowStock.length > 0 ? (
+              <Pressable style={styles.alertBox} onPress={() => navigation.navigate('LowStock')}>
+                <View style={styles.alertIconBg}>
+                  <AlertTriangle size={20} color="#dc2626" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff' }}>{metrics.featuredProduct.name}</Text>
-                  <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>
-                    Sold {metrics.featuredProduct.qty} units • Revenue ₹{metrics.featuredProduct.revenue.toLocaleString()}
-                  </Text>
+                  <Text style={styles.alertTitle}>Stock Warning</Text>
+                  <Text style={styles.alertSub}>{metrics.lowStock.length} items are running low on stock</Text>
+                </View>
+                <ChevronRight size={20} color="#cbd5e1" />
+              </Pressable>
+            ) : (
+              <View style={[styles.alertBox, { backgroundColor: '#ecfdf5', borderColor: '#d1fae5' }]}>
+                <View style={styles.alertIconBg}>
+                  <CheckCircle2 size={20} color="#10b981" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.alertTitle, { color: '#047857' }]}>Inventory is Good</Text>
+                  <Text style={[styles.alertSub, { color: '#059669' }]}>All products are sufficiently stocked</Text>
                 </View>
               </View>
-            </View>
-          )}
-
-          {/* Analytics Performance */}
-          <View style={styles.analyticsCard}>
-            <View style={styles.graphHeader}>
-              <BarChart3 size={18} color="#000" />
-              <Text style={styles.graphTitle}>Business Overview</Text>
-            </View>
-            <View style={styles.barItem}>
-              <View style={styles.barRow}>
-                <Text style={styles.barLabel}>Total Sales</Text>
-                <Text style={styles.barVal}>₹{metrics.totalSales.toLocaleString()}</Text>
-              </View>
-              <View style={styles.track}><View style={[styles.fill, { width: '100%', backgroundColor: '#22c55e' }]} /></View>
-            </View>
-            <View style={styles.barItem}>
-              <View style={styles.barRow}>
-                <Text style={styles.barLabel}>Total Expenses</Text>
-                <Text style={styles.barVal}>₹{metrics.totalExpenses.toLocaleString()}</Text>
-              </View>
-              <View style={styles.track}><View style={[styles.fill, { width: `${Math.min((metrics.totalExpenses / metrics.totalSales || 0.1) * 100, 100)}%`, backgroundColor: '#ef4444' }]} /></View>
-            </View>
-          </View>
-
-          {/* Top Products Card */}
-          <View style={styles.contentCard}>
-            <View style={styles.cardHeaderWithFilter}>
-              <View style={styles.cardHeaderRow}>
-                <Package size={18} color="#000" />
-                <Text style={styles.cardHeaderTitle}>Top 10 Selling Items</Text>
-              </View>
-              <Pressable style={styles.miniFilterBtn} onPress={() => setShowProductFilter(true)}>
-                <Text style={styles.miniFilterText}>{productFilter}</Text>
-                <ChevronDown size={14} color="#64748b" />
-              </Pressable>
-            </View>
-            {metrics.topProd.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizList}>
-                {metrics.topProd.map((p, i) => (
-                  <View key={i} style={styles.productCard}>
-                    <View style={styles.productRank}>
-                      <Text style={styles.productRankText}>#{i + 1}</Text>
-                    </View>
-                    <View style={styles.productIconBg}>
-                      <Package size={20} color="#fff" />
-                    </View>
-                    <Text style={styles.productName} numberOfLines={2}>{p.name}</Text>
-                    <View style={styles.productStats}>
-                      <Text style={styles.productQty}>{p.qty}</Text>
-                      <Text style={styles.productLabel}>sold</Text>
-                    </View>
-                  </View>
-                ))}
-              </ScrollView>
-            ) : (
-              <View style={styles.emptyState}>
-                <Package size={32} color="#cbd5e1" />
-                <Text style={styles.emptyStateText}>No sales data for {productFilter.toLowerCase()}</Text>
-              </View>
             )}
-          </View>
 
-          {/* Top Customers Card */}
-          <View style={styles.contentCard}>
-            <View style={styles.cardHeaderRow}>
-              <Users size={18} color="#000" />
-              <Text style={styles.cardHeaderTitle}>Top Customers</Text>
-            </View>
-            {metrics.topCust.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizList}>
-                {metrics.topCust.map((c, i) => (
-                  <View key={i} style={styles.customerCard}>
-                    <View style={styles.customerRank}>
-                      <Text style={styles.customerRankText}>#{i + 1}</Text>
-                    </View>
-                    <View style={styles.customerAvatar}>
-                      <Text style={styles.customerAvatarText}>{c.name.charAt(0).toUpperCase()}</Text>
-                    </View>
-                    <Text style={styles.customerName} numberOfLines={1}>{c.name}</Text>
-                    <View style={styles.customerAmount}>
-                      <Text style={styles.customerAmountValue}>₹{c.total.toLocaleString()}</Text>
-                      <Text style={styles.customerAmountLabel}>total</Text>
-                    </View>
-                  </View>
-                ))}
-              </ScrollView>
-            ) : (
-              <View style={styles.emptyState}>
-                <Users size={32} color="#cbd5e1" />
-                <Text style={styles.emptyStateText}>No customer data yet</Text>
+            {/* Analytics Performance (Keeping it inline for now or can be extracted) */}
+            <View style={styles.analyticsCard}>
+              <View style={styles.graphHeader}>
+                <BarChart3 size={18} color="#000" />
+                <Text style={styles.graphTitle}>Business Overview</Text>
               </View>
-            )}
-          </View>
+              <View style={styles.barItem}>
+                <View style={styles.barRow}>
+                  <Text style={styles.barLabel}>Total Sales</Text>
+                  <Text style={styles.barVal}>₹{metrics.totalSales.toLocaleString()}</Text>
+                </View>
+                <View style={styles.track}><View style={[styles.fill, { width: '100%', backgroundColor: '#22c55e' }]} /></View>
+              </View>
+              <View style={styles.barItem}>
+                <View style={styles.barRow}>
+                  <Text style={styles.barLabel}>Total Expenses</Text>
+                  <Text style={styles.barVal}>₹{metrics.totalExpenses.toLocaleString()}</Text>
+                </View>
+                <View style={styles.track}><View style={[styles.fill, { width: `${Math.min((metrics.totalExpenses / metrics.totalSales || 0.1) * 100, 100)}%`, backgroundColor: '#ef4444' }]} /></View>
+              </View>
+            </View>
+
+            <PerformanceList 
+              title="Top 10 Selling Items"
+              data={metrics.topProd}
+              type="product"
+              filterValue={productFilter}
+              onFilterPress={() => setShowProductFilter(true)}
+              emptyMessage={`No sales data for ${productFilter.toLowerCase()}`}
+              icon={Package}
+            />
+
+            <PerformanceList 
+              title="Top Customers"
+              data={metrics.topCust}
+              type="customer"
+              emptyMessage="No customer data yet"
+              icon={Users}
+            />
 
           {/* Recent Expenses Card */}
           <View style={styles.contentCard}>
@@ -487,7 +364,9 @@ export default function Dashboard() {
                       <View style={styles.expenseMetaRow}>
                         <Text style={styles.expenseCategory}>{exp.category}</Text>
                         <Text style={styles.expenseDot}>•</Text>
-                        <Text style={styles.expenseDate}>{new Date(exp.date || Date.now()).toLocaleDateString()}</Text>
+                        <Text style={styles.expenseDate}>
+                          {new Date(exp.date || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} | {new Date(exp.date || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
                       </View>
                     </View>
                     <Text style={styles.expenseAmount}>-₹{(exp.amount || 0).toLocaleString()}</Text>
@@ -521,7 +400,9 @@ export default function Dashboard() {
                       <View style={styles.txnCardMetaRow}>
                         <Text style={styles.txnCardInvoice}>INV-{tx.invoiceNumber || '001'}</Text>
                         <Text style={styles.txnCardDot}>•</Text>
-                        <Text style={styles.txnCardDate}>{new Date(tx.date || Date.now()).toLocaleDateString()}</Text>
+                        <Text style={styles.txnCardDate}>
+                          {new Date(tx.date || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} | {new Date(tx.date || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
                       </View>
                     </View>
                     <View style={styles.txnCardRight}>
@@ -542,7 +423,8 @@ export default function Dashboard() {
             <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', letterSpacing: 1.5 }}>KWIQ BILL • {APP_VERSION}</Text>
             <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', marginTop: 4 }}>POWERED BY ZIPPY</Text>
           </View>
-        </View>
+          </View>
+        )}
       </ScrollView>
 
 
@@ -556,42 +438,50 @@ export default function Dashboard() {
         onClose={() => setIsScannerOpen(false)}
       />
 
-      {/* Date Picker Modal */}
-      <Modal visible={showDatePicker} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Period</Text>
-            {dateOptions.map(opt => (
-              <TouchableOpacity
-                key={opt}
-                style={styles.optionRow}
-                onPress={() => { setDateFilter(opt); setShowDatePicker(false); }}
-              >
-                <Text style={[styles.optionText, dateFilter === opt && styles.selectedOptionText]}>{opt}</Text>
-                {dateFilter === opt && <Check size={16} color="#22c55e" />}
-              </TouchableOpacity>
-            ))}
+      {/* Date Picker Bottom Sheet */}
+      <Modal visible={showDatePicker} transparent animationType="slide">
+        <View style={styles.sheetOverlay}>
+          <Pressable style={styles.sheetCloser} onPress={() => setShowDatePicker(false)} />
+          <View style={styles.sheetContent}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Select Period</Text>
+            <View style={styles.sheetOptions}>
+              {dateOptions.map(opt => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.sheetOptionRow, dateFilter === opt && styles.sheetOptionActive]}
+                  onPress={() => { setDateFilter(opt); setShowDatePicker(false); }}
+                >
+                  <Text style={[styles.sheetOptionText, dateFilter === opt && styles.sheetOptionTextActive]}>{opt}</Text>
+                  {dateFilter === opt && <Check size={18} color="#000" />}
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-        </Pressable>
+        </View>
       </Modal>
 
-      {/* Product Filter Modal */}
-      <Modal visible={showProductFilter} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowProductFilter(false)}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Filter Products</Text>
-            {productFilterOptions.map(opt => (
-              <TouchableOpacity
-                key={opt}
-                style={styles.optionRow}
-                onPress={() => { setProductFilter(opt); setShowProductFilter(false); }}
-              >
-                <Text style={[styles.optionText, productFilter === opt && styles.selectedOptionText]}>{opt}</Text>
-                {productFilter === opt && <Check size={16} color="#22c55e" />}
-              </TouchableOpacity>
-            ))}
+      {/* Product Filter Bottom Sheet */}
+      <Modal visible={showProductFilter} transparent animationType="slide">
+        <View style={styles.sheetOverlay}>
+          <Pressable style={styles.sheetCloser} onPress={() => setShowProductFilter(false)} />
+          <View style={styles.sheetContent}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Filter Products</Text>
+            <View style={styles.sheetOptions}>
+              {productFilterOptions.map(opt => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.sheetOptionRow, productFilter === opt && styles.sheetOptionActive]}
+                  onPress={() => { setProductFilter(opt); setShowProductFilter(false); }}
+                >
+                  <Text style={[styles.sheetOptionText, productFilter === opt && styles.sheetOptionTextActive]}>{opt}</Text>
+                  {productFilter === opt && <Check size={18} color="#000" />}
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-        </Pressable>
+        </View>
       </Modal>
 
 
@@ -638,6 +528,24 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   topLogo: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff' },
+  syncIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(34, 197, 94, 0.3)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    marginRight: 10,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  syncText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
 
   // Date Filter Section - Full Width
   dateFilterSection: {
@@ -1104,11 +1012,72 @@ const styles = StyleSheet.create({
   contentScroll: { flex: 1 },
   bodyWrapper: { flex: 1 },
 
-  // Modal Styles
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '80%', backgroundColor: 'white', borderRadius: 16, padding: 20, elevation: 5 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#0f172a' },
-  optionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  optionText: { fontSize: 16, color: '#334155' },
-  selectedOptionText: { color: '#2563eb', fontWeight: 'bold' }
+  // Bottom Sheet Premium Styles
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheetCloser: {
+    flex: 1,
+  },
+  sheetContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 25,
+    paddingTop: 12,
+    paddingBottom: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 25,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 10,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0f172a',
+    marginBottom: 25,
+    letterSpacing: -0.5,
+  },
+  sheetOptions: {
+    gap: 12,
+  },
+  sheetOptionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  sheetOptionActive: {
+    backgroundColor: '#fff',
+    borderColor: '#000',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+  },
+  sheetOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  sheetOptionTextActive: {
+    color: '#000',
+    fontWeight: '800',
+  },
 });

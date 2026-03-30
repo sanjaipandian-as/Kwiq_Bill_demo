@@ -42,7 +42,10 @@ const TEMPLATE_COLUMNS = [
 // Template includes 3 example variant sets; users can add unlimited columns
 const TEMPLATE_VARIANT_EXAMPLES = 3;
 
-const BulkUploadModal = ({ visible, onClose, onImport }) => {
+import { useProducts } from '../../context/ProductContext';
+
+const BulkUploadScreen = ({ navigation }) => {
+    const { importProducts, fetchProducts } = useProducts();
     const { showToast } = useToast();
     const [step, setStep] = useState('template'); // 'template' | 'uploading' | 'preview' | 'importing' | 'success'
     const [parsedData, setParsedData] = useState([]);
@@ -97,7 +100,8 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
 
     const handleClose = () => {
         resetState();
-        onClose();
+        fetchProducts();
+        navigation.goBack();
     };
 
     const formatTime = (seconds) => {
@@ -431,7 +435,7 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                     };
                 });
 
-                await onImport(mappedBatch);
+                await importProducts(mappedBatch);
 
                 processed += batch.length;
                 setProcessedItems(processed);
@@ -489,8 +493,7 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
 
     // ── RENDER ──
     return (
-        <Modal visible={visible} transparent={false} animationType="slide" onRequestClose={handleClose}>
-            <View style={s.fullScreenContainer}>
+        <View style={s.fullScreenContainer}>
                 <StatusBar barStyle="dark-content" backgroundColor="#fff" />
                 <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
                     {/* Header */}
@@ -516,9 +519,8 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                         </TouchableOpacity>
                     </View>
 
-                    <View style={{ flex: 1 }}>
                         <ScrollView
-                            style={s.scrollView}
+                            style={{ flex: 1 }}
                             contentContainerStyle={s.content}
                             showsVerticalScrollIndicator={true}
                             bounces={true}
@@ -827,7 +829,6 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                             )}
 
                         </ScrollView>
-                    </View>
 
                     {/* ── Footer ── */}
                     <View style={s.footer}>
@@ -875,15 +876,16 @@ const BulkUploadModal = ({ visible, onClose, onImport }) => {
                             </View>
                         )}
                     </View>
-                </SafeAreaView>
-            </View >
-        </Modal >
+                </SafeAreaView> 
+            
+        </View>
     );
 };
 
 const s = StyleSheet.create({
     fullScreenContainer: {
         flex: 1,
+        paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
         backgroundColor: '#fff'
     },
     sheet: {
@@ -1313,4 +1315,4 @@ const s = StyleSheet.create({
     },
 });
 
-export default BulkUploadModal;
+export default BulkUploadScreen;

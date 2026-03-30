@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
+const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra', options = {} }) => {
+
     // Fallback/Demo Data
     const store = settings?.store || {
         name: 'STORE NAME',
@@ -59,14 +60,17 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
                 <Text style={styles.tpTextCenter}>WHATSAPP NO: {store.whatsapp || store.contact || store.phone}</Text>
             ) : null}
             
-            {(store.address?.street || store.address?.city) ? (
-                <>
-                    {store.address.street && <Text style={styles.tpTextCenter}>{store.address.street}</Text>}
-                    {store.address.city && <Text style={styles.tpTextCenter}>{store.address.city}</Text>}
-                </>
-            ) : store.address ? (
-                <Text style={styles.tpTextCenter}>{store.address}</Text>
-            ) : null}
+            {(() => {
+                const addr = store.address;
+                if (!addr) return null;
+                if (typeof addr === 'string') return <Text style={styles.tpTextCenter}>{addr}</Text>;
+                return (
+                    <>
+                        {addr.street && <Text style={styles.tpTextCenter}>{addr.street}</Text>}
+                        {addr.city && <Text style={styles.tpTextCenter}>{addr.city}</Text>}
+                    </>
+                );
+            })()}
 
             {store.gstin ? <Text style={styles.tpTextCenter}>GSTIN: {store.gstin}</Text> : null}
 
@@ -193,18 +197,28 @@ const ThermalInvoiceTemplate = ({ settings, data, taxType = 'intra' }) => {
 
             <View style={styles.tpDashedLine} />
 
-            {settings?.invoice?.showBankAndSignature && settings?.bankDetails?.bankName && (
+            {settings?.invoice?.showBankAndSignature && (
                 <>
-                    <Text style={[styles.tpTextBold, { marginTop: 4 }]}>BANK DETAILS:</Text>
-                    <Text style={styles.tpText}>Bank: {settings.bankDetails.bankName}</Text>
-                    <Text style={styles.tpText}>A/C: {settings.bankDetails.accountNumber || ''}</Text>
-                    <Text style={styles.tpText}>IFSC: {settings.bankDetails.ifsc || ''}</Text>
-                    <View style={styles.tpDashedLine} />
-                    <View style={{ marginTop: 20, alignItems: 'flex-end', paddingRight: 5 }}>
-                        <Text style={styles.tpText}>AUTHORIZED SIGNATORY</Text>
-                    </View>
+                    {!options?.hideAccountDetails && settings?.bankDetails?.bankName && (
+                        <>
+                            <Text style={[styles.tpTextBold, { marginTop: 4 }]}>BANK DETAILS:</Text>
+                            <Text style={styles.tpText}>Bank: {settings.bankDetails.bankName}</Text>
+                            <Text style={styles.tpText}>A/C: {settings.bankDetails.accountNumber || ''}</Text>
+                            <Text style={styles.tpText}>IFSC: {settings.bankDetails.ifsc || ''}</Text>
+                            <View style={styles.tpDashedLine} />
+                        </>
+                    )}
+                    {!options?.isNonAuthorized && (
+                        <View style={{ marginTop: 20, alignItems: 'flex-end', paddingRight: 5 }}>
+                            <Text style={styles.tpText}>AUTHORIZED SIGNATORY</Text>
+                            {invoice.receptionist_name ? (
+                                <Text style={{ fontSize: 9, color: '#444' }}>({invoice.receptionist_name.toUpperCase()})</Text>
+                            ) : null}
+                        </View>
+                    )}
                 </>
             )}
+
 
             {settings?.invoice?.showTerms !== false && (settings?.invoice?.termsAndConditions || settings?.invoice?.conditionsText) && (
                 <>

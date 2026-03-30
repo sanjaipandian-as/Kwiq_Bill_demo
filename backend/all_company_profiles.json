@@ -1,0 +1,737 @@
+[
+  {
+    "_id": "69844e01912b9dfb707d2cc2",
+    "userId": "email-am9obmViZW5lemVyeGFAZ21haWwuY29t",
+    "__v": 0,
+    "createdAt": "2026-02-05T08:00:00.513Z",
+    "lastUpdated": "2026-03-26T11:39:10.150Z",
+    "onboardingCompletedAt": "2026-02-05T07:59:55.956Z",
+    "store": {
+      "name": "U2FsdGVkX18AAAB3AAAAe6MqQNxNBSHhuiTauBeBiJ4=",
+      "legalName": "U2FsdGVkX18AAAD+AAAArDb+wN2C23MtJQZeFgb+NtM=",
+      "businessType": "Proprietorship",
+      "contact": "U2FsdGVkX18AAADeAAAAwTbVEhoFWq4PNvkJt63XWAU=",
+      "email": "U2FsdGVkX18AAACVAAAAB+AAmSVPTkT0MB3282TMqutVznYlTVcT6hkWBJ1EszQ+",
+      "website": "",
+      "address": {
+        "street": "",
+        "area": "",
+        "city": "",
+        "state": "",
+        "pincode": "",
+        "country": "India"
+      },
+      "gstin": "U2FsdGVkX18AAACtAAAAe/L4vj4oBQVMGe523mqs7o0=",
+      "fssai": "",
+      "logo": null,
+      "footer": "Thank you for shopping with us!",
+      "logoUrl": "",
+      "pan": "",
+      "signatureUrl": "",
+      "terms": true
+    },
+    "tax": {
+      "gstEnabled": true,
+      "defaultType": "Exclusive",
+      "taxGroups": [],
+      "gstin": "",
+      "registrationType": "Regular",
+      "state": "",
+      "priceMode": "Exclusive",
+      "automaticTax": true,
+      "slabs": []
+    },
+    "updatedAt": "2026-03-26T11:39:10.199Z",
+    "user": {
+      "fullName": "",
+      "mobile": "",
+      "email": "",
+      "role": "Owner",
+      "consent": {
+        "analytics": true,
+        "contact": true
+      }
+    },
+    "userEmail": "johnebenezerxa@gmail.com",
+    "bankDetails": {
+      "accountName": "",
+      "accountNumber": "",
+      "ifsc": "",
+      "bankName": "",
+      "branch": ""
+    },
+    "defaults": {
+      "language": "en",
+      "currency": "INR",
+      "timeZone": "Asia/Kolkata",
+      "printLanguage": "en",
+      "hsnCode": ""
+    },
+    "invoice": {
+      "template": "Classic",
+      "headerTitle": "Tax Invoice",
+      "footerNote": "Thank you for your business!",
+      "termsAndConditions": "Goods once sold will not be taken back.",
+      "conditionsText": "All disputes are subject to local jurisdiction only.",
+      "showLogo": true,
+      "showWatermark": false,
+      "showStoreAddress": true,
+      "showTaxBreakup": true,
+      "showHsn": true,
+      "showMrp": false,
+      "showSavings": true,
+      "showCustomerGstin": true,
+      "showQrcode": true,
+      "showTerms": true,
+      "showLoyaltyPoints": false,
+      "showSignature": true,
+      "paperSize": "80mm",
+      "showB2bGstin": true,
+      "roundingType": "Nearest"
+    },
+    "lastUpdatedAt": null,
+    "isDeleted": false
+  },
+  {
+    "_id": "6989fbe527ef0812a828a9cd",
+    "userId": "email-c2FuamFpcGFuZGlhbi5hc0BnbWFpbC5jb20=",
+    "userEmail": "sanjaipandian.as@gmail.com",
+    "store": {
+      "address": {
+        "country": "India",
+        "street": "",
+        "area": "",
+        "city": "",
+        "state": "",
+        "pincode": ""
+      },
+      "footer": "Thank you for shopping with us!",
+      "terms": true,
+      "pan": "",
+      "logoUrl": "",
+      "signatureUrl": "",
+      "name": "",
+      "legalName": "",
+      "businessType": "Proprietorship",
+      "contact": "",
+      "email": "",
+      "website": "",
+      "gstin": "",
+      "fssai": "",
+      "logo": "file:///data/user/0/com.zilling.mobileapp/files/store_logo.jpg"
+    },
+    "user": {
+      "consent": {
+        "analytics": true,
+        "contact": true
+      },
+      "fullName": "",
+      "mobile": "",
+      "email": "",
+      "role": "Owner"
+    },
+    "tax": {
+      "gstin": "",
+      "registrationType": "Regular",
+      "state": "",
+      "priceMode": "Exclusive",
+      "automaticTax": true,
+      "gstEnabled": true,
+      "defaultType": "Exclusive",
+      "taxGroups": [
+        {
+          "id": "1",
+          "name": "GST 18%",
+          "rate": 18,
+          "cgst": 9,
+          "sgst": 9,
+          "igst": 18,
+          "cess": 0,
+          "active": true,
+          "_id": "69c65e956e7661d7a14b8097"
+        },
+        {
+          "id": "2",
+          "name": "GST 5%",
+          "rate": 5,
+          "cgst": 2.5,
+          "sgst": 2.5,
+          "igst": 5,
+          "cess": 0,
+          "active": true,
+          "_id": "69c65e956e7661d7a14b8098"
+        }
+      ],
+      "slabs": []
+    },
+    "defaults": {
+      "timeZone": "Asia/Kolkata",
+      "printLanguage": "en",
+      "hsnCode": "",
+      "language": "en",
+      "currency": "INR"
+    },
+    "invoice": {
+      "paperSize": "A4",
+      "showB2bGstin": true,
+      "roundingType": "Nearest",
+      "template": "Classic",
+      "headerTitle": "Tax Invoice",
+      "footerNote": "Thank you for shopping!",
+      "termsAndConditions": "Goods once sold will not be taken back.",
+      "conditionsText": "All disputes are subject to local jurisdiction only.",
+      "showLogo": true,
+      "showWatermark": false,
+      "showStoreAddress": true,
+      "showTaxBreakup": true,
+      "showHsn": true,
+      "showMrp": true,
+      "showSavings": true,
+      "showCustomerGstin": true,
+      "showQrcode": true,
+      "showTerms": true,
+      "showLoyaltyPoints": false,
+      "showSignature": true
+    },
+    "isDeleted": false,
+    "deletedAt": null,
+    "createdAt": "2026-02-09T15:23:17.652Z",
+    "updatedAt": "2026-03-27T14:54:06.889Z",
+    "__v": 1,
+    "lastUpdated": "2026-03-27T14:54:06.788Z",
+    "lastUpdatedAt": null,
+    "onboardingCompletedAt": null,
+    "bankDetails": {
+      "accountName": "",
+      "accountNumber": "",
+      "ifsc": "",
+      "bankName": "",
+      "branch": ""
+    }
+  },
+  {
+    "_id": "69a0da8e1ae5a3dc407774d1",
+    "userId": "112682741696634893953",
+    "__v": 0,
+    "createdAt": "2026-02-26T23:43:12.048Z",
+    "lastUpdated": "2026-02-26T23:43:12.047Z",
+    "onboardingCompletedAt": "2026-02-26T23:43:11.550Z",
+    "store": {
+      "name": "My Billing Co.",
+      "legalName": "My Billing Co.",
+      "businessType": "Proprietorship",
+      "contact": "9856326589",
+      "email": "store@example.com",
+      "website": "",
+      "address": {
+        "street": "SANDAPETTAI THERU",
+        "area": "MADURAI NORTH",
+        "city": "MADURAI",
+        "state": "TAMILNADU",
+        "pincode": "628002",
+        "country": "India"
+      },
+      "gstin": "22AAAAA0000A1Z5",
+      "fssai": ""
+    },
+    "tax": {
+      "gstEnabled": true,
+      "defaultType": "Exclusive"
+    },
+    "updatedAt": "2026-02-26T23:43:12.048Z",
+    "user": {
+      "fullName": "JOHN",
+      "mobile": "9865326598",
+      "email": "gideonebenezer467@gmail.com",
+      "consent": {
+        "analytics": true,
+        "contact": true
+      }
+    },
+    "userEmail": "gideonebenezer467@gmail.com"
+  },
+  {
+    "_id": "69a6cc051ae5a3dc40777c9f",
+    "userId": "100281131833665496476",
+    "__v": 0,
+    "createdAt": "2026-03-03T11:54:45.275Z",
+    "lastUpdated": "2026-03-03T11:54:45.274Z",
+    "onboardingCompletedAt": "2026-03-03T11:54:44.727Z",
+    "store": {
+      "name": "Zippy Kadai",
+      "legalName": "Sobeso LTD",
+      "businessType": "Private Limited",
+      "contact": "9514013467",
+      "email": "store@example.com",
+      "website": "",
+      "address": {
+        "street": "123,xxxx,xxx",
+        "area": "Madurai",
+        "city": "madurai",
+        "state": "tamilnadu",
+        "pincode": "628005",
+        "country": "India"
+      },
+      "gstin": "2AAAAAOOOOAIZ5",
+      "fssai": ""
+    },
+    "tax": {
+      "gstEnabled": true,
+      "gstin": "",
+      "state": "",
+      "registrationType": "Regular",
+      "priceMode": "Exclusive",
+      "automaticTax": true,
+      "taxGroups": [
+        {
+          "id": "gst-0",
+          "name": "GST 0%",
+          "rate": 0,
+          "cgst": 0,
+          "sgst": 0,
+          "igst": 0,
+          "active": true
+        },
+        {
+          "id": "gst-5",
+          "name": "GST 5%",
+          "rate": 5,
+          "cgst": 2.5,
+          "sgst": 2.5,
+          "igst": 5,
+          "active": true
+        },
+        {
+          "id": "gst-12",
+          "name": "GST 12%",
+          "rate": 12,
+          "cgst": 6,
+          "sgst": 6,
+          "igst": 12,
+          "active": true
+        },
+        {
+          "id": "gst-18",
+          "name": "GST 18%",
+          "rate": 18,
+          "cgst": 9,
+          "sgst": 9,
+          "igst": 18,
+          "active": true
+        },
+        {
+          "id": "gst-28",
+          "name": "GST 28%",
+          "rate": 28,
+          "cgst": 14,
+          "sgst": 14,
+          "igst": 28,
+          "active": true
+        }
+      ],
+      "slabs": []
+    },
+    "updatedAt": "2026-03-03T11:54:45.275Z",
+    "user": {
+      "fullName": "Arunachalam",
+      "mobile": "9514013467",
+      "email": "store@example.com",
+      "consent": {
+        "analytics": true,
+        "contact": true
+      }
+    },
+    "userEmail": "kwiqbill@gmail.com"
+  },
+  {
+    "_id": "69a7bc84bba6173da3e7ff96",
+    "userId": "email-c2FuamFpcGFuZGlhbjc3QGdtYWlsLmNvbQ==",
+    "userEmail": "sanjaipandian77@gmail.com",
+    "store": {
+      "name": "U2FsdGVkX18AAABKAAAAqOClUgo5qR7pdMt9dgmSm1s=",
+      "legalName": "U2FsdGVkX18AAABpAAAAyG+8p3oiMhSnmXta7ZZ2Oo4=",
+      "businessType": "Proprietorship",
+      "contact": "U2FsdGVkX18AAADkAAAAa+DVdg5N3ulqnzcUbfWXdHI=",
+      "email": "U2FsdGVkX18AAABuAAAAu0ic4Tg8i4++5V6t1VS2gmXY1izXKwIvGALC2lOOsCE7",
+      "website": "",
+      "address": "U2FsdGVkX18AAAD4AAAAJ3jbOOurQij5/f8uhw4uWctX9EwV8f1uzjtzw6VmAESBWSj9RBqpPqaBWRr1L9y16ySk5GQFKdNs/78pEQvhKltWq/U9RCwy3ApRm5GifpVew4sWl6v/QR8YJhk3XTsnxg==",
+      "gstin": "U2FsdGVkX18AAABeAAAAAb6Xw5mdfmdUDmTAgVEG1Ac=",
+      "fssai": "",
+      "logo": null,
+      "footer": "Thank you for shopping with us!",
+      "terms": true,
+      "pan": "",
+      "logoUrl": "",
+      "signatureUrl": ""
+    },
+    "bankDetails": {
+      "accountName": "",
+      "accountNumber": "",
+      "ifsc": "",
+      "bankName": "",
+      "branch": ""
+    },
+    "user": {
+      "fullName": "U2FsdGVkX18AAABIAAAAP3hA0LrabEFsb7i6+tqKXT8=",
+      "mobile": "U2FsdGVkX18AAADXAAAAn215rhTFdK8aMxZFDdhlZRM=",
+      "email": "U2FsdGVkX18AAADEAAAAwGqgd3c7OuvOyHoHUtLALX/GgupHRegO1q+kMJeK+lWm",
+      "role": "Owner",
+      "consent": {
+        "analytics": true,
+        "contact": true
+      }
+    },
+    "tax": {
+      "gstEnabled": true,
+      "defaultType": "Exclusive",
+      "taxGroups": [],
+      "gstin": "",
+      "registrationType": "Regular",
+      "state": "",
+      "priceMode": "Exclusive",
+      "automaticTax": true,
+      "slabs": []
+    },
+    "defaults": {
+      "language": "en",
+      "currency": "INR",
+      "timeZone": "Asia/Kolkata",
+      "printLanguage": "en",
+      "hsnCode": ""
+    },
+    "invoice": {
+      "template": "Classic",
+      "headerTitle": "Tax Invoice",
+      "footerNote": "Thank you for your business!",
+      "termsAndConditions": "1. Goods once sold will not be taken back.\n2. Interest @18% pa will be charged if not paid within due date.",
+      "showLogo": true,
+      "showWatermark": false,
+      "showStoreAddress": true,
+      "showTaxBreakup": true,
+      "showHsn": true,
+      "showMrp": false,
+      "showSavings": true,
+      "showCustomerGstin": true,
+      "showQrcode": true,
+      "showTerms": true,
+      "showLoyaltyPoints": false,
+      "showSignature": true,
+      "conditionsText": "All disputes are subject to local jurisdiction only.",
+      "paperSize": "A4",
+      "showB2bGstin": true,
+      "roundingType": "Nearest"
+    },
+    "isDeleted": false,
+    "deletedAt": null,
+    "createdAt": "2026-03-04T05:00:52.462Z",
+    "updatedAt": "2026-03-24T05:54:44.445Z",
+    "__v": 0,
+    "lastUpdated": "2026-03-24T05:54:44.353Z",
+    "lastUpdatedAt": "2026-03-04T09:18:56.145Z",
+    "onboardingCompletedAt": "2026-03-04T05:02:15.508Z"
+  },
+  {
+    "_id": "69a7c8f123969ecfa6e5027c",
+    "userId": "email-a3dpcWJpbGxAZ21haWwuY29t",
+    "userEmail": "kwiqbill@gmail.com",
+    "store": {
+      "address": {
+        "country": "India",
+        "street": "Jdhxjjfj",
+        "area": "",
+        "city": "Apk",
+        "state": "Tn",
+        "pincode": "626101"
+      },
+      "footer": "Thank you for shopping with us!",
+      "terms": true,
+      "pan": "",
+      "logoUrl": "",
+      "signatureUrl": "",
+      "name": "Zippy",
+      "legalName": "Zippy",
+      "businessType": "Proprietorship",
+      "contact": "8220158988",
+      "email": "kwiqbill@gmail.com",
+      "website": "",
+      "gstin": "123456789098",
+      "fssai": "",
+      "logo": "https://res.cloudinary.com/ddnxhn442/image/upload/v1772617448/store-logos/logo_email-a3dpcWJpbGxAZ21haWwuY29t.jpg"
+    },
+    "bankDetails": {
+      "accountName": "",
+      "accountNumber": "",
+      "ifsc": "",
+      "bankName": "",
+      "branch": ""
+    },
+    "user": {
+      "consent": {
+        "analytics": true,
+        "contact": true
+      },
+      "fullName": "Zippy",
+      "mobile": "8220158988",
+      "email": "sanjaipandi66@gmail.com",
+      "role": "Owner"
+    },
+    "tax": {
+      "gstin": "",
+      "registrationType": "Regular",
+      "state": "",
+      "priceMode": "Exclusive",
+      "automaticTax": true,
+      "gstEnabled": true,
+      "defaultType": "Exclusive",
+      "taxGroups": [
+        {
+          "id": "1",
+          "name": "GST 18%",
+          "rate": 18,
+          "cgst": 9,
+          "sgst": 9,
+          "igst": 18,
+          "cess": 0,
+          "active": true,
+          "_id": "69a7c8f723969ecfa6e50280"
+        },
+        {
+          "id": "2",
+          "name": "GST 5%",
+          "rate": 5,
+          "cgst": 2.5,
+          "sgst": 2.5,
+          "igst": 5,
+          "cess": 0,
+          "active": true,
+          "_id": "69a7c8f723969ecfa6e50281"
+        }
+      ],
+      "slabs": []
+    },
+    "defaults": {
+      "timeZone": "Asia/Kolkata",
+      "printLanguage": "en",
+      "hsnCode": "",
+      "language": "en",
+      "currency": "INR"
+    },
+    "invoice": {
+      "paperSize": "A4",
+      "showB2bGstin": true,
+      "roundingType": "Nearest",
+      "template": "Classic",
+      "headerTitle": "Tax Invoice",
+      "footerNote": "Thank you for shopping!",
+      "termsAndConditions": "1. Goods once sold will not be taken back.",
+      "showLogo": true,
+      "showWatermark": false,
+      "showStoreAddress": true,
+      "showTaxBreakup": true,
+      "showHsn": true,
+      "showMrp": true,
+      "showSavings": true,
+      "showCustomerGstin": true,
+      "showQrcode": true,
+      "showTerms": true,
+      "showLoyaltyPoints": false,
+      "showSignature": true
+    },
+    "isDeleted": false,
+    "deletedAt": null,
+    "createdAt": "2026-03-04T05:53:53.425Z",
+    "updatedAt": "2026-03-04T09:44:07.939Z",
+    "__v": 1,
+    "lastUpdated": "2026-03-04T09:44:07.898Z",
+    "lastUpdatedAt": "2026-03-04T09:44:07.583Z",
+    "onboardingCompletedAt": "2026-03-04T05:54:00.114Z"
+  },
+  {
+    "_id": "69a7fa5b9db89fcf817c0eae",
+    "userId": "email-a3dpcWJpbGwxQGdtYWlsLmNvbQ==",
+    "userEmail": "kwiqbill1@gmail.com",
+    "store": {
+      "email": "kwiqbill1@gmail.com",
+      "name": "My Billing Co.",
+      "legalName": "",
+      "businessType": "Proprietorship",
+      "contact": "",
+      "website": "",
+      "address": {
+        "street": "",
+        "area": "",
+        "city": "",
+        "state": "",
+        "pincode": "",
+        "country": "India"
+      },
+      "footer": "Thank you for shopping with us!",
+      "terms": true,
+      "gstin": "",
+      "fssai": "",
+      "pan": "",
+      "logo": "",
+      "logoUrl": "",
+      "signatureUrl": ""
+    },
+    "bankDetails": {
+      "accountName": "",
+      "accountNumber": "",
+      "ifsc": "",
+      "bankName": "",
+      "branch": ""
+    },
+    "user": {
+      "fullName": "Kwiq Bill",
+      "email": "kwiqbill1@gmail.com",
+      "mobile": "",
+      "role": "Owner",
+      "consent": {
+        "analytics": true,
+        "contact": true
+      }
+    },
+    "tax": {
+      "gstEnabled": true,
+      "defaultType": "Exclusive",
+      "gstin": "",
+      "registrationType": "Regular",
+      "state": "",
+      "priceMode": "Exclusive",
+      "automaticTax": true,
+      "taxGroups": [],
+      "slabs": []
+    },
+    "defaults": {
+      "currency": "INR",
+      "timeZone": "Asia/Kolkata",
+      "language": "en",
+      "printLanguage": "en",
+      "hsnCode": ""
+    },
+    "invoice": {
+      "template": "Classic",
+      "paperSize": "A4",
+      "showLogo": true,
+      "showWatermark": false,
+      "showStoreAddress": true,
+      "showSignature": true,
+      "showTaxBreakup": true,
+      "showHsn": true,
+      "showMrp": false,
+      "showSavings": true,
+      "showCustomerGstin": true,
+      "showLoyaltyPoints": false,
+      "showQrcode": true,
+      "showTerms": true,
+      "showB2bGstin": true,
+      "headerTitle": "Tax Invoice",
+      "footerNote": "Thank you for your business!",
+      "termsAndConditions": "1. Goods once sold will not be taken back.\n2. Interest @18% pa will be charged if not paid within due date.",
+      "roundingType": "Nearest"
+    },
+    "isDeleted": false,
+    "deletedAt": null,
+    "createdAt": "2026-03-04T09:24:43.659Z",
+    "updatedAt": "2026-03-04T09:24:43.659Z",
+    "__v": 0
+  },
+  {
+    "_id": "69a7ff5f9db89fcf817c0eef",
+    "userId": "email-c2FuamFpcGFuZGk2NkBnbWFpbC5jb20=",
+    "userEmail": "sanjaipandi66@gmail.com",
+    "store": {
+      "name": "Sanjai",
+      "legalName": "Sanjai",
+      "businessType": "Proprietorship",
+      "contact": "8220158988",
+      "email": "sanjaipandi66@gmail.com",
+      "website": "",
+      "address": {
+        "street": "Sanjai",
+        "area": "",
+        "city": "Apk",
+        "state": "Tn",
+        "pincode": "626101"
+      },
+      "gstin": "673728928473",
+      "fssai": "",
+      "logo": null
+    },
+    "bankDetails": {
+      "accountName": "",
+      "accountNumber": "",
+      "ifsc": "",
+      "bankName": "",
+      "branch": ""
+    },
+    "user": {
+      "fullName": "Sanjai",
+      "mobile": "8220158988",
+      "email": "sanjaipandi66@gmail.com",
+      "role": "Owner",
+      "consent": {
+        "analytics": true,
+        "contact": true
+      }
+    },
+    "tax": {
+      "gstEnabled": true,
+      "defaultType": "Exclusive",
+      "taxGroups": [
+        {
+          "id": "1",
+          "name": "GST 18%",
+          "rate": 18,
+          "cgst": 9,
+          "sgst": 9,
+          "igst": 18,
+          "cess": 0,
+          "active": true,
+          "_id": "69a7ff6b9db89fcf817c0ef3"
+        },
+        {
+          "id": "2",
+          "name": "GST 5%",
+          "rate": 5,
+          "cgst": 2.5,
+          "sgst": 2.5,
+          "igst": 5,
+          "cess": 0,
+          "active": true,
+          "_id": "69a7ff6b9db89fcf817c0ef4"
+        }
+      ]
+    },
+    "defaults": {
+      "language": "en",
+      "currency": "INR"
+    },
+    "invoice": {
+      "template": "Classic",
+      "headerTitle": "Tax Invoice",
+      "footerNote": "Thank you for shopping!",
+      "termsAndConditions": "1. Goods once sold will not be taken back.",
+      "showLogo": true,
+      "showWatermark": false,
+      "showStoreAddress": true,
+      "showTaxBreakup": true,
+      "showHsn": true,
+      "showMrp": true,
+      "showSavings": true,
+      "showCustomerGstin": true,
+      "showQrcode": true,
+      "showTerms": true,
+      "showLoyaltyPoints": false,
+      "showSignature": true
+    },
+    "isDeleted": false,
+    "deletedAt": null,
+    "createdAt": "2026-03-04T09:46:07.837Z",
+    "updatedAt": "2026-03-04T09:46:19.574Z",
+    "__v": 0,
+    "lastUpdated": "2026-03-04T09:46:19.526Z",
+    "lastUpdatedAt": "2026-03-04T09:46:21.603Z",
+    "onboardingCompletedAt": "2026-03-04T09:46:21.602Z"
+  }
+]

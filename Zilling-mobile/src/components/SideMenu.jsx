@@ -8,6 +8,7 @@ import {
     FileText, PieChart, X, Users, LogOut, ChevronRight, Package, Settings,
     Trash2, CreditCard, Receipt, ShieldCheck, HelpCircle, ExternalLink, Sparkles
 } from 'lucide-react-native';
+import { debouncedNavigate } from '../utils/navigationUtils';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { APP_VERSION } from '../config/version';
@@ -81,12 +82,11 @@ const SideMenu = ({ isOpen, onClose }) => {
         }
     }, [isOpen]);
 
-    const handleNavigation = (screen) => {
+    const handleNavigation = (screen, params = {}) => {
         onClose();
-        setTimeout(() => {
-            navigation.navigate(screen);
-        }, 150);
+        debouncedNavigate(navigation, screen, params);
     };
+
 
     const planName = (() => {
         const planMap = {
@@ -188,7 +188,7 @@ const SideMenu = ({ isOpen, onClose }) => {
 
                             <TouchableOpacity
                                 activeOpacity={0.7}
-                                onPress={() => { }}
+                                onPress={() => handleNavigation('Settings', { tab: 'contact' })}
                                 style={styles.menuItem}
                             >
                                 <View style={styles.iconBox}>
@@ -197,6 +197,7 @@ const SideMenu = ({ isOpen, onClose }) => {
                                 <Text style={styles.menuItemLabel}>Help & Support</Text>
                                 <ExternalLink size={12} color="#475569" />
                             </TouchableOpacity>
+
                         </View>
                     </ScrollView>
 

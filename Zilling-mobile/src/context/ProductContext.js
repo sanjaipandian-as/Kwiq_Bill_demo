@@ -15,8 +15,7 @@ export const ProductProvider = ({ children }) => {
   // octal parsing bugs. Barcode is sanitized to a plain string.
   const normalizeVariants = (variants) => {
     if (!Array.isArray(variants)) return [];
-    return variants.map(v => {
-      if (!v || typeof v !== 'object') return null; // Skip corrupted entries
+    return variants.filter(v => v && typeof v === 'object').map(v => {
       const computedCost = parseFloat(
         (v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '')
           ? v.cost_price
@@ -44,10 +43,11 @@ export const ProductProvider = ({ children }) => {
         stock: parseInt(rawStock, 10) || 0, // explicit radix 10
         tax_rate: parseFloat(v.tax_rate || v.taxRate || 0) || 0,
       };
-    }).filter(Boolean); // Remove any null entries from corrupted data
+    }); // filter(Boolean) removed as we now filter before map
   };
 
-  const { user } = require('./AuthContext').useAuth();
+  const auth = require('./AuthContext').useAuth();
+  const user = auth ? auth.user : null;
 
   // Initial load from SQLite - reload when user changes
   useEffect(() => {
@@ -58,8 +58,9 @@ export const ProductProvider = ({ children }) => {
         return;
       }
       try {
-        const data = await db.getAllAsync('SELECT * FROM products ORDER BY name ASC');
+        const data = await db.getAllAsync('SELECT * FROM products WHERE is_deleted = 0 ORDER BY name ASC');
         setProducts(data || []);
+
       } catch (err) {
         console.error('Failed to load products:', err);
       } finally {
@@ -83,27 +84,40 @@ export const ProductProvider = ({ children }) => {
     };
   }, [user?.id]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = React.useCallback(async () => {
     setLoading(true);
     try {
-      const data = await db.getAllAsync('SELECT * FROM products ORDER BY name ASC');
+      const data = await db.getAllAsync('SELECT * FROM products WHERE is_deleted = 0 ORDER BY name ASC');
       setProducts(data || []);
+
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const addProduct = async (data) => {
+  const fetchDeletedProducts = React.useCallback(async () => {
+    try {
+      const data = await db.getAllAsync('SELECT * FROM products WHERE is_deleted = 1 ORDER BY name ASC');
+      return data || [];
+    } catch (err) {
+      console.error('Fetch deleted products error:', err);
+      return [];
+    }
+  }, []);
+
+  const addProduct = React.useCallback(async (data) => {
+
     try {
       const id = data.id || Date.now().toString();
       const sku = data.sku || data.barcode || "";
 
       const normalizedVariants = normalizeVariants(data.variants);
       await db.runAsync(
-        `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, data.name, sku, data.category, data.price, data.costPrice || 0, data.stock || 0, data.minStock || 0, data.unit, data.tax_rate, JSON.stringify(normalizedVariants), data.variant || null, new Date().toISOString()]
+        `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, is_deleted) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, data.name, sku, data.category, data.price, data.costPrice || 0, data.stock || 0, data.minStock || 0, data.unit, data.tax_rate, JSON.stringify(normalizedVariants), data.variant || null, new Date().toISOString(), 0]
       );
+
 
       const newProduct = {
         ...data,
@@ -135,9 +149,9 @@ export const ProductProvider = ({ children }) => {
       console.error('Add Product SQL Error:', err);
       throw err;
     }
-  };
+  }, []);
 
-  const updateProduct = async (id, data) => {
+  const updateProduct = React.useCallback(async (id, data) => {
     try {
       const sku = data.barcode || data.sku || "";
       console.log(`[ProductContext] Update Product ID: ${id}, SKU: ${sku}`);
@@ -157,7 +171,7 @@ export const ProductProvider = ({ children }) => {
       } catch (err) {}
 
       await db.runAsync(
-        `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, cost_price = ?, stock = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, cost_price = ?, stock = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ?, is_deleted = ? WHERE id = ?`,
         [
           data.name,
           sku,
@@ -171,9 +185,11 @@ export const ProductProvider = ({ children }) => {
           JSON.stringify(normalizedVariants),
           data.variant || null,
           new Date().toISOString(),
+          data.is_deleted ? 1 : 0,
           id
         ]
       );
+
 
       setProducts(prev => prev.map(p => p.id === id ? {
         ...p,
@@ -224,11 +240,11 @@ export const ProductProvider = ({ children }) => {
       console.error('Update Product SQL Error:', err);
       throw err;
     }
-  };
+  }, []);
 
-  const deleteProduct = async (id) => {
+  const deleteProduct = React.useCallback(async (id) => {
     try {
-      await db.runAsync('DELETE FROM products WHERE id = ?', [id]);
+      await db.runAsync('UPDATE products SET is_deleted = 1, updated_at = ? WHERE id = ?', [new Date().toISOString(), id]);
       setProducts(prev => prev.filter(p => p.id !== id));
 
       // [AutoSave]
@@ -236,7 +252,11 @@ export const ProductProvider = ({ children }) => {
 
       // [Sync]
       try {
-        SyncService.createAndUploadEvent(EventTypes.PRODUCT_DELETED, { id });
+        // We sync as an update with is_deleted=1 to ensure other devices also soft-delete
+        const product = await db.getFirstAsync('SELECT * FROM products WHERE id = ?', [id]);
+        if (product) {
+          SyncService.createAndUploadEvent(EventTypes.PRODUCT_UPDATED, { ...product, is_deleted: 1 });
+        }
       } catch (e) {
         console.log('Sync Delete Product Error:', e);
       }
@@ -244,13 +264,13 @@ export const ProductProvider = ({ children }) => {
       console.error('Delete Product SQL Error:', err);
       throw err;
     }
-  };
+  }, []);
 
-  const bulkDeleteProducts = async (ids) => {
+  const bulkDeleteProducts = React.useCallback(async (ids) => {
     if (!ids || ids.length === 0) return;
     try {
       const placeholders = ids.map(() => '?').join(',');
-      await db.runAsync(`DELETE FROM products WHERE id IN (${placeholders})`, ids);
+      await db.runAsync(`UPDATE products SET is_deleted = 1, updated_at = ? WHERE id IN (${placeholders})`, [new Date().toISOString(), ...ids]);
 
       setProducts(prev => prev.filter(p => !ids.includes(p.id)));
 
@@ -259,9 +279,12 @@ export const ProductProvider = ({ children }) => {
 
       // [Sync]
       try {
-        ids.forEach(id => {
-          SyncService.createAndUploadEvent(EventTypes.PRODUCT_DELETED, { id });
-        });
+        for (const id of ids) {
+          const product = await db.getFirstAsync('SELECT * FROM products WHERE id = ?', [id]);
+          if (product) {
+            SyncService.createAndUploadEvent(EventTypes.PRODUCT_UPDATED, { ...product, is_deleted: 1 });
+          }
+        }
       } catch (e) {
         console.log('Sync Bulk Delete Product Error:', e);
       }
@@ -269,9 +292,47 @@ export const ProductProvider = ({ children }) => {
       console.error('Bulk Delete Product SQL Error:', err);
       throw err;
     }
-  };
+  }, []);
 
-  const updateStock = async (id, newStock, newMinStock = null) => {
+  const restoreProduct = React.useCallback(async (id) => {
+    try {
+      await db.runAsync('UPDATE products SET is_deleted = 0, updated_at = ? WHERE id = ?', [new Date().toISOString(), id]);
+      
+      // Refresh local state
+      const data = await db.getAllAsync('SELECT * FROM products WHERE is_deleted = 0 ORDER BY name ASC');
+      setProducts(data || []);
+
+      // [Sync]
+      try {
+        const product = await db.getFirstAsync('SELECT * FROM products WHERE id = ?', [id]);
+        if (product) {
+          SyncService.createAndUploadEvent(EventTypes.PRODUCT_UPDATED, { ...product, is_deleted: 0 });
+        }
+      } catch (e) { }
+
+      triggerAutoSave();
+    } catch (err) {
+      console.error('Restore Product SQL Error:', err);
+      throw err;
+    }
+  }, []);
+
+  const permanentlyDeleteProduct = React.useCallback(async (id) => {
+    try {
+      await db.runAsync('DELETE FROM products WHERE id = ?', [id]);
+      // [Sync]
+      try {
+        SyncService.createAndUploadEvent(EventTypes.PRODUCT_DELETED, { id });
+      } catch (e) { }
+      triggerAutoSave();
+    } catch (err) {
+      console.error('Permanent Delete Product SQL Error:', err);
+      throw err;
+    }
+  }, []);
+
+
+  const updateStock = React.useCallback(async (id, newStock, newMinStock = null) => {
     try {
       if (newMinStock !== null) {
         await db.runAsync('UPDATE products SET stock = ?, min_stock = ? WHERE id = ?', [newStock, newMinStock, id]);
@@ -297,9 +358,9 @@ export const ProductProvider = ({ children }) => {
       console.error('Update Stock SQL Error:', err);
       throw err;
     }
-  };
+  }, []);
 
-  const importProducts = async (productsArray) => {
+  const importProducts = React.useCallback(async (productsArray) => {
     setLoading(true);
     try {
       const productsToInsert = [];
@@ -322,7 +383,8 @@ export const ProductProvider = ({ children }) => {
           variants: normalizeVariants(p.variants),
           variant: p.variant || null,
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          is_deleted: 0
         };
         productsToInsert.push(productObj);
       }
@@ -331,11 +393,11 @@ export const ProductProvider = ({ children }) => {
       await db.withTransactionAsync(async () => {
         for (const p of productsToInsert) {
           await db.runAsync(
-            `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at, is_deleted) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               p.id, p.name, p.sku, p.category, p.price, p.cost_price, p.stock, p.min_stock || 0, p.unit, p.tax_rate,
-              JSON.stringify(p.variants), p.variant, p.created_at, p.updated_at
+              JSON.stringify(p.variants), p.variant, p.created_at, p.updated_at, p.is_deleted
             ]
           );
         }
@@ -351,8 +413,9 @@ export const ProductProvider = ({ children }) => {
       }
 
       // Refresh local state
-      const data = await db.getAllAsync('SELECT * FROM products ORDER BY name ASC');
+      const data = await db.getAllAsync('SELECT * FROM products WHERE is_deleted = 0 ORDER BY name ASC');
       setProducts(data || []);
+
 
       triggerAutoSave();
       return true;
@@ -362,20 +425,39 @@ export const ProductProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchProducts]);
+
+  const value = React.useMemo(() => ({
+    products,
+    loading,
+    fetchProducts,
+    addProduct,
+    updateProduct,
+    deleteProduct,
+    bulkDeleteProducts,
+    updateStock,
+    importProducts,
+    fetchDeletedProducts,
+    restoreProduct,
+    permanentlyDeleteProduct
+  }), [
+    products,
+    loading,
+    fetchProducts,
+    addProduct,
+    updateProduct,
+    deleteProduct,
+    bulkDeleteProducts,
+    updateStock,
+    importProducts,
+    fetchDeletedProducts,
+    restoreProduct,
+    permanentlyDeleteProduct
+  ]);
+
 
   return (
-    <ProductContext.Provider value={{
-      products,
-      loading,
-      fetchProducts,
-      addProduct,
-      updateProduct,
-      deleteProduct,
-      bulkDeleteProducts,
-      updateStock,
-      importProducts
-    }}>
+    <ProductContext.Provider value={value}>
       {children}
     </ProductContext.Provider>
   );

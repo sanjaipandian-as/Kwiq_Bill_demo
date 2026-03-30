@@ -15,6 +15,7 @@ import {
   Image,
   Modal as RNModal,
   TouchableOpacity,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -84,7 +85,10 @@ export default function ExpensesPage() {
   const [receiptPreview, setReceiptPreview] = useState(null); // for full-screen receipt view
 
   useEffect(() => {
-    fetchExpenses();
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchExpenses();
+    });
+    return () => task.cancel();
   }, []);
 
   // Selection Logic

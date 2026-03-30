@@ -6,7 +6,8 @@ import {
   ReceiptText,
   Boxes,
   UserRound,
-  Settings2
+  Settings2,
+  CloudSync
 } from 'lucide-react-native';
 
 import Dashboard from '../pages/Dashboard';
@@ -14,13 +15,48 @@ import Billing from '../pages/Billing/BillingPage';
 import Products from '../pages/Products/ProductListScreen';
 import Customers from '../pages/customers/CustomerPage';
 import Settings from '../pages/Settings/SettingsPage';
+import { useSettings } from '../context/SettingsContext';
+import { debouncedTabNavigate } from '../utils/navigationUtils';
+import { DeviceEventEmitter } from 'react-native';
+import { SYNC_EVENTS } from '../services/OneWaySyncService';
 
 const { width } = Dimensions.get('window');
 const Tab = createBottomTabNavigator();
 
+const SyncStatusBadge = () => {
+    const { isUploading } = useSettings();
+    const [isSyncing, setIsSyncing] = React.useState(false);
+    const [opacity] = React.useState(new Animated.Value(0));
+
+    React.useEffect(() => {
+        const sub1 = DeviceEventEmitter.addListener(SYNC_EVENTS.SYNC_STARTED, () => setIsSyncing(true));
+        const sub2 = DeviceEventEmitter.addListener(SYNC_EVENTS.SYNC_COMPLETED, () => setIsSyncing(false));
+        return () => {
+            sub1.remove();
+            sub2.remove();
+        };
+    }, []);
+
+    React.useEffect(() => {
+        if (isUploading || isSyncing) {
+            Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+        } else {
+            Animated.timing(opacity, { toValue: 0, duration: 400, useNativeDriver: true }).start();
+        }
+    }, [isUploading, isSyncing]);
+
+    return (
+        <Animated.View style={[styles.syncBadge, { opacity }]}>
+            <CloudSync color="#3b82f6" size={12} strokeWidth={2.5} />
+            <Text style={styles.syncText}>{isSyncing ? "Checking Cloud..." : "Syncing Data..."}</Text>
+        </Animated.View>
+    );
+};
+
 const CustomTabBar = ({ state, descriptors, navigation }) => {
   return (
     <View style={styles.navWrapper}>
+      <SyncStatusBadge />
       <View style={styles.dockInner}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
@@ -35,7 +71,7 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
             });
 
             if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
+              debouncedTabNavigate(navigation, route.name);
             }
           };
 
@@ -153,5 +189,31 @@ const styles = StyleSheet.create({
     color: '#000000',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+  },
+  syncBadge: {
+    position: 'absolute',
+    top: -30,
+    right: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  syncText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#3b82f6',
+    marginLeft: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   }
 });

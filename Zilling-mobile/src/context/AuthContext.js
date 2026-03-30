@@ -4,6 +4,7 @@ import { saveUserDetailsToDrive, syncUserDataToDrive, restoreUserDataFromDrive }
 import { fetchAllTableData, clearDatabase, db, switchUserDatabase } from '../services/database';
 import services from '../services/api';
 import * as SecureStore from 'expo-secure-store';
+import { clearSensitiveStoreData } from '../utils/storageKeys';
 
 const AuthContext = createContext(null);
 
@@ -22,32 +23,78 @@ export const AuthProvider = ({ children }) => {
     } finally {
       // Save their email before removing the user object so we know who the local DB belongs to
       const currentUserStr = await AsyncStorage.getItem('user');
+      let currentEmail = null;
       if (currentUserStr) {
         try {
           const u = JSON.parse(currentUserStr);
-          if (u.email) await AsyncStorage.setItem('last_logged_in_email', u.email);
+          if (u.email) {
+            currentEmail = u.email;
+            await AsyncStorage.setItem('last_logged_in_email', u.email);
+          }
+        } catch (e) { }
+      }
+
+      // ── STEP 1: Clear sensitive session-scoped store & bank data ──
+      // This ensures next login always fetches fresh data from the server.
+      // Auth preferences and last-used email are intentionally kept.
+      await clearSensitiveStoreData(currentEmail);
+
+      // CRITICAL: Wipe session and tokens
+      await SecureStore.deleteItemAsync('token');
+      
+      // 🛡️ SECURITY FIX: Clear all master keys and security metadata on logout.
+      // This ensures that when a new user logs in, they don't inherit the previous user's Master Key,
+      // which would cause decryption failures for their own vault.
+      try {
+        const { SECURE_KEYS } = require('../services/SecurityService');
+        await Promise.all(
+          Object.values(SECURE_KEYS).map(key => SecureStore.deleteItemAsync(key).catch(() => {}))
+        );
+      } catch (e) {
+        // Fallback for direct deletion if service import fails
+        ['kwiq.master_key', 'kwiq.hmac_key', 'kwiq.pin_hash', 'kwiq.pin_salt', 'kwiq.lockout_meta'].forEach(async key => {
+           await SecureStore.deleteItemAsync(key).catch(() => {});
+        });
+      }
+
+      // Wipe ALL session-specific AsyncStorage keys
+      const { SESSION_KEYS } = require('../utils/storageKeys');
+      await Promise.all(
+        Object.values(SESSION_KEYS).map(key => AsyncStorage.removeItem(key).catch(() => {}))
+      );
+
+      // Clear sync in-memory cache and wait for DB to close 
+      const { SyncService } = require('../services/OneWaySyncService');
+      const { logoutDB } = require('../services/database');
+      
+      // 🟢 CRITICAL: Wipe module caches
+      SyncService.logout();
+      
+      // 🟢 CRITICAL: Wait for handle to close BEFORE clearing user state
+      await logoutDB(); 
+
+      // 🛡️ SECURITY: Explicitly invalidate the local access token for this user
+      if (currentEmail) {
+        try {
+          const tokenKey = `local_access_token_${currentEmail.replace(/[@.]/g, '_')}`;
+          await AsyncStorage.removeItem(tokenKey);
         } catch (e) { }
       }
 
       setUser(null);
-      await SecureStore.deleteItemAsync('token');
-      await AsyncStorage.removeItem('user');
-      await AsyncStorage.removeItem('just_logged_in');
-
-      // Clear sync in-memory cache
-      const { SyncService } = require('../services/OneWaySyncService');
-      const { logoutDB } = require('../services/database');
-      SyncService.logout();
-      logoutDB();
-
-      // We NO LONGER wipe the database or sync state on logout.
-      // This preserves the data for instant loading if the same user logs back in.
-      // Wiping now exclusively happens in googleLogin() if a DIFFERENT user logs in.
     }
   }, []);
 
   const refreshUser = useCallback(async () => {
     try {
+      // PRO-GRADE THROTTLE: Don't hit the backend if we refreshed in the last 5 minutes
+      const lastFresh = await AsyncStorage.getItem('last_user_refresh_ts');
+      const now = Date.now();
+      if (lastFresh && (now - parseInt(lastFresh) < 5 * 60 * 1000)) {
+        console.log('[Auth] Profile is still fresh, skipping backend hit.');
+        return user;
+      }
+
       const token = await SecureStore.getItemAsync('token');
       if (!token) return null;
 
@@ -59,16 +106,18 @@ export const AuthProvider = ({ children }) => {
         const updatedUser = {
           ...userData,
           backendId: latestUser.id,
-          role: latestUser.role, // Added role
+          role: latestUser.role,
           trialExpiresAt: latestUser.trialExpiresAt,
           plan: latestUser.plan,
           planExpiresAt: latestUser.planExpiresAt,
           isBlocked: latestUser.isBlocked,
+          encryptedMasterKeyBackup: latestUser.encryptedMasterKeyBackup,
         };
         
         await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+        await AsyncStorage.setItem('last_user_refresh_ts', String(now));
         setUser(updatedUser);
-        console.log('[Auth] User profile refreshed from backend. Role:', latestUser.role, 'Plan:', latestUser.plan);
+        console.log('[Auth] User profile refreshed. Role:', latestUser.role);
         return updatedUser;
       }
     } catch (error) {
@@ -78,7 +127,7 @@ export const AuthProvider = ({ children }) => {
       }
     }
     return null;
-  }, [logout]);
+  }, [logout, user]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -95,16 +144,19 @@ export const AuthProvider = ({ children }) => {
           // PRODUCTION GRADE: Immediately switch to the correct user database file
           await switchUserDatabase(userData.email);
           setUser(userData);
-          // Auto-refresh from backend
-          await refreshUser();
+          setIsLoading(false); // 🚀 UNLOCK AUTH UI IMMEDIATELY
+
+          // Auto-refresh from backend in background
+          refreshUser().catch(() => {});
         } else if (savedUserDataStr && !currentUser) {
           // Attempt silent sign-in if we have a saved user but no active session object
           try {
             const user = await GoogleSignin.signInSilently();
             if (user) {
-              setUser(JSON.parse(savedUserDataStr));
-              // Auto-refresh from backend
-              await refreshUser();
+              const u = JSON.parse(savedUserDataStr);
+              setUser(u);
+              setIsLoading(false); // 🚀 UNLOCK AUTH UI IMMEDIATELY
+              refreshUser().catch(() => {});
             } else {
               await logout(); // Clear everything if session is truly gone
             }
@@ -151,6 +203,7 @@ export const AuthProvider = ({ children }) => {
         if (authResponse.user.plan) userData.plan = authResponse.user.plan;
         if (authResponse.user.planExpiresAt) userData.planExpiresAt = authResponse.user.planExpiresAt;
         if (authResponse.user.isBlocked !== undefined) userData.isBlocked = authResponse.user.isBlocked;
+        if (authResponse.user.encryptedMasterKeyBackup) userData.encryptedMasterKeyBackup = authResponse.user.encryptedMasterKeyBackup;
       }
       // 3. Save secure token
       if (backendToken && backendToken !== idToken) {
@@ -163,8 +216,16 @@ export const AuthProvider = ({ children }) => {
       await AsyncStorage.setItem('user', JSON.stringify(userData));
 
       // PRODUCTION GRADE: Physically isolate this user's data into their own .db file.
-      // This ensures User B can NEVER see User A's data even if sync fails.
       await switchUserDatabase(userData.email);
+
+      // --- 🛡️ SECURITY LAYER WARM-UP ---
+      if (onProgress) onProgress('Engaging Security Layer...', 0.08);
+      const { SyncService } = require('../services/OneWaySyncService');
+      SyncService.setSyncContext(userData.email);
+      
+      const { prewarmEncryptionKeys } = require('../services/googleDriveservices');
+      await prewarmEncryptionKeys(userData.email);
+      if (onProgress) onProgress('Synchronizing Cloud Vaults...', 0.12);
 
       // 4. RESTORE: Fetch Snapshot & Settings from Drive
       try {
@@ -189,28 +250,30 @@ export const AuthProvider = ({ children }) => {
         }
 
         if (needsFullRestore) {
-          if (onProgress) onProgress('Locating baseline snapshot...', 0.2);
+          if (onProgress) onProgress('Locating baseline snapshot...', 0.15);
           
           const { SyncService } = require('../services/OneWaySyncService');
           
           // 1. Try Rapid Snapshot Hardware Restore
           const snapshotSuccess = await SyncService.restoreFromLatestSnapshot((msg, prog) => {
-            if (onProgress) onProgress(msg, 0.2 + (prog * 0.3));
+            if (onProgress) onProgress(msg, 0.15 + (prog * 0.35)); // 15% -> 50%
           });
 
           if (!snapshotSuccess) {
             console.log('[Auth] No snapshots found, falling back to full Drive restoration.');
-            if (onProgress) onProgress('Searching for legacy backups...', 0.3);
+            if (onProgress) onProgress('Searching for legacy backups...', 0.2);
             
             // 2. Fallback to Legacy/Desktop Restoration Logic
             await SyncService.resetSyncState(); 
             await restoreUserDataFromDrive(userData, (msg, prog, stats) => {
-              if (onProgress) onProgress(msg, prog, stats);
+              // restoreUserDataFromDrive internally uses its own range, 
+              // but we wrap it into our linear flow here
+              if (onProgress) onProgress(msg, 0.2 + (prog * 0.3), stats); // 20% -> 50%
             });
           }
         } else {
           console.log('[Auth] Skipped Drive restore. Local data belongs to ' + userData.email);
-          if (onProgress) onProgress('Loading local storage...', 0.5);
+          if (onProgress) onProgress('Loading local storage...', 0.4);
         }
       } catch (restoreErr) {
         console.error('Restore failed:', restoreErr);
@@ -219,17 +282,22 @@ export const AuthProvider = ({ children }) => {
       // 6. AUTO-SYNC: Sync Down Events (Apply deltas)
       try {
         console.log('Starting Initial Sync Down...');
-        if (onProgress) onProgress('Syncing transactions...', 0.65);
+        if (onProgress) onProgress('Syncing transactions...', 0.5);
 
         const { SyncService } = require('../services/OneWaySyncService');
 
         // Custom progress handler for the sync service 
         const syncProgressHandler = (msg, progress, stats) => {
-          if (onProgress) onProgress(msg, progress || 0.75, stats);
+          if (onProgress) onProgress(msg, progress || 0.55, stats);
         };
 
+        // FORCE SYNC (Bypass cooldown on first login)
         await SyncService.syncDown(syncProgressHandler);
 
+        // --- NEW: Restore Security Vault (Staff & PIN Metadata) ---
+        if (onProgress) onProgress('Restoring security vault...', 0.9);
+        const { SecurityService } = require('../services/SecurityService');
+        await SecurityService.getReceptionists(userData); 
         if (onProgress) onProgress('Updating cloud backup...', 0.95);
         await saveUserDetailsToDrive(userData);
       } catch (syncError) {
@@ -237,9 +305,34 @@ export const AuthProvider = ({ children }) => {
       }
 
       // 5. Update State & Persist
-      if (onProgress) onProgress('Finishing up...', 1.0);
-      await new Promise(r => setTimeout(r, 800)); 
+      if (onProgress) onProgress('Finalizing local records...', 0.97);
+      
+      // ── MANDATORY POST-LOGIN FETCH ──
+      // Always pull the latest store & bank details from MongoDB right after login.
+      // This ensures the user never sees stale cached data from a previous session.
+      // The settings cache was cleared at logout, so AsyncStorage has no store data yet.
+      if (onProgress) onProgress('Fetching your store profile...', 0.98);
+      try {
+        const { getUserSpecificKey, SETTINGS_KEY: SK } = require('../utils/storageKeys');
+        const settingsKey = getUserSpecificKey(SK, userData.email);
 
+        const freshResponse = await services.settings.getSettings();
+        const freshSettings = freshResponse?.data || freshResponse;
+
+        if (freshSettings) {
+          // Persist to user-specific AsyncStorage key so SettingsContext loads it instantly
+          await AsyncStorage.setItem(settingsKey, JSON.stringify(freshSettings));
+          console.log('[Auth] ✅ Fresh store/bank settings fetched and cached for:', userData.email);
+        }
+      } catch (settingsErr) {
+        // Non-fatal: SettingsContext will fetch on its own if this fails
+        console.warn('[Auth] Post-login settings fetch failed (non-fatal):', settingsErr.message);
+      }
+
+      if (onProgress) onProgress('Finalizing...', 1.0);
+      
+      // CRITICAL: Longer delay for old phones to allow SQLite and Contexts to finish indexing
+      await new Promise(r => setTimeout(r, 1500)); 
 
       // Prevent SettingsContext from running a duplicate sync instantly
       await AsyncStorage.setItem('just_logged_in', 'true');

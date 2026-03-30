@@ -17,6 +17,9 @@ const settingsRoutes = require('./routes/settingsRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const broadcastRoutes = require('./routes/broadcastRoutes');
 const securityRoutes = require('./routes/securityRoutes');
+const customizeRequestRoutes = require('./routes/customizeRequestRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const backupRoutes = require('./routes/backupRoutes');
 
 const app = express();
 
@@ -84,7 +87,7 @@ app.use(globalLimiter);
 // Stricter rate limits for sensitive endpoints
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // 20 auth attempts per 15 min
+    max: process.env.NODE_ENV === 'development' ? 500 : 20, // 500 in dev, 20 in prod
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
@@ -99,6 +102,24 @@ const recoveryLimiter = rateLimit({
     message: { error: 'Too many recovery attempts. Please try again in 1 hour.' },
 });
 
+
+// NEW: Strict rate limit for Payment orders to prevent carding attacks
+const paymentLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: process.env.NODE_ENV === 'development' ? 100 : 5, // 100 in dev for testing, 5 in prod
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Payment attempt limit reached. Please try again in 1 hour.' },
+});
+
+// NEW: Rate limit for Customization requests (max 5 per hour)
+const customizeOrderLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: process.env.NODE_ENV === 'development' ? 100 : 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Customize request limit reached. Please try again in 1 hour.' },
+});
 
 // Serve static files from uploads directory with CORS
 app.use('/uploads', cors(), express.static(path.join(__dirname, '../uploads')));
@@ -134,6 +155,9 @@ app.use('/settings', settingsRoutes);
 app.use('/broadcasts', broadcastRoutes);
 app.use('/security/recover', recoveryLimiter); // Fix #9: Recovery endpoint rate limited
 app.use('/security', securityRoutes);
+app.use('/customize-requests', customizeOrderLimiter, customizeRequestRoutes);
+app.use('/payment', paymentLimiter, paymentRoutes);
+app.use('/backup', backupRoutes);
 
 app.use('/admin', adminRoutes);
 

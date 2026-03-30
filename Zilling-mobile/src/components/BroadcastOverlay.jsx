@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, Dimensions, Animated, Platform } from 'react-native';
-import { Megaphone, X, Bell, Info, AlertTriangle, ChevronRight, Volume2, ShieldAlert, Wrench } from 'lucide-react-native';
+import { View, Text, StyleSheet, Pressable, Dimensions, Animated, Platform, ScrollView } from 'react-native';
+import { Megaphone, X, Bell, Info, AlertTriangle, ChevronRight, Volume2, ShieldAlert, Wrench, Clock } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { services } from '../services/api';
@@ -9,7 +9,8 @@ import { useAuth } from '../context/AuthContext';
 const { width } = Dimensions.get('window');
 
 const BroadcastOverlay = () => {
-    const { user } = useAuth();
+    const auth = useAuth();
+    const user = auth ? auth.user : null;
     const [broadcast, setBroadcast] = useState(null);
     const [visible, setVisible] = useState(false);
     
@@ -29,13 +30,23 @@ const BroadcastOverlay = () => {
             const res = await services.broadcasts.getLatest();
             const latest = res.data;
 
-            if (latest) {
-                const seenId = await AsyncStorage.getItem(`seen_broadcast_${latest._id}`);
+            if (latest && latest._id) {
+                // Use user-specific key so it persists correctly per account on the device
+                const userKey = user?.email ? user.email.replace(/[@.]/g, '_') : 'guest';
+                const storageKey = `seen_broadcast_${userKey}_${latest._id}`;
                 
-                if (!seenId) {
+                const seenStatus = await AsyncStorage.getItem(storageKey);
+                
+                if (!seenStatus) {
                     setBroadcast(latest);
                     setVisible(true);
                     
+                    // PRO-LEVEL: Mark as seen immediately if it's just an announcement
+                    // This satisfies the "once they saw it, don't show again" request strictly
+                    if (latest.type === 'announcement') {
+                        await AsyncStorage.setItem(storageKey, 'true');
+                    }
+
                     // Sequence Animation
                     Animated.parallel([
                         Animated.spring(slideAnim, {
@@ -63,8 +74,10 @@ const BroadcastOverlay = () => {
     };
 
     const handleDismiss = async () => {
-        if (broadcast) {
-            await AsyncStorage.setItem(`seen_broadcast_${broadcast._id}`, 'true');
+        if (broadcast && broadcast._id) {
+            const userKey = user?.email ? user.email.replace(/[@.]/g, '_') : 'guest';
+            const storageKey = `seen_broadcast_${userKey}_${broadcast._id}`;
+            await AsyncStorage.setItem(storageKey, 'true');
         }
         
         Animated.parallel([
@@ -112,6 +125,26 @@ const BroadcastOverlay = () => {
     const theme = getTheme();
     const Icon = theme.icon;
 
+    const calcLifespan = () => {
+        if (!broadcast.startTime || !broadcast.expiryTime) return null;
+        const s = new Date(broadcast.startTime);
+        const e = new Date(broadcast.expiryTime);
+        if (isNaN(s.getTime()) || isNaN(e.getTime())) return null;
+        if (e <= s) return null;
+        const diff = e - s;
+        const totalMinutes = Math.floor(diff / (1000 * 60));
+        const hours = Math.floor(totalMinutes / 60);
+        const days = Math.floor(hours / 24);
+        const remHours = hours % 24;
+        const remMinutes = totalMinutes % 60;
+        
+        if (days > 0) return `${days}d ${remHours}h`;
+        if (hours > 0) return `${hours}h ${remMinutes}m`;
+        return `${remMinutes}m`;
+    };
+
+    const duration = calcLifespan();
+
     return (
         <View style={styles.container} pointerEvents="box-none">
             <Animated.View style={[
@@ -124,45 +157,62 @@ const BroadcastOverlay = () => {
                     ]
                 }
             ]}>
-                <LinearGradient
-                    colors={theme.colors}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.card}
-                >
-                    {/* Header Pill */}
-                    <View style={styles.header}>
-                        <View style={[styles.typePill, { backgroundColor: theme.accent }]}>
-                            <Icon size={12} color={theme.text} />
-                            <Text style={[styles.typeLabel, { color: theme.text }]}>{theme.label}</Text>
-                        </View>
-                        <Pressable onPress={handleDismiss} style={styles.closeBtn}>
-                            <X size={18} color={theme.text} />
-                        </Pressable>
+                {/* 1. Priority Tab */}
+                <View style={styles.tabContainer}>
+                    <View style={[styles.priorityTab, { borderColor: theme.colors[0], backgroundColor: '#fff' }]}>
+                        <Text style={[styles.priorityText, { color: theme.colors[0] }]}>
+                            {String(broadcast.priority || 'NORMAL').toUpperCase()} PRIORITY
+                        </Text>
                     </View>
+                </View>
 
-                    {/* Content Body */}
-                    <View style={styles.content}>
-                        <View style={styles.mainInfo}>
-                            <Text style={[styles.title, { color: theme.text }]}>{broadcast.title}</Text>
-                            <Text style={[styles.message, { color: theme.text }]} numberOfLines={3}>
-                                {broadcast.message}
-                            </Text>
-                        </View>
+                {/* 2. Main Alert Card */}
+                <View style={[styles.proCard, { borderColor: theme.colors[0] }]}>
+                    <View style={styles.cardHeader}>
+                        <Text style={styles.brandedHeader}>KWIQ BILL</Text>
                     </View>
+                    <View style={[styles.separator, { backgroundColor: theme.colors[0] }]} />
+                    
+                    <ScrollView style={styles.cardBody} bounces={false}>
+                        <View style={styles.contentSection}>
+                            <Text style={styles.metaLabel}>SIGNAL TITLE :</Text>
+                            <Text style={styles.mainTitle}>{broadcast.title}</Text>
+                        </View>
 
-                    {/* Premium Action Button */}
+                        <View style={styles.contentSection}>
+                            <Text style={styles.metaLabel}>MESSAGE CONTENT :</Text>
+                            <Text style={styles.mainMessage}>{broadcast.message}</Text>
+                        </View>
+
+                        {/* Temporal Footer */}
+                        <View style={styles.temporalFooter}>
+                            <View style={styles.tRow}>
+                                <Clock size={10} color="#94a3b8" />
+                                <Text style={styles.tText}>EMISSION: {new Date(broadcast.startTime || broadcast.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
+                            </View>
+                            <View style={styles.tRow}>
+                                <ChevronRight size={10} color="#94a3b8" />
+                                <Text style={styles.tText}>EXPIRY: {broadcast.expiryTime ? new Date(broadcast.expiryTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'PERPETUAL'}</Text>
+                            </View>
+                            
+                            {duration && (
+                                <View style={styles.durationPill}>
+                                    <Text style={styles.durationText}>TOTAL DURATION: {duration}</Text>
+                                </View>
+                            )}
+                        </View>
+                    </ScrollView>
+
                     <Pressable 
-                        onPress={handleDismiss} 
+                        onPress={handleDismiss}
                         style={({ pressed }) => [
-                            styles.actionBtn,
-                            { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }
+                            styles.dismissBtn,
+                            { backgroundColor: theme.colors[0], opacity: pressed ? 0.9 : 1 }
                         ]}
                     >
-                        <Text style={[styles.actionText, { color: theme.text }]}>ACKNOWLEDGE & DISMISS</Text>
-                        <ChevronRight size={14} color={theme.text} strokeWidth={3} />
+                        <Text style={styles.dismissText}>ACKNOWLEDGE SIGNAL</Text>
                     </Pressable>
-                </LinearGradient>
+                </View>
             </Animated.View>
         </View>
     );
@@ -175,11 +225,38 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
         zIndex: 9999,
-        paddingTop: Platform.OS === 'ios' ? 40 : 10,
+        paddingTop: Platform.OS === 'ios' ? 60 : 20,
         alignItems: 'center',
     },
     wrapper: {
-        width: width * 0.92,
+        width: width * 0.9,
+    },
+    tabContainer: {
+        width: '100%',
+        alignItems: 'center',
+        zIndex: 10,
+        marginBottom: -1,
+    },
+    priorityTab: {
+        paddingHorizontal: 20,
+        paddingVertical: 6,
+        borderWidth: 1.5,
+        borderBottomWidth: 0,
+        borderTopLeftRadius: 14,
+        borderTopRightRadius: 14,
+        minWidth: 160,
+        alignItems: 'center',
+    },
+    priorityText: {
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 1.5,
+    },
+    proCard: {
+        backgroundColor: '#fff',
+        borderRadius: 24,
+        borderWidth: 1.5,
+        overflow: 'hidden',
         ...Platform.select({
             ios: {
                 shadowColor: '#000',
@@ -192,67 +269,92 @@ const styles = StyleSheet.create({
             },
         }),
     },
-    card: {
-        borderRadius: 28,
-        padding: 20,
-        paddingTop: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        overflow: 'hidden',
-    },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+    cardHeader: {
+        paddingVertical: 12,
         alignItems: 'center',
+    },
+    brandedHeader: {
+        fontSize: 14,
+        fontWeight: '900',
+        letterSpacing: 4,
+        color: '#000',
+        marginLeft: 4,
+    },
+    separator: {
+        height: 1.5,
+        width: '100%',
+    },
+    cardBody: {
+        maxHeight: 400,
+        padding: 20,
+    },
+    contentSection: {
         marginBottom: 16,
     },
-    typePill: {
+    metaLabel: {
+        fontSize: 9,
+        fontWeight: '900',
+        color: '#94a3b8',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 4,
+    },
+    mainTitle: {
+        fontSize: 18,
+        fontWeight: '950',
+        color: '#000',
+        lineHeight: 22,
+    },
+    mainMessage: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#475569',
+        lineHeight: 18,
+    },
+    temporalFooter: {
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+        paddingTop: 12,
+        marginTop: 4,
+    },
+    tRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
+        marginBottom: 4,
+    },
+    tText: {
+        fontSize: 9,
+        fontWeight: '800',
+        color: '#94a3b8',
+        letterSpacing: 0.3,
+    },
+    durationPill: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#f1f5f9',
         paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 100,
+        paddingVertical: 5,
+        borderRadius: 8,
+        marginTop: 8,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
     },
-    typeLabel: {
-        fontSize: 10,
+    durationText: {
+        fontSize: 9,
         fontWeight: '900',
-        letterSpacing: 1,
+        color: '#0f172a',
+        letterSpacing: 0.5,
     },
-    closeBtn: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+    dismissBtn: {
+        paddingVertical: 18,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    content: {
-        marginBottom: 20,
-    },
-    title: {
-        fontSize: 18,
-        fontWeight: '900',
-        marginBottom: 8,
-        lineHeight: 22,
-    },
-    message: {
-        fontSize: 14,
-        lineHeight: 20,
-        fontWeight: '500',
-        opacity: 0.9,
-    },
-    actionBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 14,
-        borderRadius: 18,
-        gap: 8,
-    },
-    actionText: {
+    dismissText: {
         fontSize: 12,
         fontWeight: '900',
-        letterSpacing: 1,
+        color: '#fff',
+        letterSpacing: 2,
     }
 });
 

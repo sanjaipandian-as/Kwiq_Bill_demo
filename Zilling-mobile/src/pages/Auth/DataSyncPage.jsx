@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Dimensions, SafeAreaView, StatusBar, Animated, Platform, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, StatusBar, Animated, Platform, ActivityIndicator, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ShieldCheck, Cloud, CheckCircle2, FileCheck, FileWarning, Info } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import BrandLockup from '../../components/ui/BrandLockup';
@@ -9,17 +10,14 @@ import { APP_VERSION } from '../../config/version';
 
 const { width } = Dimensions.get('window');
 
-const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
+const DataSyncPage = ({ progressMessage, progressValue = 0, syncStats }) => {
     const fadeAnim = useRef(new Animated.Value(0)).current;
+    // Ensure barWidth starts exactly at 0 to fix the 35% jump
     const barWidth = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
-        // Main fade entry
-        Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-        }).start();
+        // Force opacity to 1 immediately to ensure content is visible even if thread is busy
+        fadeAnim.setValue(1);
     }, []);
 
     useEffect(() => {
@@ -31,6 +29,9 @@ const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
     }, [progressValue]);
 
     const isComplete = progressValue >= 1;
+    // Threshold adjusted: Only show Security Layer during real warm-up (tokens/keys)
+    // Once we reach 0.15 (Locating baseline), we transition to the actual Download Progress Bar.
+    const isInitializing = progressValue < 0.15; 
 
     // ─── DYNAMIC METRICS LOGIC ───
     // If syncStats are passed (from real-time event processing), use them.
@@ -45,7 +46,7 @@ const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
     const estTime = timeMatch ? timeMatch[1] : null;
 
     // Determine the message based on complete state
-    let displayMessage = progressMessage?.split(' (Est. time:')[0] || 'Aligning Your Data...';
+    let displayMessage = progressMessage?.split(' (Est. time:')[0] || (isInitializing ? 'Securing Data Environment...' : 'Preparing Secure Channel...');
     if (isComplete) {
         displayMessage = "Data was aligned. Opening app...";
     }
@@ -69,111 +70,127 @@ const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
             </View>
 
             <View style={styles.contentWrapper}>
-                <Animated.View style={[styles.inner, { opacity: fadeAnim }]}>
+                <Animated.View style={[styles.inner, { opacity: 1 }]}>
 
-                    <View style={styles.syncContainer}>
-                        <View style={styles.titleSection}>
-                            <Text style={styles.mainHeading}>Data Synchronization</Text>
-                            <Text style={styles.subHeading}>
-                                We are carefully retrieving your records from the cloud. This process ensures your data remains safe and error-free.
-                            </Text>
+                    {isInitializing ? (
+                        <View style={styles.initializingContainer}>
+                            <View style={styles.initHexagon}>
+                                <KwiqLoader size={48} color="#000000" />
+                                <View style={styles.shieldFloating}>
+                                    <ShieldCheck size={20} color="#000000" />
+                                </View>
+                            </View>
+                            <Text style={styles.initTitle}>Initializing Security Layer</Text>
+                            <Text style={styles.initSub}>Caching cryptographic protocols for secure cloud access. Please wait a moment...</Text>
+                            <View style={styles.initDots}>
+                                <View style={styles.dot} /><View style={[styles.dot, { opacity: 0.5 }]} /><View style={[styles.dot, { opacity: 0.2 }]} />
+                            </View>
                         </View>
+                    ) : (
+                        <View style={styles.syncContainer}>
+                            <View style={styles.titleSection}>
+                                <Text style={styles.mainHeading}>Data Synchronization</Text>
+                                <Text style={styles.subHeading}>
+                                    We are carefully retrieving your records from the cloud. This process ensures your data remains safe and error-free.
+                                </Text>
+                            </View>
 
-                        {/* ── PROGRESS SECTION: High-Contrast Mono ── */}
-                        <View style={styles.progressBox}>
-                            <View style={styles.statusRow}>
-                                <View style={styles.indicatorRow}>
-                                    {isComplete ? (
-                                        <CheckCircle2 size={24} color="#000000" />
-                                    ) : (
-                                        <KwiqLoader size={24} color="#000000" />
-                                    )}
-                                    <View>
-                                        <Text style={styles.statusLabel}>Current Status</Text>
-                                        <Text style={[styles.statusText, isComplete && styles.statusTextDone]}>
-                                            {isComplete ? 'Sync Complete' : (isAligning ? 'Aligning Data' : 'Syncing Cloud Records')}
+                            {/* ── PROGRESS SECTION: High-Contrast Mono ── */}
+                            <View style={styles.progressBox}>
+                                <View style={styles.statusRow}>
+                                    <View style={styles.indicatorRow}>
+                                        {isComplete ? (
+                                            <CheckCircle2 size={24} color="#000000" />
+                                        ) : (
+                                            <KwiqLoader size={24} color="#000000" />
+                                        )}
+                                        <View>
+                                            <Text style={styles.statusLabel}>Current Status</Text>
+                                            <Text style={[styles.statusText, isComplete && styles.statusTextDone]}>
+                                                {isComplete ? 'Sync Complete' : (isAligning ? 'Aligning Data' : 'Syncing Cloud Records')}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <Text style={styles.percentageText}>{Math.round(progressValue * 100)}%</Text>
+                                </View>
+
+                                <View style={styles.barContainer}>
+                                    <View style={styles.barTrack}>
+                                        <Animated.View
+                                            style={[
+                                                styles.barFill,
+                                                {
+                                                    width: barWidth.interpolate({
+                                                        inputRange: [0, 1],
+                                                        outputRange: ['0%', '100%'],
+                                                    }),
+                                                }
+                                            ]}
+                                        />
+                                    </View>
+                                    <View style={styles.taskLabelRow}>
+                                        <Cloud size={14} color="#666666" />
+                                        <Text style={styles.currentTaskText} numberOfLines={1}>
+                                            {progressMessage || 'Preparing cloud channel...'}
                                         </Text>
                                     </View>
                                 </View>
-                                <Text style={styles.percentageText}>{Math.round(progressValue * 100)}%</Text>
                             </View>
 
-                            <View style={styles.barContainer}>
-                                <View style={styles.barTrack}>
-                                    <Animated.View
-                                        style={[
-                                            styles.barFill,
-                                            {
-                                                width: barWidth.interpolate({
-                                                    inputRange: [0, 1],
-                                                    outputRange: ['0%', '100%'],
-                                                }),
-                                            }
-                                        ]}
-                                    />
+                            {/* ── SYNC METRICS: Vertical Improved Layout ── */}
+                            <View style={styles.metricsContainer}>
+                                <View style={styles.metricItemMono}>
+                                    <View style={styles.metricIconBox}>
+                                        <FileCheck size={20} color="#000000" />
+                                    </View>
+                                    <View style={styles.metricContent}>
+                                        <Text style={styles.metricTitle}>Total Cloud Records</Text>
+                                        <Text style={styles.metricSubtitle}>Awaiting bitwise verification from cloud</Text>
+                                    </View>
+                                    {totalFiles === '---' ? (
+                                        <ActivityIndicator size="small" color="#000000" style={{ marginLeft: 12 }} />
+                                    ) : (
+                                        <Text style={styles.metricValueLarge}>{totalFiles}</Text>
+                                    )}
                                 </View>
-                                <View style={styles.taskLabelRow}>
-                                    <Cloud size={14} color="#666666" />
-                                    <Text style={styles.currentTaskText} numberOfLines={1}>
-                                        {progressMessage || 'Preparing cloud channel...'}
-                                    </Text>
+
+                                <View style={styles.metricsTwoColumn}>
+                                    <View style={styles.metricSmallMono}>
+                                        <View style={styles.metricIconBoxSmall}>
+                                            <CheckCircle2 size={14} color="#000000" />
+                                        </View>
+                                        <View>
+                                            <Text style={styles.labelSmallMono}>Synced</Text>
+                                            {!syncStats ? (
+                                                <ActivityIndicator size="small" color="#000000" style={{ marginTop: 2 }} />
+                                            ) : (
+                                                <Text style={styles.valueSmallMono}>{syncedCount}</Text>
+                                            )}
+                                        </View>
+                                    </View>
+                                    <View style={styles.metricSmallMono}>
+                                        <View style={styles.metricIconBoxSmall}>
+                                            <FileWarning size={14} color="#000000" />
+                                        </View>
+                                        <View>
+                                            <Text style={styles.labelSmallMono}>Errors</Text>
+                                            <Text style={styles.valueSmallMono}>{errorCount}</Text>
+                                        </View>
+                                    </View>
                                 </View>
+                            </View>
+
+                            {/* ── REASSURANCE: Mono Style ── */}
+                            <View style={styles.infoNoteMono}>
+                                <View style={styles.infoIconWrapMono}>
+                                    <Info size={18} color="#000000" />
+                                </View>
+                                <Text style={styles.infoNoteTextMono}>
+                                    This page may take a moment to load as we are safely fetching your files from your Drive to prevent any errors. Thank you for your patience!
+                                </Text>
                             </View>
                         </View>
-
-                        {/* ── SYNC METRICS: Vertical Improved Layout ── */}
-                        <View style={styles.metricsContainer}>
-                            <View style={styles.metricItemMono}>
-                                <View style={styles.metricIconBox}>
-                                    <FileCheck size={20} color="#000000" />
-                                </View>
-                                <View style={styles.metricContent}>
-                                    <Text style={styles.metricTitle}>Total Cloud Records</Text>
-                                    <Text style={styles.metricSubtitle}>Awaiting bitwise verification from cloud</Text>
-                                </View>
-                                {totalFiles === '---' ? (
-                                    <ActivityIndicator size="small" color="#000000" style={{ marginLeft: 12 }} />
-                                ) : (
-                                    <Text style={styles.metricValueLarge}>{totalFiles}</Text>
-                                )}
-                            </View>
-
-                            <View style={styles.metricsTwoColumn}>
-                                <View style={styles.metricSmallMono}>
-                                    <View style={styles.metricIconBoxSmall}>
-                                        <CheckCircle2 size={14} color="#000000" />
-                                    </View>
-                                    <View>
-                                        <Text style={styles.labelSmallMono}>Synced</Text>
-                                        {!syncStats ? (
-                                            <ActivityIndicator size="small" color="#000000" style={{ marginTop: 2 }} />
-                                        ) : (
-                                            <Text style={styles.valueSmallMono}>{syncedCount}</Text>
-                                        )}
-                                    </View>
-                                </View>
-                                <View style={styles.metricSmallMono}>
-                                    <View style={styles.metricIconBoxSmall}>
-                                        <FileWarning size={14} color="#000000" />
-                                    </View>
-                                    <View>
-                                        <Text style={styles.labelSmallMono}>Errors</Text>
-                                        <Text style={styles.valueSmallMono}>{errorCount}</Text>
-                                    </View>
-                                </View>
-                            </View>
-                        </View>
-
-                        {/* ── REASSURANCE: Mono Style ── */}
-                        <View style={styles.infoNoteMono}>
-                            <View style={styles.infoIconWrapMono}>
-                                <Info size={18} color="#000000" />
-                            </View>
-                            <Text style={styles.infoNoteTextMono}>
-                                This page may take a moment to load as we are safely fetching your files from your Drive to prevent any errors. Thank you for your patience!
-                            </Text>
-                        </View>
-                    </View>
+                    )}
 
                     {/* ── FOOTER: Updated Version Channel ── */}
                     <View style={styles.footer}>
@@ -182,7 +199,6 @@ const DataSyncPage = ({ progressMessage, progressValue, syncStats }) => {
                             <Text style={styles.securityTextMono}>BANK-GRADE AES-256 PROTECTION</Text>
                         </View>
                         <Text style={styles.versionTextMono}>{APP_VERSION} · SECURE DATA CHANNEL · STABLE</Text>
-
                     </View>
                 </Animated.View>
             </View>
@@ -538,6 +554,60 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         color: '#000000',
         marginTop: 2,
+    },
+    /* ── New Init Styles ── */
+    initializingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 40,
+        marginTop: 40,
+    },
+    initHexagon: {
+        width: 100,
+        height: 100,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#F9F9F9',
+        borderRadius: 50,
+        marginBottom: 30,
+        borderWidth: 1,
+        borderColor: '#000000',
+    },
+    shieldFloating: {
+        position: 'absolute',
+        top: -5,
+        right: -5,
+        backgroundColor: '#FFFFFF',
+        padding: 6,
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: '#000000',
+    },
+    initTitle: {
+        fontSize: 20,
+        fontWeight: '950',
+        color: '#000000',
+        marginBottom: 12,
+        letterSpacing: -0.5,
+    },
+    initSub: {
+        fontSize: 13,
+        color: '#666666',
+        textAlign: 'center',
+        lineHeight: 18,
+        fontWeight: '600',
+    },
+    initDots: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 30,
+    },
+    dot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#000000',
     },
 });
 

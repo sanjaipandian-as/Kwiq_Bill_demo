@@ -20,17 +20,23 @@ import {
     Trash2,
     ChevronLeft,
     X,
-    History,
     Filter,
     Calendar,
     Clock,
     Globe,
     ChevronRight,
     ChevronLeft as ChevronLeftIcon,
-    ChevronRight as ChevronRightIcon
+    ChevronRight as ChevronRightIcon,
+    Package,
+    FileText,
+    TrendingDown,
+    Layers,
+    AlertCircle,
+    Info
 } from 'lucide-react-native';
 import { Input } from '../../components/ui/Input';
 import { useTransactions } from '../../context/TransactionContext';
+import { useProducts } from '../../context/ProductContext';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useToast } from '../../context/ToastContext';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,12 +44,16 @@ import { LinearGradient } from 'expo-linear-gradient';
 export default function RecycleBinPage() {
     const navigation = useNavigation();
     const { fetchDeletedTransactions, restoreTransaction, permanentlyDeleteTransaction, restoreAllInvoices, emptyRecycleBin } = useTransactions();
+    const { fetchDeletedProducts, restoreProduct, permanentlyDeleteProduct } = useProducts();
     const { showToast } = useToast();
+
+    const [activeTab, setActiveTab] = useState('invoices');
     const [deletedInvoices, setDeletedInvoices] = useState([]);
+    const [deletedProducts, setDeletedProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Date Filter State - GST Analytics Style
+    // Date Filter State
     const [period, setPeriod] = useState('All Time');
     const [selectedCustomDate, setSelectedCustomDate] = useState(null);
     const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -60,13 +70,27 @@ export default function RecycleBinPage() {
         cancelLabel: 'Cancel'
     });
 
+    const stats = React.useMemo(() => {
+        const invTotal = deletedInvoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
+        return {
+            invCount: deletedInvoices.length,
+            invTotal,
+            prodCount: deletedProducts.length,
+            totalItems: deletedInvoices.length + deletedProducts.length
+        };
+    }, [deletedInvoices, deletedProducts]);
+
     const loadDeleted = async () => {
         setLoading(true);
         try {
-            const data = await fetchDeletedTransactions();
-            setDeletedInvoices(data);
+            const [invoices, products] = await Promise.all([
+                fetchDeletedTransactions(),
+                fetchDeletedProducts()
+            ]);
+            setDeletedInvoices(invoices || []);
+            setDeletedProducts(products || []);
         } catch (err) {
-            showToast("Failed to load deleted invoices", "error");
+            showToast("Failed to load deleted items", "error");
         } finally {
             setLoading(false);
         }
@@ -80,18 +104,26 @@ export default function RecycleBinPage() {
         }, [])
     );
 
-    const handleRestore = (invoice) => {
+    const handleRestore = (item) => {
+        const isInvoice = activeTab === 'invoices';
         setConfirmModal({
             isOpen: true,
-            title: "RESTORE INVOICE",
-            message: `Restore Invoice #${invoice.invoiceNumber || invoice.id}?\n\nInventory stock will be deducted again upon restoration.`,
+            title: isInvoice ? "RESTORE INVOICE" : "RESTORE PRODUCT",
+            message: isInvoice 
+                ? `Restore Invoice #${item.invoiceNumber || item.id}?\n\nInventory stock will be deducted again upon restoration.`
+                : `Restore Product: ${item.name}?\n\nThis will add it back to your active inventory.`,
             variant: 'info',
             confirmLabel: 'RESTORE',
             cancelLabel: 'CANCEL',
             onConfirm: async () => {
                 try {
-                    await restoreTransaction(invoice.id);
-                    showToast("Invoice restored", "success");
+                    if (isInvoice) {
+                        await restoreTransaction(item.id);
+                        showToast("Invoice restored", "success");
+                    } else {
+                        await restoreProduct(item.id);
+                        showToast("Product restored", "success");
+                    }
                     loadDeleted();
                 } catch (err) {
                     showToast("Restoration failed", "error");
@@ -100,18 +132,26 @@ export default function RecycleBinPage() {
         });
     };
 
-    const handlePermanentDelete = (invoice) => {
+    const handlePermanentDelete = (item) => {
+        const isInvoice = activeTab === 'invoices';
         setConfirmModal({
             isOpen: true,
-            title: "DELETE PERMANENTLY",
-            message: `This action cannot be undone. Invoice #${invoice.invoiceNumber || invoice.id} will be lost forever.`,
+            title: isInvoice ? "DELETE PERMANENTLY" : "DELETE PRODUCT",
+            message: isInvoice
+                ? `This action cannot be undone. Invoice #${item.invoiceNumber || item.id} will be lost forever.`
+                : `Delete ${item.name} permanently?\n\nAll tracking and variants will be wiped forever!`,
             variant: 'danger',
             confirmLabel: 'DELETE FOREVER',
             cancelLabel: 'CANCEL',
             onConfirm: async () => {
                 try {
-                    await permanentlyDeleteTransaction(invoice.id);
-                    showToast("Invoice deleted permanently", "success");
+                    if (isInvoice) {
+                        await permanentlyDeleteTransaction(item.id);
+                        showToast("Invoice deleted permanently", "trash");
+                    } else {
+                        await permanentlyDeleteProduct(item.id);
+                        showToast(`"${item.name}" wiped forever`, "trash");
+                    }
                     loadDeleted();
                 } catch (err) {
                     showToast("Deletion failed", "error");
@@ -121,18 +161,26 @@ export default function RecycleBinPage() {
     };
 
     const handleRestoreAll = () => {
-        if (deletedInvoices.length === 0) return;
+        const itemsToRestore = activeTab === 'invoices' ? deletedInvoices : deletedProducts;
+        if (itemsToRestore.length === 0) return;
+
         setConfirmModal({
             isOpen: true,
-            title: "RESTORE ALL",
-            message: `Are you sure you want to restore all ${deletedInvoices.length} invoices?`,
+            title: `RESTORE ALL ${activeTab.toUpperCase()}`,
+            message: `Are you sure you want to restore all ${itemsToRestore.length} ${activeTab}?`,
             variant: 'info',
             confirmLabel: 'RESTORE ALL',
             cancelLabel: 'CANCEL',
             onConfirm: async () => {
                 try {
-                    await restoreAllInvoices();
-                    showToast("All invoices restored", "success");
+                    if (activeTab === 'invoices') {
+                        await restoreAllInvoices();
+                    } else {
+                        for (const p of deletedProducts) {
+                            await restoreProduct(p.id);
+                        }
+                    }
+                    showToast(`All ${activeTab} restored`, "success");
                     loadDeleted();
                 } catch (err) {
                     showToast("Restoration failed", "error");
@@ -142,18 +190,26 @@ export default function RecycleBinPage() {
     };
 
     const handleEmptyBin = () => {
-        if (deletedInvoices.length === 0) return;
+        const itemsInBin = activeTab === 'invoices' ? deletedInvoices : deletedProducts;
+        if (itemsInBin.length === 0) return;
+
         setConfirmModal({
             isOpen: true,
-            title: "EMPTY RECYCLE BIN",
-            message: "WARNING: This will permanently delete all items in the trash. This action cannot be undone.",
+            title: `EMPTY ${activeTab.toUpperCase()} BIN`,
+            message: `WARNING: This will permanently delete all ${activeTab} in the trash. This action cannot be undone.`,
             variant: 'danger',
             confirmLabel: 'EMPTY BIN',
             cancelLabel: 'CANCEL',
             onConfirm: async () => {
                 try {
-                    await emptyRecycleBin();
-                    showToast("Recycle bin cleared", "success");
+                    if (activeTab === 'invoices') {
+                        await emptyRecycleBin();
+                    } else {
+                        for (const p of deletedProducts) {
+                            await permanentlyDeleteProduct(p.id);
+                        }
+                    }
+                    showToast(`Recycle bin empty for ${activeTab}`, "trash");
                     loadDeleted();
                 } catch (err) {
                     showToast("Failed to empty bin", "error");
@@ -162,7 +218,6 @@ export default function RecycleBinPage() {
         });
     };
 
-    // Date Filter Functions
     const changePeriod = (p) => {
         setPeriod(p);
         setIsFilterOpen(false);
@@ -174,7 +229,6 @@ export default function RecycleBinPage() {
         setIsCalendarOpen(false);
     };
 
-    // Calendar Helpers
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
     const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
 
@@ -187,36 +241,43 @@ export default function RecycleBinPage() {
         setCurrentCalView(newDate);
     };
 
-    const filteredInvoices = deletedInvoices.filter(inv => {
-        const invId = inv.id || '';
-        const weeklyNo = inv.weekly_sequence?.toString() || '';
-        const customer = inv.customer_name || inv.customerName || '';
-        const matchesSearch = invId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            weeklyNo.includes(searchTerm) ||
-            customer.toLowerCase().includes(searchTerm.toLowerCase());
+    const filteredItems = (activeTab === 'invoices' ? deletedInvoices : deletedProducts).filter(item => {
+        let matchesSearch = false;
+        if (activeTab === 'invoices') {
+            const invId = item.id || '';
+            const weeklyNo = item.weekly_sequence?.toString() || '';
+            const customer = item.customer_name || item.customerName || '';
+            matchesSearch = invId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                weeklyNo.includes(searchTerm) ||
+                customer.toLowerCase().includes(searchTerm.toLowerCase());
+        } else {
+            const name = item.name || '';
+            const sku = item.sku || '';
+            matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                sku.toLowerCase().includes(searchTerm.toLowerCase());
+        }
 
-        // Date filtering
         let matchesDateFilter = true;
         const now = new Date();
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const invDate = new Date(inv.date);
+        const itemDate = new Date(item.date || item.updated_at || item.created_at);
 
         if (period === 'Today') {
-            matchesDateFilter = invDate >= startOfToday;
+            matchesDateFilter = itemDate >= startOfToday;
         } else if (period === 'Yesterday') {
             const yesterday = new Date(startOfToday);
             yesterday.setDate(yesterday.getDate() - 1);
-            matchesDateFilter = invDate >= yesterday && invDate < startOfToday;
+            matchesDateFilter = itemDate >= yesterday && itemDate < startOfToday;
         } else if (period === 'This Week') {
             const startOfWeek = new Date(startOfToday);
             startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay());
-            matchesDateFilter = invDate >= startOfWeek;
+            matchesDateFilter = itemDate >= startOfWeek;
         } else if (period === 'This Month') {
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-            matchesDateFilter = invDate >= startOfMonth;
+            matchesDateFilter = itemDate >= startOfMonth;
         } else if (period === 'This Year') {
             const startOfYear = new Date(now.getFullYear(), 0, 1);
-            matchesDateFilter = invDate >= startOfYear;
+            matchesDateFilter = itemDate >= startOfYear;
         } else if (period === 'All Time') {
             matchesDateFilter = true;
         } else if (period === 'Custom' && selectedCustomDate) {
@@ -224,71 +285,169 @@ export default function RecycleBinPage() {
             targetDate.setHours(0, 0, 0, 0);
             const endDate = new Date(targetDate);
             endDate.setDate(targetDate.getDate() + 1);
-            matchesDateFilter = invDate >= targetDate && invDate < endDate;
+            matchesDateFilter = itemDate >= targetDate && itemDate < endDate;
         }
 
         return matchesSearch && matchesDateFilter;
     });
 
-    const renderInvoiceItem = ({ item }) => (
-        <View style={styles.invoiceCard}>
-            <View style={styles.cardContent}>
-                <View style={styles.cardHeader}>
-                    <View>
-                        <Text style={styles.invoiceId}>{item.invoiceNumber || item.id?.toString().slice(-6).toUpperCase() || 'INV-TEMP'}</Text>
-                        <Text style={styles.customerName} numberOfLines={1}>{item.customer_name || item.customerName || 'Guest'}</Text>
-                        <Text style={styles.dateText}>{new Date(item.date).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+    const renderRecordItem = ({ item }) => {
+        const isInvoice = activeTab === 'invoices';
+        const deletedDate = new Date(item.updated_at || item.created_at || Date.now());
+        
+        let itemCount = 0;
+        if (isInvoice) {
+            try {
+                const items = typeof item.items === 'string' ? JSON.parse(item.items) : (item.items || []);
+                itemCount = items.length;
+            } catch (e) { itemCount = 0; }
+        }
+
+        return (
+            <View style={styles.invoiceCard}>
+                <View style={styles.cardMain}>
+                    <View style={styles.cardHeader}>
+                        <View style={{ flex: 1 }}>
+                            <View style={styles.rowCentered}>
+                                <Text style={styles.invoiceId}>{isInvoice ? (item.invoiceNumber || item.id?.toString().slice(-6).toUpperCase()) : (item.sku || 'SKU N/A')}</Text>
+                                <View style={styles.metaBadge}>
+                                    <Clock size={11} color="#64748b" />
+                                    <Text style={styles.metaBadgeText}>{deletedDate.toLocaleDateString()}</Text>
+                                </View>
+                            </View>
+                            <Text style={styles.recordName} numberOfLines={1}>{isInvoice ? (item.customer_name || item.customerName || 'Guest') : (item.name || 'Untitled Product')}</Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={styles.amount}>₹{(isInvoice ? item.total : item.price || 0).toLocaleString()}</Text>
+                            <Text style={styles.deletedAtLabel}>Trashed {deletedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                        </View>
                     </View>
-                    <View>
-                        <Text style={styles.amount}>₹{(item.total || 0).toLocaleString()}</Text>
+
+                    <View style={styles.tagRow}>
+                        {isInvoice ? (
+                            <>
+                                <View style={styles.subTag}>
+                                    <Layers size={11} color="#64748b" />
+                                    <Text style={styles.subTagText}>{itemCount} items</Text>
+                                </View>
+                                <View style={[styles.subTag, { backgroundColor: '#f0fdf4' }]}>
+                                    <Text style={[styles.subTagText, { color: '#16a34a' }]}>{item.type || 'Retail'}</Text>
+                                </View>
+                            </>
+                        ) : (
+                            <>
+                                <View style={styles.subTag}>
+                                    <Package size={11} color="#64748b" />
+                                    <Text style={styles.subTagText}>{item.category || 'General'}</Text>
+                                </View>
+                                <View style={[styles.subTag, item.stock <= 5 ? { backgroundColor: '#fef2f2' } : { backgroundColor: '#f8fafc' }]}>
+                                    <Text style={[styles.subTagText, item.stock <= 5 && { color: '#dc2626' }]}>Stock: {item.stock || 0}</Text>
+                                </View>
+                            </>
+                        )}
                     </View>
                 </View>
 
-                <View style={styles.actionRow}>
+                <View style={styles.divider} />
+
+                <View style={styles.actionRowCompact}>
                     <TouchableOpacity
                         onPress={() => handleRestore(item)}
-                        style={styles.restoreBtn}
-                        activeOpacity={0.8}
+                        style={styles.actionBtnSmall}
+                        activeOpacity={0.7}
                     >
-                        <RotateCcw size={16} color="#fff" strokeWidth={2.5} />
-                        <Text style={styles.restoreText}>RESTORE</Text>
+                        <RotateCcw size={16} color="#000" strokeWidth={2.5} />
+                        <Text style={styles.actionBtnTextSmall}>Restore</Text>
                     </TouchableOpacity>
+
+                    <View style={styles.verticalDivider} />
 
                     <TouchableOpacity
                         onPress={() => handlePermanentDelete(item)}
-                        style={styles.deleteBtn}
+                        style={styles.actionBtnSmall}
                         activeOpacity={0.6}
                     >
-                        <Trash2 size={16} color="#000" strokeWidth={2.5} />
-                        <Text style={styles.deleteText}>DELETE</Text>
+                        <Trash2 size={16} color="#ef4444" strokeWidth={2.5} />
+                        <Text style={[styles.actionBtnTextSmall, { color: '#ef4444' }]}>Delete</Text>
                     </TouchableOpacity>
                 </View>
             </View>
-        </View>
-    );
+        );
+    };
 
     return (
         <View style={styles.safeArea}>
             <LinearGradient colors={['#000', '#111']} style={styles.headerGradient}>
                 <SafeAreaView edges={['top']}>
-                    {/* Top Navigation */}
-                    <View style={styles.topNav}>
-                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navIcon}>
-                            <ChevronLeft size={24} color="#fff" strokeWidth={2.5} />
+                    <View style={styles.headerTop}>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                            <ChevronLeftIcon size={24} color="#fff" />
                         </TouchableOpacity>
-                        <View style={styles.navTitleBox}>
+                        <View style={{ flex: 1, marginLeft: 16 }}>
                             <Text style={styles.navTitle}>Recycle Bin</Text>
-                            <Text style={styles.navSubtitle}>{deletedInvoices.length} items found</Text>
+                            <Text style={styles.navSubtitle}>{filteredItems.length} items found</Text>
+                        </View>
+                        
+                        {/* Header Actions */}
+                        <View style={styles.headerActionsTop}>
+                            <TouchableOpacity onPress={handleRestoreAll} style={styles.headerIconBtn}>
+                                <RotateCcw size={20} color="#fff" strokeWidth={2.5} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={handleEmptyBin} style={[styles.headerIconBtn, { backgroundColor: 'rgba(239, 68, 68, 0.2)' }]}>
+                                <Trash2 size={20} color="#ef4444" strokeWidth={2.5} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setIsCalendarOpen(true)} style={[styles.headerIconBtn, isCalendarOpen && { backgroundColor: '#fff' }]}>
+                                <Calendar size={20} color={isCalendarOpen ? "#000" : "#fff"} strokeWidth={2.5} />
+                            </TouchableOpacity>
                         </View>
                     </View>
 
-                    {/* Search Row */}
+                    {/* Stats Highlights */}
+                    <View style={styles.statsRow}>
+                        <View style={styles.statItem}>
+                            <Text style={styles.statVal}>{stats.totalItems}</Text>
+                            <Text style={styles.statLabel}>Items</Text>
+                        </View>
+                        <View style={[styles.statItem, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.2)' }]}>
+                            <Text style={[styles.statVal, { color: '#ef4444' }]}>
+                                ₹{stats.invTotal < 1000 ? stats.invTotal.toLocaleString() : (stats.invTotal / 1000).toFixed(1) + 'k'}
+                            </Text>
+                            <Text style={styles.statLabel}>Value</Text>
+                        </View>
+                        <View style={styles.statItem}>
+                            <Text style={styles.statVal}>{stats.prodCount}</Text>
+                            <Text style={styles.statLabel}>Products</Text>
+                        </View>
+                        <View style={styles.statItem}>
+                            <Text style={styles.statVal}>{stats.invCount}</Text>
+                            <Text style={styles.statLabel}>Invoices</Text>
+                        </View>
+                    </View>
+
+                    {/* Tab Switcher */}
+                    <View style={styles.tabContainer}>
+                        <TouchableOpacity
+                            style={[styles.tab, activeTab === 'invoices' && styles.activeTab]}
+                            onPress={() => setActiveTab('invoices')}
+                        >
+                            <FileText size={16} color={activeTab === 'invoices' ? '#000' : '#fff'} />
+                            <Text style={[styles.tabText, activeTab === 'invoices' && styles.activeTabText]}>Invoices</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.tab, activeTab === 'products' && styles.activeTab]}
+                            onPress={() => setActiveTab('products')}
+                        >
+                            <Package size={16} color={activeTab === 'products' ? '#000' : '#fff'} />
+                            <Text style={[styles.tabText, activeTab === 'products' && styles.activeTabText]}>Products</Text>
+                        </TouchableOpacity>
+                    </View>
+
                     <View style={styles.searchRow}>
                         <View style={styles.searchBox}>
                             <Search size={18} color="rgba(255,255,255,0.45)" strokeWidth={2.5} />
                             <Input
                                 style={styles.searchInputPremium}
-                                placeholder="Search deleted invoices..."
+                                placeholder={`Search deleted ${activeTab}...`}
                                 placeholderTextColor="rgba(255,255,255,0.35)"
                                 value={searchTerm}
                                 onChangeText={setSearchTerm}
@@ -308,56 +467,41 @@ export default function RecycleBinPage() {
                         </View>
                     </View>
 
-                    {/* Bulk Action Strip - With Horizontal Scroll for better UX */}
-                    {deletedInvoices.length > 0 && (
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.actionHeaderPremium}
-                        >
-                            <TouchableOpacity onPress={handleRestoreAll} style={styles.premiumPill}>
-                                <RotateCcw size={14} color="#fff" strokeWidth={2.5} />
-                                <Text style={styles.premiumPillText}>Restore All</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity onPress={handleEmptyBin} style={[styles.premiumPill, styles.premiumPillDanger]}>
-                                <Trash2 size={14} color="#ef4444" strokeWidth={2.5} />
-                                <Text style={[styles.premiumPillText, { color: '#ef4444' }]}>Empty Trash</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                onPress={() => setIsCalendarOpen(true)}
-                                style={[styles.premiumPill, period === 'Custom' && { borderColor: '#fff' }]}
-                            >
-                                <Calendar size={20} color="#fff" strokeWidth={2.5} />
-                            </TouchableOpacity>
-                        </ScrollView>
-                    )}
+                    
                 </SafeAreaView>
             </LinearGradient>
 
             <View style={styles.container}>
-                {/* Content */}
                 {loading ? (
                     <View style={styles.center}>
                         <ActivityIndicator size="large" color="#000" />
                     </View>
-                ) : filteredInvoices.length === 0 ? (
+                ) : filteredItems.length === 0 ? (
                     <View style={styles.emptyState}>
                         <View style={styles.emptyIconCircle}>
                             <Trash2 size={40} color="#000" />
                         </View>
-                        <Text style={styles.emptyTitle}>Bin is Empty</Text>
-                        <Text style={styles.emptySub}>Items moved to trash will appear here.</Text>
+                        <Text style={styles.emptyTitle}>{activeTab === 'invoices' ? 'No Invoices' : 'No Products'} in Bin</Text>
+                        <Text style={styles.emptySub}>Items moved to trash will appear here. Emptying the bin will permanently delete all records.</Text>
                     </View>
                 ) : (
-                    <FlatList
-                        data={filteredInvoices}
-                        keyExtractor={(item) => item.id.toString()}
-                        renderItem={renderInvoiceItem}
-                        contentContainerStyle={styles.listPadding}
-                        showsVerticalScrollIndicator={false}
-                    />
+                    <>
+                        {/* Info Tooltip */}
+                        {/* <View style={styles.infoStrip}>
+                            <Info size={18} color="#0369a1" />
+                            <Text style={styles.infoStripText}>
+                                Items in the bin can be restored back to your active list. Permanent deletion cannot be undone.
+                            </Text>
+                        </View> */}
+
+                        <FlatList
+                            data={filteredItems}
+                            keyExtractor={(item) => item.id.toString()}
+                            renderItem={renderRecordItem}
+                            contentContainerStyle={styles.listPadding}
+                            showsVerticalScrollIndicator={false}
+                        />
+                    </>
                 )}
 
                 <ConfirmationModal
@@ -371,7 +515,6 @@ export default function RecycleBinPage() {
                     onConfirm={confirmModal.onConfirm}
                 />
 
-                {/* Filter Drawer - Theme Style */}
                 <Modal
                     visible={isFilterOpen}
                     transparent
@@ -417,7 +560,6 @@ export default function RecycleBinPage() {
                     </Pressable>
                 </Modal>
 
-                {/* Premium Calendar Picker Modal */}
                 <Modal
                     visible={isCalendarOpen}
                     transparent
@@ -485,7 +627,6 @@ const styles = StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: '#f8fafc' },
     container: { flex: 1, paddingHorizontal: 22 },
 
-    // Header Premium Design
     headerGradient: {
         backgroundColor: '#000',
         paddingBottom: 24,
@@ -498,14 +639,14 @@ const styles = StyleSheet.create({
         shadowRadius: 20,
         elevation: 10
     },
-    topNav: {
+    headerTop: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 22,
         paddingTop: 16,
         paddingBottom: 12
     },
-    navIcon: {
+    backBtn: {
         width: 42,
         height: 42,
         borderRadius: 14,
@@ -514,10 +655,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.1)'
-    },
-    navTitleBox: {
-        flex: 1,
-        marginLeft: 16
     },
     navTitle: {
         fontSize: 24,
@@ -531,9 +668,68 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginTop: 2
     },
+    statsRow: {
+        flexDirection: 'row',
+        paddingHorizontal: 22,
+        marginTop: 14,
+        gap: 8,
+        marginBottom: 10
+    },
+    statItem: {
+        flex: 1,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderRadius: 14,
+        paddingVertical: 12,
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.08)'
+    },
+    statVal: {
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#fff'
+    },
+    statLabel: {
+        fontSize: 9,
+        fontWeight: '800',
+        color: 'rgba(255,255,255,0.45)',
+        textTransform: 'uppercase',
+        marginTop: 2,
+        letterSpacing: 0.5
+    },
+
+    tabContainer: {
+        flexDirection: 'row',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 16,
+        marginHorizontal: 22,
+        padding: 6,
+        marginBottom: 16
+    },
+    tab: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        borderRadius: 12,
+        gap: 8
+    },
+    activeTab: {
+        backgroundColor: '#fff',
+    },
+    tabText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.6)'
+    },
+    activeTabText: {
+        color: '#000'
+    },
+
     searchRow: {
         paddingHorizontal: 22,
-        marginTop: 12
+        marginTop: 0
     },
     searchBox: {
         flexDirection: 'row',
@@ -567,7 +763,7 @@ const styles = StyleSheet.create({
         gap: 10,
         paddingHorizontal: 22,
         marginTop: 16,
-        paddingBottom: 4 // Space for horizontal scroll
+        paddingBottom: 4
     },
     premiumPill: {
         flexDirection: 'row',
@@ -590,7 +786,6 @@ const styles = StyleSheet.create({
         color: '#fff'
     },
 
-    // Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
@@ -653,7 +848,6 @@ const styles = StyleSheet.create({
         fontWeight: '800'
     },
 
-    // Premium Calendar Styles
     calendarModalContainer: {
         flex: 1,
         justifyContent: 'center',
@@ -746,7 +940,6 @@ const styles = StyleSheet.create({
         fontWeight: '900'
     },
 
-    // Lists
     listPadding: { paddingTop: 24, paddingBottom: 40 },
     invoiceCard: {
         marginBottom: 16,
@@ -766,7 +959,7 @@ const styles = StyleSheet.create({
     cardHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 20,
+        marginBottom: 12,
     },
     invoiceId: {
         fontSize: 11,
@@ -776,7 +969,7 @@ const styles = StyleSheet.create({
         marginBottom: 4,
         textTransform: 'uppercase'
     },
-    customerName: {
+    recordName: {
         fontSize: 17,
         fontWeight: '800',
         color: '#000',
@@ -793,8 +986,52 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         color: '#000'
     },
+    rowCentered: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 4
+    },
+    metaBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#f1f5f9',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4
+    },
+    metaBadgeText: {
+        fontSize: 9,
+        fontWeight: '800',
+        color: '#64748b'
+    },
+    tagRow: {
+        flexDirection: 'row',
+        gap: 6,
+        marginTop: 4
+    },
+    subTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+        backgroundColor: '#f8fafc'
+    },
+    subTagText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748b'
+    },
+    deletedAtLabel: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#94a3b8',
+        marginTop: 2
+    },
 
-    // Actions
     actionRow: {
         flexDirection: 'row',
         gap: 12,
@@ -827,14 +1064,58 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: 8,
     },
-    deleteText: {
-        color: '#000',
-        fontSize: 12,
-        fontWeight: '900',
-        letterSpacing: 1
+    headerActionsTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    headerIconBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)'
+    },
+    cardMain: {
+        paddingTop: 14,
+        paddingBottom: 4,
+        paddingHorizontal: 20
+    },
+    divider: {
+        height: 1,
+        backgroundColor: '#f1f5f9',
+        marginHorizontal: 0
+    },
+    verticalDivider: {
+        width: 1,
+        height: '60%',
+        backgroundColor: '#f1f5f9'
+    },
+    actionRowCompact: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        height: 48,
+        backgroundColor: '#000',
+        borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24
+    },
+    actionBtnSmall: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        height: '100%',
+    },
+    actionBtnTextSmall: {
+        color: '#fff',
+        fontSize: 13,
+        fontWeight: '800'
     },
 
-    // Empty State
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     emptyState: {
         flex: 1,
@@ -863,5 +1144,22 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         maxWidth: 250,
         lineHeight: 22
+    },
+    infoStrip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f0f9ff',
+        padding: 12,
+        borderRadius: 16,
+        gap: 10,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: '#bae6fd'
+    },
+    infoStripText: {
+        fontSize: 12,
+        color: '#0369a1',
+        fontWeight: '700',
+        flex: 1,
     }
 });

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Dimensions, Image } from 'react-native';
 import { CheckCircle2 } from 'lucide-react-native';
 
-const DetailedInvoiceTemplate = ({ settings, data, taxType }) => {
+const DetailedInvoiceTemplate = ({ settings, data, taxType, options = {} }) => {
     // Fallback data for preview if settings not provided
     const store = settings?.store || {
         name: 'Kwiq Bill',
@@ -39,7 +39,8 @@ const DetailedInvoiceTemplate = ({ settings, data, taxType }) => {
             total: 505.00
         },
         amountInWords: 'Rupees Five Hundred Five Only',
-        taxType: 'intra'
+        taxType: 'intra',
+        receptionist_name: ''
     };
 
     const logo = store.logo;
@@ -57,9 +58,16 @@ const DetailedInvoiceTemplate = ({ settings, data, taxType }) => {
                 </View>
                 <View style={[styles.detailedCol, { flex: 1, alignItems: 'center', padding: 8 }]}>
                     <Text style={[styles.detailedBold, { fontSize: 16, marginBottom: 4 }]}>{store.name}</Text>
-                    <Text style={[styles.detailedText, { textAlign: 'center' }]}>
-                        {store.address?.street}, {store.address?.city && `${store.address.city}, `}{store.address?.state}, {store.address?.pincode}
-                    </Text>
+                    {(() => {
+                        const addr = store.address;
+                        if (!addr) return null;
+                        if (typeof addr === 'string') return <Text style={[styles.detailedText, { textAlign: 'center' }]}>{addr}</Text>;
+                        return (
+                            <Text style={[styles.detailedText, { textAlign: 'center' }]}>
+                                {[addr.street, addr.area, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ')}
+                            </Text>
+                        );
+                    })()}
                     <Text style={styles.detailedText}>Tel: {store.contact}</Text>
                     <Text style={styles.detailedBold}>GSTIN: {store.gstin || 'N/A'}</Text>
                 </View>
@@ -126,13 +134,28 @@ const DetailedInvoiceTemplate = ({ settings, data, taxType }) => {
             <View style={[styles.detailedRow, { borderBottomWidth: 1, minHeight: 70 }]}>
                 <View style={[styles.detailedCol, { flex: 1 }]}>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>Name:</Text> {invoice.customer?.name || ''}</Text>
-                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> {invoice.customer?.address || '-'}</Text>
-                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>GSTIN:</Text> {invoice.customer?.gstin || '-'}</Text>
-                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Phone:</Text> {invoice.customer?.mobile || '-'}</Text>
-                </View>
-                <View style={[styles.detailedCol, { flex: 1, borderRightWidth: 0 }]}>
-                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Name:</Text> {invoice.customer?.name || ''}</Text>
-                    <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> {invoice.customer?.address || '-'}</Text>
+                        {(() => {
+                            const addr = invoice.customer?.address;
+                            if (!addr) return <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> -</Text>;
+                            if (typeof addr === 'string') return <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> {addr}</Text>;
+                            
+                            const parts = [addr.street, addr.area, addr.city, addr.state, addr.pincode, addr.country].filter(Boolean);
+                            return <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> {parts.join(', ')}</Text>;
+                        })()}
+                        <Text style={styles.detailedText}><Text style={styles.detailedBold}>Phone:</Text> {invoice.customer?.mobile || invoice.customer?.phone || '-'}</Text>
+                        <Text style={styles.detailedText}><Text style={styles.detailedBold}>GSTIN:</Text> {invoice.customer?.gstin || '-'}</Text>
+                    </View>
+
+                    <View style={[styles.detailedCol, { flex: 1, borderRightWidth: 0 }]}>
+                        <Text style={styles.detailedText}><Text style={styles.detailedBold}>Name:</Text> {invoice.customer?.name || ''}</Text>
+                        {(() => {
+                            const addr = invoice.customer?.address;
+                            if (!addr) return <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> -</Text>;
+                            if (typeof addr === 'string') return <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> {addr}</Text>;
+                            
+                            const parts = [addr.street, addr.area, addr.city, addr.state, addr.pincode, addr.country].filter(Boolean);
+                            return <Text style={styles.detailedText}><Text style={styles.detailedBold}>Address:</Text> {parts.join(', ')}</Text>;
+                        })()}
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>GSTIN:</Text> {invoice.customer?.gstin || '-'}</Text>
                     <Text style={styles.detailedText}><Text style={styles.detailedBold}>State:</Text> {invoice.customer?.state || '-'}</Text>
                 </View>
@@ -275,15 +298,19 @@ const DetailedInvoiceTemplate = ({ settings, data, taxType }) => {
             <View style={[styles.detailedRow, { borderBottomWidth: 0, minHeight: 80 }]}>
                 {/* Left: Bank & Terms */}
                 <View style={[styles.detailedCol, { flex: 1, padding: 4 }]}>
-                    <Text style={styles.detailedBold}>Bank Details:</Text>
-                    <View style={{ marginLeft: 4 }}>
-                        <Text style={styles.detailedText}><Text style={styles.detailedBold}>A/c Name:</Text> {bank.accountName || '-'}</Text>
-                        <Text style={styles.detailedText}><Text style={styles.detailedBold}>Bank:</Text> {bank.bankName || '-'}</Text>
-                        <Text style={styles.detailedText}><Text style={styles.detailedBold}>A/c No:</Text> {bank.accountNumber || '-'}</Text>
-                        <Text style={styles.detailedText}><Text style={styles.detailedBold}>IFSC:</Text> {bank.ifsc || '-'}</Text>
-                    </View>
+                    {!options?.hideAccountDetails && (
+                        <>
+                            <Text style={styles.detailedBold}>Bank Details:</Text>
+                            <View style={{ marginLeft: 4 }}>
+                                <Text style={styles.detailedText}><Text style={styles.detailedBold}>A/c Name:</Text> {bank.accountName || '-'}</Text>
+                                <Text style={styles.detailedText}><Text style={styles.detailedBold}>Bank:</Text> {bank.bankName || '-'}</Text>
+                                <Text style={styles.detailedText}><Text style={styles.detailedBold}>A/c No:</Text> {bank.accountNumber || '-'}</Text>
+                                <Text style={styles.detailedText}><Text style={styles.detailedBold}>IFSC:</Text> {bank.ifsc || '-'}</Text>
+                            </View>
+                            <View style={{ height: 6 }} />
+                        </>
+                    )}
 
-                    <View style={{ height: 6 }} />
                     <Text style={styles.detailedBold}>Terms & Conditions:</Text>
                     {settings?.invoice?.termsAndConditions ? (
                         <Text style={[styles.detailedText, { fontSize: 7, marginTop: 2 }]}>{settings.invoice.termsAndConditions}</Text>
@@ -294,18 +321,26 @@ const DetailedInvoiceTemplate = ({ settings, data, taxType }) => {
                 </View>
                 {/* Right: Signature */}
                 <View style={[styles.detailedCol, { width: 140, borderRightWidth: 0, alignItems: 'center', justifyContent: 'space-between', padding: 4 }]}>
-                    <Text style={[styles.detailedText, { textAlign: 'center' }]}>Certified that the particulars given above are true and correct</Text>
-                    <View style={{ alignItems: 'flex-end', width: '100%', marginTop: 10 }}>
-                        <Text style={styles.detailedBold}>For {store.name}</Text>
-                        <View style={{ height: 20 }} />
-                        <Text style={styles.detailedText}>Authorised Signatory</Text>
-                    </View>
+                    {!options?.isNonAuthorized && (
+                        <>
+                            <Text style={[styles.detailedText, { textAlign: 'center' }]}>Certified that the particulars given above are true and correct</Text>
+                            <View style={{ alignItems: 'flex-end', width: '100%', marginTop: 10 }}>
+                                <Text style={styles.detailedBold}>For {store.name}</Text>
+                                <View style={{ height: 20 }} />
+                                <Text style={styles.detailedText}>Authorised Signatory</Text>
+                                {invoice.receptionist_name ? (
+                                    <Text style={[styles.detailedText, { fontSize: 7, marginTop: 2 }]}>({invoice.receptionist_name.toUpperCase()})</Text>
+                                ) : null}
+                            </View>
+                        </>
+                    )}
                 </View>
             </View>
 
         </View>
     );
 };
+
 
 const styles = StyleSheet.create({
     detailedPaper: {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StatusBar, ScrollView, LayoutAnimation, UIManager, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StatusBar, ScrollView, LayoutAnimation, UIManager, ActivityIndicator, InteractionManager } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Plus, X, Upload, Save, Share2, Scan, ChevronDown } from 'lucide-react-native';
@@ -16,6 +16,7 @@ import { useToast } from '../../context/ToastContext';
 import * as Print from 'expo-print';
 import ScanBarcodeModal from '../../components/ScanBarcodeModal';
 import { resolveBarcode, buildCartPayload, sanitizeBarcode } from '../../utils/barcodeUtils';
+import { debouncedNavigate } from '../../utils/navigationUtils';
 
 // Components
 import BillingGrid from './components/BillingGrid';
@@ -68,7 +69,7 @@ export default function BillingPage({ navigation, route }) {
         {
           text: "Bluetooth Thermal",
           onPress: () => {
-            navigation.navigate('Settings', { tab: 'print' });
+            debouncedNavigate(navigation, 'Settings', { tab: 'print' });
           }
         },
         {
@@ -98,17 +99,21 @@ export default function BillingPage({ navigation, route }) {
       if (Platform.OS === 'android') {
         StatusBar.setBackgroundColor('#ffffff');
       }
-      fetchProducts();
-      processBillingQueue();
 
-      // Ensure sync pill is visible when we focus if scanner is closed
-      if (isScannerOpen) {
-        updateSettings('app', { isScannerActive: true });
-      } else {
-        updateSettings('app', { isScannerActive: false });
-      }
+      const task = InteractionManager.runAfterInteractions(() => {
+        fetchProducts();
+        processBillingQueue();
+
+        // Ensure sync pill is visible when we focus if scanner is closed
+        if (isScannerOpen) {
+          updateSettings('app', { isScannerActive: true });
+        } else {
+          updateSettings('app', { isScannerActive: false });
+        }
+      });
 
       return () => {
+        task.cancel();
         // Clear scanner active state on unmount/blur
         updateSettings('app', { isScannerActive: false });
       };
@@ -133,7 +138,7 @@ export default function BillingPage({ navigation, route }) {
       additionalCharges: 0,
       loyaltyPointsDiscount: 0,
       loyaltyPointsRedeemed: 0,
-      status: 'Paid',
+      status: 'PAID',
       taxType: settings?.tax?.defaultTaxType || 'intra',
       receptionist: null
     }
@@ -179,11 +184,11 @@ export default function BillingPage({ navigation, route }) {
   const currentBill = useMemo(() => activeBills.find(b => b.id === activeBillId) || activeBills[0], [activeBills, activeBillId]);
 
   // Helper: Update Current Bill
-  const updateCurrentBill = (updates) => {
+  const updateCurrentBill = useCallback((updates) => {
     setActiveBills(prev => prev.map(bill =>
       bill.id === activeBillId ? { ...bill, ...updates } : bill
     ));
-  };
+  }, [activeBillId]);
 
   // --- Process Billing Queue (from Barcode Scanner page) ---
   // SECURITY: Items in queue are validated before being added to cart.
@@ -409,7 +414,7 @@ export default function BillingPage({ navigation, route }) {
           roundOff: invoiceToEdit.roundOff || 0
         },
         paymentMode: invoiceToEdit.paymentMethod || 'Cash',
-        status: invoiceToEdit.status || 'Paid',
+        status: invoiceToEdit.status || 'PAID',
         billDiscount: invoiceToEdit.discount || 0, // Simplified mapping
         additionalCharges: invoiceToEdit.additionalCharges || 0
       };
@@ -439,7 +444,7 @@ export default function BillingPage({ navigation, route }) {
       additionalCharges: 0,
       loyaltyPointsDiscount: 0,
       loyaltyPointsRedeemed: 0,
-      status: 'Paid',
+      status: 'PAID',
       taxType: settings?.tax?.defaultTaxType || 'intra',
       receptionist: null
     };
@@ -462,7 +467,7 @@ export default function BillingPage({ navigation, route }) {
       additionalCharges: 0,
       loyaltyPointsDiscount: 0,
       loyaltyPointsRedeemed: 0,
-      status: 'Paid',
+      status: 'PAID',
       originalInvoiceId: null,
       receptionist: null
     };
@@ -484,7 +489,7 @@ export default function BillingPage({ navigation, route }) {
   };
 
   // Cart Actions (Exposed to Child)
-  const updateQuantity = (id, newQty) => {
+  const updateQuantity = useCallback((id, newQty) => {
     // Allow fractional quantities (e.g. 0.5 kg), but ensure > 0
     if (parseFloat(newQty) <= 0 || isNaN(parseFloat(newQty))) return;
     const sNewQty = parseFloat(newQty); // Handle string input
@@ -508,21 +513,21 @@ export default function BillingPage({ navigation, route }) {
 
     const newCart = currentBill.cart.map(i => i.id === id ? { ...i, quantity: sNewQty, total: sNewQty * i.price - (i.discount || 0) } : i);
     updateCurrentBill({ cart: newCart });
-  };
+  }, [currentBill.cart, products, updateCurrentBill]);
 
-  const updatePrice = (id, newPrice) => {
+  const updatePrice = useCallback((id, newPrice) => {
     if (parseFloat(newPrice) < 0 || isNaN(parseFloat(newPrice))) return;
     const sNewPrice = parseFloat(newPrice);
 
     const newCart = currentBill.cart.map(i => i.id === id ? { ...i, price: sNewPrice, total: i.quantity * sNewPrice - (i.discount || 0) } : i);
     updateCurrentBill({ cart: newCart });
-  };
+  }, [currentBill.cart, updateCurrentBill]);
 
-  const removeItem = (id) => {
+  const removeItem = useCallback((id) => {
     const newCart = currentBill.cart.filter(item => item.id !== id);
     updateCurrentBill({ cart: newCart });
     if (selectedItemId === id) setSelectedItemId(null);
-  };
+  }, [currentBill.cart, updateCurrentBill, selectedItemId]);
 
   // Add dummy item for testing (Real app would use Search Bar or Barcode)
   // We'll hook this up to a "Demo Add" or rely on a search bar in the Header in future
@@ -534,15 +539,26 @@ export default function BillingPage({ navigation, route }) {
   // I'll hijack the "F2" to add a random product for testing if no specific search UI exists yet.
   // Or better, I'll add a temporary "Add Test Item" button in the header.
 
-  const addItemToCart = (product, variant = null) => {
+  const addItemToCart = useCallback((product, variant = null) => {
     if (!product || !product.id) {
       console.warn('addItemToCart called with invalid product:', product);
       return;
     }
-    // If variant is an object (new structure), extract name and price
-    const variantObj = (variant && typeof variant === 'object') ? variant : null;
-    const variantName = variantObj ? (variantObj.name || (variantObj.options && variantObj.options[0])) : (typeof variant === 'string' ? variant : null);
-    const variantPrice = variantObj && variantObj.price !== null && variantObj.price !== undefined ? parseFloat(variantObj.price) : parseFloat(product.price || product.sellingPrice || 0);
+    // If variant is an object (new structure), extract name and provide barcode overrides
+    const variantObj = (variant && typeof variant === 'object') ? {
+      ...variant,
+      // Barcode/SKU Overrides for Cart display
+      sku: variant.barcode || variant.sku || product.sku,
+      barcode: variant.barcode || variant.barcode || product.barcode,
+    } : null;
+
+    const variantName = variantObj 
+      ? (variantObj.name || (variantObj.options && variantObj.options[0])) 
+      : (typeof variant === 'string' ? variant : null);
+
+    const variantPrice = variantObj && variantObj.price !== null && variantObj.price !== undefined 
+      ? parseFloat(variantObj.price) 
+      : parseFloat(product.price || product.sellingPrice || 0);
 
     const variantSuffix = variantName ? ` - ${variantName}` : '';
     // Create a unique ID for the cart item if it has a variant to allow separate entries for different variants
@@ -572,6 +588,8 @@ export default function BillingPage({ navigation, route }) {
         _dbId: product.id, // PERSIST ORIGINAL DB ID FOR STOCK UPDATES
         name: displayName,
         variantName: variantName, // STORE VARIANT NAME
+        sku: variantObj ? (variantObj.barcode || variantObj.sku || product.sku) : product.sku,
+        barcode: variantObj ? (variantObj.barcode || variantObj.barcode || product.barcode) : product.barcode,
         quantity: 1, // Will be incremented
         price: variantPrice, // Use variant price if available
         total: variantPrice,
@@ -604,7 +622,7 @@ export default function BillingPage({ navigation, route }) {
         setSelectedItemId(cartItemId);
       }
     }
-  };
+  }, [currentBill.cart, updateQuantity, updateCurrentBill]);
 
   const handleAddProduct = (product = null) => {
     if (!product || !product.id) return;
@@ -802,7 +820,7 @@ export default function BillingPage({ navigation, route }) {
         roundOff: parseFloat(currentBill.totals.roundOff) || 0,
         total: parseFloat(currentBill.totals.total) || 0,
         paymentMethod: currentBill.paymentMode || 'Cash',
-        status: currentBill.status || 'Paid',
+        status: currentBill.status || 'PAID',
         internalNotes: currentBill.remarks || '',
         amountReceived: parseFloat(currentBill.amountReceived) || 0,
         taxType: currentBill.taxType || 'intra',

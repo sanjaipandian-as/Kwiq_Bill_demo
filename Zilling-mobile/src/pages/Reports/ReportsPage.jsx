@@ -9,8 +9,11 @@ import {
   Pressable,
   Modal,
   TouchableOpacity,
-  StatusBar
+  StatusBar,
+  Platform
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient'; // Added for Header
 import {
@@ -24,7 +27,8 @@ import {
   Package,
   Check,
   ArrowDownToLine,
-  ChevronDown // Added
+  ChevronDown,
+  Share2
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop, Circle, G } from 'react-native-svg';
@@ -58,37 +62,53 @@ const getStartOfWeek = (date) => {
 };
 
 // Custom Sparkline Component
-const Sparkline = ({ data, height = 180, color = '#525252' }) => {
-  const chartWidth = width - 64; // Account for padding
+const Sparkline = ({ data, height = 180, color = '#6366f1' }) => {
+  const chartWidth = width - 64; 
   if (!data || data.length === 0) {
     return (
       <View style={{ height, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: '#94a3b8' }}>No data for this period</Text>
+        <Text style={{ color: '#94a3b8', fontWeight: '700' }}>No data for this period</Text>
       </View>
     );
   }
 
   const max = Math.max(...data);
   const min = Math.min(...data);
-  const range = max - min || 1; // Avoid division by zero
+  const range = max - min || 1; 
 
   const points = data.map((val, i) => {
-    const x = (i / (data.length - 1)) * chartWidth;
-    const y = height - ((val - min) / range) * (height * 0.7) - 20;
-    return `${x},${y}`;
+    const denom = data.length > 1 ? data.length - 1 : 1;
+    const x = (i / denom) * chartWidth;
+    const y = height - ((val - min) / range) * (height * 0.7) - 30; // Padding 30
+    return { x, y, val };
   });
 
-  const pathData = points.length > 1 ? `M ${points.join(' L ')}` : `M 0,${height / 2} L ${chartWidth},${height / 2}`;
+  const pathData = (points.length > 1) 
+    ? `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}` 
+    : `M 0,${height / 2} L ${chartWidth},${height / 2}`;
 
   return (
     <View style={{ height }}>
+      {/* Grid Lines & Labels */}
+      <View style={{ position: 'absolute', width: '100%', height: '70%', top: 10, justifyContent: 'space-between' }}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
+             <View style={{ flex: 1, height: 1, backgroundColor: '#f1f5f9' }} />
+             <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '800', position: 'absolute', right: 0 }}>
+               {i === 0 ? `₹${max.toLocaleString()}` : i === 2 ? `₹${min.toLocaleString()}` : ''}
+             </Text>
+          </View>
+        ))}
+      </View>
+
       <Svg width={chartWidth} height={height}>
         <Defs>
           <SvgLinearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <Stop offset="0%" stopColor={color} stopOpacity="0.1" />
+            <Stop offset="0%" stopColor={color} stopOpacity="0.2" />
             <Stop offset="100%" stopColor={color} stopOpacity="0" />
           </SvgLinearGradient>
         </Defs>
+
         {/* Fill Area */}
         {points.length > 1 && (
           <Path
@@ -96,15 +116,24 @@ const Sparkline = ({ data, height = 180, color = '#525252' }) => {
             fill="url(#gradient)"
           />
         )}
+
         {/* Line */}
         <Path
           d={pathData}
           fill="none"
           stroke={color}
-          strokeWidth="2"
+          strokeWidth="3"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+
+        {/* Data Points */}
+        {points.map((p, i) => (
+          <G key={i}>
+            <Circle cx={p.x} cy={p.y} r="5" fill={color} />
+            <Circle cx={p.x} cy={p.y} r="2.5" fill="#fff" />
+          </G>
+        ))}
       </Svg>
     </View>
   );
@@ -227,7 +256,7 @@ export default function ReportsPage() {
   const { customers } = useCustomers();
   const { expenses } = useExpenses();
 
-  const [dateFilter, setDateFilter] = useState('This Week');
+  const [dateFilter, setDateFilter] = useState('All');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -352,6 +381,13 @@ export default function ReportsPage() {
         });
         labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
         break;
+      case 'All':
+        filteredTx = [...transactions];
+        filteredExp = [...expenses];
+        prevTx = [];
+        prevExp = [];
+        labels = ['Growth', 'Peak', 'Scale']; // Generic 3-point trend for all-time
+        break;
       default:
         const sevenDaysAgo = new Date(todayStart);
         sevenDaysAgo.setDate(todayStart.getDate() - 7);
@@ -361,13 +397,13 @@ export default function ReportsPage() {
     }
 
     // --- Current Values ---
-    const totalSales = filteredTx.reduce((sum, t) => sum + (t.total || 0), 0);
+    const totalSales = filteredTx.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0);
     const orderCount = filteredTx.length;
     const totalExpenses = filteredExp.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
     const netProfit = totalSales - totalExpenses;
 
     // --- Previous Values ---
-    const prevSales = prevTx.reduce((sum, t) => sum + (t.total || 0), 0);
+    const prevSales = prevTx.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0);
     const prevOrderCount = prevTx.length;
     const prevExpenses = prevExp.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
     const prevProfit = prevSales - prevExpenses;
@@ -396,22 +432,44 @@ export default function ReportsPage() {
     // Inventory Value
     const inventoryValue = products.reduce((sum, p) => sum + ((p.price || 0) * (p.stock || 0)), 0);
 
-    // 2. Sales Trend
-    let trendData = labels.map(() => 0);
+    // 2. Sales Trend (Dynamic Resolution)
+    let trendData = [];
     if (filteredTx.length > 0) {
-      if (dateFilter === 'This Week') {
-        const buckets = [0, 0, 0, 0, 0, 0, 0];
+      if (dateFilter === 'This Week' || dateFilter === 'Today') {
+        const buckets = labels.map(() => 0);
         filteredTx.forEach(t => {
           const d = new Date(t.date);
           const day = d.getDay();
           const idx = day === 0 ? 6 : day - 1;
-          buckets[idx] += (t.total || 0);
+          if (buckets[idx] !== undefined) buckets[idx] += (parseFloat(t.total) || 0);
         });
         trendData = buckets;
+      } else if (dateFilter === 'All') {
+        // Advanced: Group by Month for All-Time (using 12-month window)
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const monthlyBuckets = {};
+        filteredTx.forEach(t => {
+           const d = new Date(t.date);
+           const key = `${d.getFullYear()}-${d.getMonth()}`;
+           monthlyBuckets[key] = (monthlyBuckets[key] || 0) + (parseFloat(t.total) || 0);
+        });
+        const sortedKeys = Object.keys(monthlyBuckets).sort();
+        trendData = sortedKeys.map(k => monthlyBuckets[k]);
+        // Update labels to show month progression
+        const newLabels = sortedKeys.map(k => {
+          const [yr, mo] = k.split('-');
+          return monthNames[parseInt(mo)];
+        });
+        if (newLabels.length > 1) {
+          // Only override if we have enough points to actually call it a trend
+          labels.splice(0, labels.length, ...newLabels);
+        }
       } else {
-        const avg = totalSales / labels.length;
+        const avg = totalSales / (labels.length || 1);
         trendData = labels.map(() => avg);
       }
+    } else {
+      trendData = labels.map(() => 0);
     }
 
     // 3. Top Products
@@ -428,8 +486,8 @@ export default function ReportsPage() {
             costPrice: productRef.costPrice || (item.price * 0.5) // Fallback to 50% margin if costPrice unavailable
           };
         }
-        productSales[id].sales += (item.quantity || 0);
-        productSales[id].total += (item.total || 0);
+        productSales[id].sales += (parseFloat(item.quantity) || 0);
+        productSales[id].total += (parseFloat(item.total) || 0);
       });
     });
 
@@ -453,7 +511,7 @@ export default function ReportsPage() {
       const method = t.paymentMethod || 'Cash';
       if (!paymentStats[method]) paymentStats[method] = { count: 0, revenue: 0 };
       paymentStats[method].count += 1;
-      paymentStats[method].revenue += (t.total || 0);
+      paymentStats[method].revenue += (parseFloat(t.total) || 0);
     });
 
     const totalTxCount = filteredTx.length || 1;
@@ -481,15 +539,53 @@ export default function ReportsPage() {
 
   }, [transactions, products, expenses, dateFilter]);
 
-  const handleExport = async () => {
-    if (!analyticsData) return;
+  // --- Export & Sharing Logic ---
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async (mode = 'share') => {
+    if (isExporting || !analyticsData) return;
+    setIsExporting(true);
+    
     try {
       const html = generateBusinessReportHTML(analyticsData, dateFilter);
-      const { uri } = await Print.printToFileAsync({ html });
-      await shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+      const { uri: tempUri } = await Print.printToFileAsync({ html });
+      
+      const fileName = `Business_Report_${dateFilter.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+
+      if (mode === 'download' && Platform.OS === 'android' && FileSystem.StorageAccessFramework) {
+          // Mirroring GSTPage's robust SAF logic
+          try {
+              const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+              if (permissions.granted) {
+                  const base64 = await FileSystem.readAsStringAsync(tempUri, { encoding: FileSystem.EncodingType.Base64 });
+                  const targetUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                      permissions.directoryUri, 
+                      fileName, 
+                      'application/pdf'
+                  );
+                  await FileSystem.writeAsStringAsync(targetUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+                  const { Alert } = require('react-native');
+                  Alert.alert("Success", "Report downloaded successfully to your selected folder.");
+                  return;
+              }
+          } catch (safError) {
+              console.warn('SAF Error, falling back to Share:', safError);
+          }
+      } 
+      
+      // Fallback (or iOS/Share mode)
+      const dialogTitle = mode === 'share' ? 'Share Business Report' : 'Save/Download Report';
+      await shareAsync(tempUri, { UTI: '.pdf', mimeType: 'application/pdf', dialogTitle });
+      
     } catch (e) {
       console.error("Export Failed", e);
-      alert("Failed to export report");
+      if (e.message.includes('processed')) {
+          alert("A share request is already active. Please wait.");
+      } else {
+          alert("Export encountered an issue. Please try again.");
+      }
+    } finally {
+      setTimeout(() => setIsExporting(false), 800);
     }
   };
 
@@ -498,7 +594,7 @@ export default function ReportsPage() {
   }
 
   const { totalSales, orderCount, averageOrderValue, totalExpenses, netProfit, activeCustomers, inventoryValue, trendData, topProducts, paymentMethods, labels } = analyticsData;
-  const dateOptions = ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month'];
+  const dateOptions = ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month', 'All'];
 
   return (
     <View style={styles.mainContainer}>
@@ -523,9 +619,15 @@ export default function ReportsPage() {
                 </View>
               </View>
 
-              <Pressable style={styles.exportBtn} onPress={handleExport}>
-                <ArrowDownToLine size={20} color="#000" />
-              </Pressable>
+              <View style={{ flexDirection: 'row' }}>
+                <Pressable style={styles.exportBtn} onPress={() => handleExport('download')}>
+                  <ArrowDownToLine size={20} color="#000" />
+                </Pressable>
+                <View style={{ width: 10 }} />
+                <Pressable style={styles.exportBtn} onPress={() => handleExport('share')}>
+                  <Share2 size={20} color="#000" />
+                </Pressable>
+              </View>
             </View>
 
             {/* Date Filter Section - Full Width */}

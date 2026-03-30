@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView, LayoutAnimation, UIManager } from 'react-native';
-import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X, Barcode } from 'lucide-react-native';
+import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X, Barcode, Copy, Check } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useProducts } from '../../../context/ProductContext';
 import BottomFunctionBar from './BottomFunctionBar';
 
@@ -79,6 +80,27 @@ const BillingGrid = ({
     onRemoveAdjustment,
     onRemoveItemDiscount
 }) => {
+    const [barcodeModal, setBarcodeModal] = useState({ isOpen: false, barcode: '', name: '' });
+    const [isCopied, setIsCopied] = useState(false);
+
+    const copyToClipboard = async (text) => {
+        await Clipboard.setStringAsync(text);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+    };
+
+    // Optimization: Create a map of product ID to quantity to avoid O(N) lookup inside O(M) list rendering
+    const cartQtyMap = useMemo(() => {
+        const map = {};
+        (cart || []).forEach(item => {
+            const dbId = item._dbId || item.id;
+            if (dbId) {
+                map[dbId] = (map[dbId] || 0) + (item.quantity || 0);
+            }
+        });
+        return map;
+    }, [cart]);
+
     const suggestedItems = useMemo(() => products || [], [products]);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState('name');
@@ -118,25 +140,20 @@ const BillingGrid = ({
     const filteredSuggestions = useMemo(() => {
         return suggestedItems
             .filter(item => {
-                const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
+                const sl = searchQuery.toLowerCase();
+                const matchesSearch = item.name.toLowerCase().includes(sl) ||
+                    (item.sku && item.sku.toLowerCase().includes(sl));
                 return matchesSearch;
             })
             .sort((a, b) => {
                 let comparison = 0;
                 if (sortBy === 'name') comparison = a.name.localeCompare(b.name);
-                else if (sortBy === 'price') comparison = a.price - b.price;
+                else if (sortBy === 'price') comparison = (a.price || 0) - (b.price || 0);
                 return sortOrder === 'asc' ? comparison : -comparison;
             });
     }, [suggestedItems, searchQuery, sortBy, sortOrder]);
 
-    const getCartQty = (productId) => {
-        return cart
-            .filter(i => (i._dbId || i.id) === productId)
-            .reduce((sum, i) => sum + (i.quantity || 0), 0);
-    };
-
-    const renderItem = ({ item, index }) => {
+    const renderItem = useCallback(({ item }) => {
         const isSelected = item.id === selectedItemId;
 
         return (
@@ -212,10 +229,19 @@ const BillingGrid = ({
                             </TouchableOpacity>
                         )}
 
-                        <View style={[styles.barcodeTag, { marginTop: 0, marginLeft: 'auto', marginRight: 8 }]}>
+                        <TouchableOpacity 
+                            onPress={() => setBarcodeModal({ isOpen: true, barcode: item.sku || item.barcode || item.id?.toString(), name: item.name })}
+                            style={[styles.barcodeTag, { marginTop: 0, marginLeft: 'auto', marginRight: 8, maxWidth: 120 }]}
+                        >
                             <Barcode size={12} color="#64748b" />
-                            <Text style={[styles.barcodeTagText, { fontSize: 10 }]}>{item.sku || item.barcode || item.id?.toString().slice(-6)}</Text>
-                        </View>
+                            <Text 
+                                style={[styles.barcodeTagText, { fontSize: 10 }]} 
+                                numberOfLines={1} 
+                                ellipsizeMode="tail"
+                            >
+                                {item.sku || item.barcode || item.id?.toString().slice(-6)}
+                            </Text>
+                        </TouchableOpacity>
 
                         <TouchableOpacity onPress={() => removeItem(item.id)} style={[styles.actionPill, { backgroundColor: '#fee2e2' }]}>
                             <Trash2 size={14} color="#ef4444" />
@@ -226,7 +252,54 @@ const BillingGrid = ({
                 )}
             </TouchableOpacity>
         );
-    };
+    }, [selectedItemId, onRowClick, updatePrice, updateQuantity, onRemoveItemDiscount, onDiscountClick, removeItem]);
+
+    const renderSuggestionItem = useCallback(({ item }) => {
+        const cartQty = cartQtyMap[item.id] || 0;
+        const hasNoStock = (item.stock || 0) <= 0;
+
+        return (
+            <TouchableOpacity
+                style={[
+                    styles.suggestionItem,
+                    cartQty > 0 && styles.suggestionItemInCart
+                ]}
+                onPress={() => {
+                    onAddQuickItem && onAddQuickItem(item);
+                    if (searchQuery !== '') {
+                        setSearchQuery('');
+                    }
+                    if (!isKeyboardVisible) {
+                        runLayoutAnimation();
+                        setIsSearchFocused(false);
+                    }
+                }}
+            >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                    <Text style={[styles.suggestedName, { flex: 1, marginRight: 4 }]} numberOfLines={2}>{item.name}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontSize: 11, fontWeight: '900', color: hasNoStock ? '#94a3b8' : '#000' }}>
+                            Qty: {item.stock || 0}
+                        </Text>
+                    </View>
+                </View>
+
+                <View style={styles.suggestedFooter}>
+                    <View>
+                        <Text style={styles.suggestedPrice}>₹{item.price}</Text>
+                        {cartQty > 0 && (
+                            <View style={styles.inCartPill}>
+                                <Text style={styles.inCartPillText}>{cartQty} ADDED</Text>
+                            </View>
+                        )}
+                    </View>
+                    <View style={[styles.addBtnSmall, hasNoStock && { backgroundColor: '#e2e8f0' }]}>
+                        <Plus size={14} color={hasNoStock ? "#94a3b8" : "#fff"} />
+                    </View>
+                </View>
+            </TouchableOpacity>
+        );
+    }, [cartQtyMap, onAddQuickItem, searchQuery, isKeyboardVisible]);
 
     return (
         <View style={styles.container}>
@@ -287,6 +360,9 @@ const BillingGrid = ({
                         }}
                         renderItem={renderItem}
                         contentContainerStyle={{ paddingBottom: 20 }}
+                        initialNumToRender={5}
+                        maxToRenderPerBatch={10}
+                        removeClippedSubviews={Platform.OS === 'android'}
                         ListEmptyComponent={
                             <View style={styles.emptyState}>
                                 <View style={styles.emptyIconBox}>
@@ -353,71 +429,84 @@ const BillingGrid = ({
 
                 <FlatList
                     data={filteredSuggestions}
-                    keyExtractor={(item) => item._dbId || item.id || Math.random().toString()}
+                    keyExtractor={(item) => String(item._dbId || item.id || Math.random())}
                     numColumns={2}
                     columnWrapperStyle={{ gap: 4 }}
                     contentContainerStyle={[
                         { paddingBottom: isKeyboardVisible ? 60 : 220, paddingTop: 8 }
                     ]}
-                    initialNumToRender={30}
-                    windowSize={21}
-                    maxToRenderPerBatch={20}
+                    initialNumToRender={12}
+                    windowSize={5}
+                    maxToRenderPerBatch={10}
                     updateCellsBatchingPeriod={50}
-                    removeClippedSubviews={false}
+                    removeClippedSubviews={Platform.OS === 'android'}
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
-                    renderItem={({ item }) => {
-                        const cartQty = getCartQty(item.id);
-                        const hasNoStock = (item.stock || 0) <= 0;
-
-                        return (
-                            <TouchableOpacity
-                                style={[
-                                    styles.suggestionItem,
-                                    cartQty > 0 && styles.suggestionItemInCart
-                                ]}
-                                onPress={() => {
-                                    onAddQuickItem && onAddQuickItem(item);
-                                    if (searchQuery !== '') {
-                                        setSearchQuery('');
-                                    }
-                                    if (!isKeyboardVisible) {
-                                        runLayoutAnimation();
-                                        setIsSearchFocused(false);
-                                    }
-                                }}
-                            >
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                                    <Text style={[styles.suggestedName, { flex: 1, marginRight: 4 }]} numberOfLines={2}>{item.name}</Text>
-                                    <View style={{ alignItems: 'flex-end' }}>
-                                        <Text style={{ fontSize: 11, fontWeight: '900', color: hasNoStock ? '#94a3b8' : '#000' }}>
-                                            Qty: {item.stock || 0}
-                                        </Text>
-                                    </View>
-                                </View>
-
-                                <View style={styles.suggestedFooter}>
-                                    <View>
-                                        <Text style={styles.suggestedPrice}>₹{item.price}</Text>
-                                        {cartQty > 0 && (
-                                            <View style={styles.inCartPill}>
-                                                <Text style={styles.inCartPillText}>{cartQty} ADDED</Text>
-                                            </View>
-                                        )}
-                                    </View>
-                                    <View style={[styles.addBtnSmall, hasNoStock && { backgroundColor: '#e2e8f0' }]}>
-                                        <Plus size={14} color={hasNoStock ? "#94a3b8" : "#fff"} />
-                                    </View>
-                                </View>
-                            </TouchableOpacity>
-                        );
-                    }}
+                    renderItem={renderSuggestionItem}
                 />
             </View>
+
+            <BarcodeViewModal 
+                isOpen={barcodeModal.isOpen}
+                onClose={() => setBarcodeModal({ ...barcodeModal, isOpen: false })}
+                barcode={barcodeModal.barcode}
+                name={barcodeModal.name}
+                onCopy={copyToClipboard}
+                isCopied={isCopied}
+            />
         </View>
     );
 };
 
+const BarcodeViewModal = ({ isOpen, onClose, barcode, name, onCopy, isCopied }) => {
+    if (!isOpen) return null;
+
+    return (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }}>
+            <TouchableOpacity 
+                activeOpacity={1} 
+                onPress={onClose}
+                style={styles.modalOverlay}
+            >
+                <TouchableOpacity activeOpacity={1} style={{ width: '100%', maxWidth: 360 }}>
+                    <View style={styles.barcodeModalContent}>
+                        <View style={styles.modalHeaderRow}>
+                            <View style={styles.modalIconBox}>
+                                <Barcode size={24} color="#000" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalTitleSmall}>PRODUCT BARCODE</Text>
+                                <Text style={styles.modalProductName} numberOfLines={1}>{name}</Text>
+                            </View>
+                            <TouchableOpacity onPress={onClose} style={styles.modalCloseBtnSmall}>
+                                <X size={20} color="#94a3b8" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.barcodeDisplayBox}>
+                            <Text style={styles.barcodeStringText}>{barcode}</Text>
+                            <TouchableOpacity 
+                                style={[styles.copyBtnLarge, isCopied && styles.copyBtnSuccess]} 
+                                onPress={() => onCopy(barcode)}
+                            >
+                                {isCopied ? <Check size={20} color="#fff" /> : <Copy size={20} color="#000" />}
+                                <Text style={[styles.copyBtnText, isCopied && { color: '#fff' }]}>
+                                    {isCopied ? 'COPIED!' : 'COPY CODE'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity style={styles.modalDoneBtn} onPress={onClose}>
+                            <Text style={styles.modalDoneBtnText}>CLOSE</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </TouchableOpacity>
+        </View>
+    );
+};
+
+export default BillingGrid;
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
 
@@ -578,6 +667,102 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         color: '#475569',
     },
-});
-
-export default BillingGrid;
+    // Barcode Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.85)',
+        justifyContent: 'center',
+        padding: 24,
+    },
+    barcodeModalContent: {
+        backgroundColor: '#fff',
+        borderRadius: 28,
+        padding: 24,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    modalHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 24,
+    },
+    modalIconBox: {
+        width: 48,
+        height: 48,
+        borderRadius: 16,
+        backgroundColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalTitleSmall: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#94a3b8',
+        letterSpacing: 1.5,
+    },
+    modalProductName: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#000',
+    },
+    modalCloseBtnSmall: {
+        padding: 8,
+    },
+    barcodeDisplayBox: {
+        backgroundColor: '#f8fafc',
+        borderRadius: 20,
+        padding: 20,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        marginBottom: 24,
+    },
+    barcodeStringText: {
+        fontSize: 22,
+        fontWeight: '900',
+        color: '#000',
+        textAlign: 'center',
+        marginBottom: 20,
+        letterSpacing: 0.5,
+    },
+    copyBtnLarge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: '#fff',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 14,
+        width: '100%',
+        borderWidth: 1.5,
+        borderColor: '#000',
+    },
+    copyBtnSuccess: {
+        backgroundColor: '#10b981',
+        borderColor: '#10b981',
+    },
+    copyBtnText: {
+        fontSize: 13,
+        fontWeight: '900',
+        color: '#000',
+        letterSpacing: 0.5,
+    },
+    modalDoneBtn: {
+        backgroundColor: '#000',
+        height: 54,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalDoneBtnText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: '900',
+        letterSpacing: 1,
+    },
+});
