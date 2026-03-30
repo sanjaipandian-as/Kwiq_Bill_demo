@@ -27,20 +27,21 @@ const DashboardView = ({ stats, metrics, setShowInviteModal, setShowSecurityModa
                 </motion.div>
                 <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }} className="dashboard-card">
                     <div className="card-top">
-                        <div className="icon-box"><Zap size={20} /></div>
-                        <span className="trend positive"><ArrowUpRight size={14} /> 24%</span>
+                        <div className="icon-box"><ShieldAlert size={20} /></div>
+                        <span className="trend positive"><ArrowUpRight size={14} /> 2%</span>
                     </div>
-                    <h3 className="stat-value">{stats.pro}</h3>
-                    <p className="stat-label">Premium Subscribers</p>
+                    <h3 className="stat-value">{stats.blocked}</h3>
+                    <p className="stat-label">Security Blocks Active</p>
                 </motion.div>
                 <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 }} className="dashboard-card">
                     <div className="card-top">
-                        <div className="icon-box"><AlertCircle size={20} /></div>
-                        <span className="trend negative"><ArrowDownRight size={14} /> 2%</span>
+                        <div className="icon-box"><PlusCircle size={20} /></div>
+                        <span className="trend positive"><ArrowUpRight size={14} /> 8%</span>
                     </div>
-                    <h3 className="stat-value">{stats.expiring}</h3>
-                    <p className="stat-label">Plan Expiry Warnings (7D)</p>
+                    <h3 className="stat-value">{stats.total}</h3>
+                    <p className="stat-label">Total Nodes Connected</p>
                 </motion.div>
+
             </div>
 
             <div className="dashboard-columns">

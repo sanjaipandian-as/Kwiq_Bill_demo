@@ -106,17 +106,6 @@ const App = () => {
         return () => clearInterval(metricsInterval);
     }, []);
 
-    const handleUpdatePlan = async (userId, plan) => {
-        try {
-            await axios.put(`${API_URL}/users/${userId}/plan`, { plan }, {
-                headers: { 'x-admin-key': ADMIN_KEY }
-            });
-            fetchUsers();
-            setSelectedUser(null);
-        } catch (err) {
-            alert('Failed to extend subscription');
-        }
-    };
 
     const handleToggleBlock = async (userId) => {
         if (!confirm('Security Protocol: Do you wish to override user access status?')) return;
@@ -170,13 +159,7 @@ const App = () => {
         total: users.length,
         active: users.filter(u => !u.isBlocked).length,
         blocked: users.filter(u => u.isBlocked).length,
-        pro: users.filter(u => u.plan !== 'free').length,
-        expiring: users.filter(u => {
-            const expiry = u.plan === 'free' ? u.trialExpiresAt : u.planExpiresAt;
-            if (!expiry) return false;
-            const days = differenceInDays(new Date(expiry), new Date());
-            return days > 0 && days <= 7;
-        }).length
+        operational: users.length // Placeholder for other metrics if needed
     };
 
     const securityStats = {
@@ -203,7 +186,6 @@ const App = () => {
     const sidebarItems = [
         { id: 'dashboard', label: 'Monitor Center', icon: LayoutDashboard },
         { id: 'users', label: 'User Directory', icon: Users },
-        { id: 'plans', label: 'Subscription Hub', icon: Zap },
         { id: 'revenue', label: 'Financial Hub', icon: TrendingUp },
         { id: 'broadcast', label: 'Global Broadcast', icon: Megaphone },
         { id: 'customize', label: 'Customize Requests', icon: MessageSquare },
@@ -226,7 +208,7 @@ const App = () => {
                     {sidebarOpen && (
                         <div className="brand-stack">
                             <span className="brand-main">KWIQBILL</span>
-                            <span className="brand-sub">ADMINISTRATION HUB</span>
+                            <span className="brand-sub">COMMAND CENTER</span>
                         </div>
                     )}
                 </div>
@@ -345,19 +327,6 @@ const App = () => {
                         />
                     )}
 
-                    {activeSection === 'plans' && (
-                        <UsersTableView
-                            mode="subscriptions"
-                            loading={loading}
-                            filteredUsers={filteredUsers}
-                            filterStatus={filterStatus}
-                            setFilterStatus={setFilterStatus}
-                            getRemainingDays={getRemainingDays}
-                            setSelectedUser={setSelectedUser}
-                            handleToggleBlock={handleToggleBlock}
-                            handleGenerateResetCode={handleGenerateResetCode}
-                        />
-                    )}
 
                     {activeSection === 'system' && (
                         <SecurityLogsView users={users} logs={auditLogs} metrics={systemMetrics} />

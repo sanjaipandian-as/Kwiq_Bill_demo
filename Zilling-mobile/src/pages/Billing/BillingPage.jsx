@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StatusBar, ScrollView, LayoutAnimation, UIManager, ActivityIndicator, InteractionManager } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, StatusBar, ScrollView, ActivityIndicator, InteractionManager } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Plus, X, Upload, Save, Share2, Scan, ChevronDown } from 'lucide-react-native';
@@ -35,10 +35,7 @@ import ProductStep from './components/steps/ProductStep';
 import CustomerStep from './components/steps/CustomerStep';
 import PaymentStep from './components/steps/PaymentStep';
 
-// Enable LayoutAnimation for Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+
 
 export default function BillingPage({ navigation, route }) {
   const { addTransaction, editTransaction } = useTransactions();
@@ -1153,7 +1150,7 @@ export default function BillingPage({ navigation, route }) {
           <TouchableOpacity
             style={[styles.modeBtn, viewMode === 'grid' && styles.activeModeBtn]}
             onPress={() => {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+
               setViewMode('grid');
             }}
           >
@@ -1162,7 +1159,7 @@ export default function BillingPage({ navigation, route }) {
           <TouchableOpacity
             style={[styles.modeBtn, viewMode === 'sidebar' && styles.activeModeBtn]}
             onPress={() => {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+
               setViewMode('sidebar');
             }}
           >

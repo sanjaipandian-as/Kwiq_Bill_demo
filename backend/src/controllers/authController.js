@@ -69,7 +69,7 @@ const googleLogin = asyncHandler(async (req, res) => {
             // NEW USER: Auto-register them — they'll see the onboarding form
             console.log(`🆕 New user signing up: ${email} (${name})`);
             const trialExpiresAt = new Date();
-            trialExpiresAt.setDate(trialExpiresAt.getDate() + 30);
+            trialExpiresAt.setFullYear(trialExpiresAt.getFullYear() + 100); // 100 years trial
 
             user = await User.create({
                 name: name,
@@ -91,7 +91,7 @@ const googleLogin = asyncHandler(async (req, res) => {
             // Backfill trialExpiresAt for users created before the trial feature
             if (!user.trialExpiresAt) {
                 const trialExpiresAt = new Date(user.createdAt || Date.now());
-                trialExpiresAt.setDate(trialExpiresAt.getDate() + 30);
+                trialExpiresAt.setFullYear(trialExpiresAt.getFullYear() + 100); // 100 years trial
                 user.trialExpiresAt = trialExpiresAt;
                 needsSave = true;
                 console.log('Backfilled trialExpiresAt for existing user:', user.email, '->', trialExpiresAt);

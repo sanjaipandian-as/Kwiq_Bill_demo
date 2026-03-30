@@ -88,17 +88,8 @@ const SideMenu = ({ isOpen, onClose }) => {
     };
 
 
-    const planName = (() => {
-        const planMap = {
-            'free': 'Free Tier',
-            '1m': 'Monthly Pro',
-            '3m': 'Quarterly Pro',
-            '1y': 'Yearly Business',
-            '3y': 'Enterprise Pro',
-            '5y': 'Infinity Master'
-        };
-        return planMap[user?.plan] || 'Premium Access';
-    })();
+    const planName = 'Unlimited Access';
+
 
     return (
         <Modal

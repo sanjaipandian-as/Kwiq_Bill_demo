@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 const Modals = ({
     selectedUser, 
     setSelectedUser, 
-    handleUpdatePlan,
     
     showInviteModal,
     setShowInviteModal,
@@ -23,55 +22,7 @@ const Modals = ({
 }) => {
     return (
         <>
-            {/* Premium Extension Modal */}
-            <AnimatePresence>
-                {selectedUser && (
-                    <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="modal-backdrop"
-                    >
-                        <motion.div 
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
-                            className="premium-modal"
-                        >
-                            <div className="modal-header">
-                                <div className="modal-icon"><Zap size={24} color="#fff" fill="#fff" /></div>
-                                <h2>Subscription Lifecycle Extension</h2>
-                                <p>Modifying access for <strong>{selectedUser.name}</strong></p>
-                            </div>
-
-                            <div className="plan-selector">
-                                {[
-                                    { id: '1m', label: 'Pro - 1 Month', color: '#000000' },
-                                    { id: '3m', label: 'Growth - 3 Months', color: '#000000' },
-                                    { id: '1y', label: 'Business - 1 Year', color: '#000000', hot: true },
-                                    { id: '3y', label: 'Enterprise - 3 Years', color: '#000000' },
-                                    { id: '5y', label: 'Unlimited - 5 Years', color: '#000000' }
-                                ].map(option => (
-                                    <button 
-                                        key={option.id} 
-                                        onClick={() => handleUpdatePlan(selectedUser._id, option.id)}
-                                        className="plan-btn"
-                                        style={{ '--accent': option.color }}
-                                    >
-                                        <div className="btn-content">
-                                            <span className="opt-label">{option.label}</span>
-                                            <ChevronRight size={18} />
-                                        </div>
-                                        {option.hot && <span className="hot-pill">Popular</span>}
-                                    </button>
-                                ))}
-                            </div>
-
-                            <button className="btn-secondary" onClick={() => setSelectedUser(null)}>Abort Transfer</button>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            {/* Premium Extension Modal removed */}
 
             {/* Invite User Modal */}
             <AnimatePresence>

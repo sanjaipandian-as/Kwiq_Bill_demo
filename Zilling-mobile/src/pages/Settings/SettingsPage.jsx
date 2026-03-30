@@ -951,118 +951,47 @@ const SettingsPage = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
 
-            {/* Subscription Status Card - Premium Metallic Style */}
-            <View style={{ marginBottom: 24 }}>
-              <LinearGradient
-                colors={user?.plan === 'free' ? ['#f8f9ff', '#f1f5f9'] : ['#1a1a1a', '#000000', '#1a1a1a']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{
-                  borderRadius: 28,
-                  padding: 24,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  borderWidth: 1.5,
-                  borderColor: user?.plan === 'free' ? '#e2e8f0' : '#333',
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 10 },
-                  shadowOpacity: 0.15,
-                  shadowRadius: 20,
-                  elevation: 8,
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-              >
-                {/* Decorative background circle */}
-                <View style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: 60, backgroundColor: user?.plan === 'free' ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.03)' }} />
-
-                <View style={{ flex: 1, zIndex: 1 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '900', color: user?.plan === 'free' ? '#64748b' : 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 4 }}>
-                    Tier Status
-                  </Text>
-                  <Text style={{ fontSize: 26, fontWeight: '900', color: user?.plan === 'free' ? '#000' : '#fff', letterSpacing: -0.5 }}>
-                    {(() => {
-                      const planNames = {
-                        'free': 'Basic Tier',
-                        '1m': 'Bronze Pro',
-                        '3m': 'Silver Pro',
-                        '1y': 'Gold Annual',
-                        '3y': 'Lifetime Pro',
-                        '5y': 'Professional Elite'
-                      };
-                      return planNames[user?.plan] || 'Pro Access';
-                    })()}
-                  </Text>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, backgroundColor: user?.plan === 'free' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)', alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
-                    <Clock size={12} color={user?.plan === 'free' ? '#64748b' : 'rgba(255,255,255,0.7)'} />
-                    <Text style={{ fontSize: 12, fontWeight: '800', color: user?.plan === 'free' ? '#64748b' : 'rgba(255,255,255,0.7)' }}>
-                      Valid until {(() => {
-                        const date = user?.plan === 'free' ? user?.trialExpiresAt : (user?.planExpiresAt || user?.trialExpiresAt);
-                        if (!date || (typeof date === 'string' && date.toLowerCase() === 'n/a')) {
-                          return 'Forever';
-                        }
-                        return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-                      })()}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Right Side Visuals */}
-                <View style={{ alignItems: 'flex-end', zIndex: 1 }}>
-                  {/* Warning Badge for last 30 days */}
-                  {(() => {
-                    const expiry = user?.plan === 'free' ? new Date(user?.trialExpiresAt) : new Date(user?.planExpiresAt);
-                    if (!expiry || isNaN(expiry.getTime())) return null;
-
-                    const diff = expiry.getTime() - Date.now();
-                    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-                    if (days <= 15 && days > 0) {
-                      return (
-                        <View style={{ marginBottom: 12, backgroundColor: '#FF4D4D', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, alignItems: 'center' }}>
-                          <Text style={{ fontSize: 12, fontWeight: '900', color: '#fff' }}>{days}D LEFT</Text>
+            <Card style={{ 
+                marginBottom: 24, 
+                backgroundColor: '#000', 
+                borderRadius: 24, 
+                padding: 24,
+                borderWidth: 1,
+                borderColor: '#222'
+            }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>
+                            LICENSE TYPE
+                        </Text>
+                        <Text style={{ fontSize: 24, fontWeight: '900', color: '#fff', letterSpacing: -0.5 }}>
+                            Unlimited Enterprise
+                        </Text>
+                        
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                            <View style={{ backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8' }}>LIFETIME ACCESS</Text>
+                            </View>
+                            <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: '#22c55e' }}>VERIFIED</Text>
+                            </View>
                         </View>
-                      );
-                    }
-                    return null;
-                  })()}
+                    </View>
 
-                  <View style={{
-                    width: 54,
-                    height: 54,
-                    borderRadius: 18,
-                    backgroundColor: user?.plan === 'free' ? '#000' : '#fff',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOpacity: 0.2,
-                    shadowRadius: 10,
-                    elevation: 4
-                  }}>
-                    {(() => {
-                      const plan = user?.plan || 'free';
-                      if (plan === 'free') return <User size={28} color="#fff" />;
-                      if (['3y', '5y'].includes(plan)) return <Gem size={28} color="#38bdf8" />;
-                      if (plan === '1y') return <Crown size={28} color="#FFD700" />;
-                      return <BadgeCheck size={28} color="#6366f1" />;
-                    })()}
-                  </View>
+                    <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' }}>
+                        <Gem size={28} color="#000" />
+                    </View>
                 </View>
-              </LinearGradient>
 
-              {/* Quick Link to Upgrade/Billing */}
-              {user?.plan === 'free' && (
-                <TouchableOpacity
-                  onPress={() => setActiveTab('contact')}
-                  style={{ marginTop: 12, alignSelf: 'center' }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b', textDecorationLine: 'underline' }}>
-                    Unlock Premium Features • Explore Plans
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
+                <View style={{ marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#111', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <ShieldCheck size={16} color="#38bdf8" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#475569' }}>
+                        Enterprise data security enabled
+                    </Text>
+                </View>
+            </Card>
+
+
 
             {/* Profile Strength Indicator - Gamification */}
             {!isEditing && (
