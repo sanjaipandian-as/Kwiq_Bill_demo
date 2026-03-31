@@ -21,28 +21,11 @@ const checkSubscription = asyncHandler(async (req, res, next) => {
     // 1. Check if user is blocked
     if (user.isBlocked) {
         res.status(403);
-        throw new Error('USER_BLOCKED: Your account has been blocked. Please contact our support team at support@kwiqbill.com.');
+        throw new Error('USER_BLOCKED: Your account has been restricted. Please contact support at support@kwiqbill.com.');
     }
 
-    const now = new Date();
+    // Bypass trial and pan checks as the app is now free for everyone.
 
-    // 2. Check Trial for Free users
-    if (user.plan === 'free' && user.trialExpiresAt) {
-        const expirationDate = new Date(user.trialExpiresAt);
-        if (now > expirationDate) {
-            res.status(403);
-            throw new Error('TRIAL_EXPIRED: Your 30-day free trial has ended. Please contact our team at support@kwiqbill.com to extend your plan.');
-        }
-    }
-
-    // 3. Check Paid Plan Expiry
-    if (user.plan !== 'free' && user.planExpiresAt) {
-        const expirationDate = new Date(user.planExpiresAt);
-        if (now > expirationDate) {
-            res.status(403);
-            throw new Error('PLAN_EXPIRED: Your plan has expired. Please contact our team at support@kwiqbill.com to renew.');
-        }
-    }
 
     // Fix #11: Throttle lastActive updates to once per 5 minutes
     // Prevents a DB write on literally every API call

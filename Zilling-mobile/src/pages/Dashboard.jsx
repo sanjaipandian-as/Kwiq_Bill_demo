@@ -219,31 +219,7 @@ export default function Dashboard() {
     };
   }, [isReady, transactions, products, expenses, dateFilter, productFilter, dashboardMetrics]);
 
-  const planInfo = useMemo(() => {
-    if (!user) return null;
-    const planNames = {
-      'free': 'Free Trial',
-      '1m': '1 Month Pro',
-      '3m': '3 Month Pro',
-      '1y': '1 Year Pro',
-      '3y': '3 Year Pro',
-      '5y': '5 Year Professional'
-    };
 
-    const isFree = user.plan === 'free';
-    const expiryDate = isFree ? (user.trialExpiresAt ? new Date(user.trialExpiresAt) : null) : (user.planExpiresAt ? new Date(user.planExpiresAt) : null);
-
-    if (!expiryDate || isNaN(expiryDate.getTime())) return null;
-
-    const daysRemaining = Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-
-    return {
-      name: planNames[user.plan] || 'Pro Access',
-      daysRemaining: Math.max(0, daysRemaining),
-      isFree,
-      expiryDate
-    };
-  }, [user]);
 
   const dateOptions = ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month', 'All'];
   const productFilterOptions = ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month', 'All'];

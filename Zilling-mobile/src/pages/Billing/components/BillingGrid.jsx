@@ -1,14 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView, LayoutAnimation, UIManager } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView } from 'react-native';
 import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X, Barcode, Copy, Check } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useProducts } from '../../../context/ProductContext';
 import BottomFunctionBar from './BottomFunctionBar';
 
-// Enable LayoutAnimation for Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+
 
 // Helper Component for Safe Number Input
 const NumberInput = ({ value, onChange, min = 0, style = {}, prefix = null }) => {
@@ -108,19 +105,15 @@ const BillingGrid = ({
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const searchInputRef = React.useRef(null);
+    const listRef = React.useRef(null);
 
-    // Animation Helper
-    const runLayoutAnimation = () => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    };
+
 
     useEffect(() => {
         const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
-            runLayoutAnimation();
             setKeyboardVisible(true);
         });
         const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
-            runLayoutAnimation();
             setKeyboardVisible(false);
         });
         return () => {
@@ -130,11 +123,14 @@ const BillingGrid = ({
     }, []);
 
     const closeSearch = () => {
-        runLayoutAnimation();
         setSearchQuery('');
         setIsSearchFocused(false);
         Keyboard.dismiss();
         if (searchInputRef.current) searchInputRef.current.blur();
+    };
+
+    const scrollToTop = () => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
     };
 
     const filteredSuggestions = useMemo(() => {
@@ -252,7 +248,7 @@ const BillingGrid = ({
                 )}
             </TouchableOpacity>
         );
-    }, [selectedItemId, onRowClick, updatePrice, updateQuantity, onRemoveItemDiscount, onDiscountClick, removeItem]);
+    }, [selectedItemId, onRowClick, updatePrice, updateQuantity, onRemoveItemDiscount, onDiscountClick, removeItem, barcodeModal, cartQtyMap]);
 
     const renderSuggestionItem = useCallback(({ item }) => {
         const cartQty = cartQtyMap[item.id] || 0;
@@ -270,7 +266,6 @@ const BillingGrid = ({
                         setSearchQuery('');
                     }
                     if (!isKeyboardVisible) {
-                        runLayoutAnimation();
                         setIsSearchFocused(false);
                     }
                 }}
@@ -398,13 +393,11 @@ const BillingGrid = ({
                             onChangeText={setSearchQuery}
                             placeholderTextColor="#94a3b8"
                             onFocus={() => {
-                                runLayoutAnimation();
                                 setIsSearchFocused(true);
                             }}
                             onBlur={() => {
                                 setTimeout(() => {
                                     if (searchQuery === '') {
-                                        runLayoutAnimation();
                                         setIsSearchFocused(false);
                                     }
                                 }, 100);
@@ -420,7 +413,6 @@ const BillingGrid = ({
                         <Scan size={20} color="#000" />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.filterTrigger} onPress={() => {
-                        runLayoutAnimation();
                         setSortBy(sortBy === 'name' ? 'price' : 'name');
                     }}>
                         <Text style={styles.filterText}>{sortBy === 'name' ? 'A-Z' : '₹'}</Text>
@@ -428,12 +420,13 @@ const BillingGrid = ({
                 </View>
 
                 <FlatList
+                    ref={listRef}
                     data={filteredSuggestions}
                     keyExtractor={(item) => String(item._dbId || item.id || Math.random())}
                     numColumns={2}
                     columnWrapperStyle={{ gap: 4 }}
                     contentContainerStyle={[
-                        { paddingBottom: isKeyboardVisible ? 60 : 220, paddingTop: 8 }
+                        { paddingBottom: isKeyboardVisible ? 60 : 80, paddingTop: 8 }
                     ]}
                     initialNumToRender={12}
                     windowSize={5}
@@ -443,6 +436,13 @@ const BillingGrid = ({
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                     renderItem={renderSuggestionItem}
+                    ListFooterComponent={
+                        filteredSuggestions.length > 0 ? (
+                            <TouchableOpacity onPress={scrollToTop} style={styles.footerToTop}>
+                                <Text style={styles.footerToTopText}>Go to top</Text>
+                            </TouchableOpacity>
+                        ) : null
+                    }
                 />
             </View>
 
@@ -765,4 +765,18 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         letterSpacing: 1,
     },
-});
+    footerToTop: {
+        paddingVertical: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 0
+    },
+    footerToTopText: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#000',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        textDecorationLine: 'underline'
+    }
+});
