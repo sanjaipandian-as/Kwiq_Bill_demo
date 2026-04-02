@@ -27,6 +27,10 @@ export const DATA_SEARCH_LOADER_HTML = `
     box-sizing: border-box;
     position: relative;
     background: #fff;
+    background-image: 
+      radial-gradient(#f0f0f0 1.5px, transparent 0);
+    background-size: 32px 32px;
+    background-position: -16px -16px;
   }
 
   /* ─── Premium Dashboard Reveal Animation ─── */
@@ -241,26 +245,102 @@ export const DATA_SEARCH_LOADER_HTML = `
   .stage-layer.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
   .stage-layer.exiting { opacity: 0; transform: scale(1.15); }
 
-  /* Stage 1: Auth */
-  .s1-core { width: 64px; height: 64px; border-radius: 50%; border: 6px solid #111; position: relative; }
-  .s1-scanner { position: absolute; inset: -20px; border-radius: 50%; border: 2px solid transparent; border-top-color: #111; animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-  .s1-ring-2 { position: absolute; inset: -35px; border-radius: 50%; border: 1.5px solid transparent; border-bottom-color: #eee; animation: spin 2.5s linear infinite reverse; }
-  .s1-dot { position: absolute; top: -50px; left: calc(50% - 10px); width: 20px; height: 20px; background: #111; border-radius: 50%; animation: spin 3s linear infinite; transform-origin: 50% 150px; }
+  /* Stage 1: Auth (Biometric Remaster) */
+  .s1-core { 
+    width: 84px; height: 84px; 
+    border-radius: 28px; 
+    border: 2px solid #111; 
+    position: relative; 
+    display: flex; align-items: center; justify-content: center;
+    background: #fff;
+    box-shadow: 0 15px 45px rgba(0,0,0,0.08);
+    animation: breathing 4s ease-in-out infinite;
+    z-index: 5;
+  }
+  .s1-icon { width: 34px; height: 34px; color: #111; z-index: 10; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); }
+  
+  .s1-radar {
+    position: absolute;
+    inset: -30px;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, rgba(0,0,0,0.15) 0deg, transparent 90deg);
+    animation: radar-sweep 2.5s linear infinite;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .s1-radar::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%;
+    width: 2px; height: 50%;
+    background: #111;
+    filter: blur(1px);
+    box-shadow: 0 0 15px #111;
+  }
+
+  .s1-orb-1 { position: absolute; inset: -45px; border-radius: 50%; border: 1.5px solid #eee; animation: spin-rev 10s linear infinite; }
+  .s1-bit-v { position: absolute; top: -2px; left: calc(50% - 4px); width: 8px; height: 8px; background: #111; border-radius: 2px; }
+  .s1-orb-2 { position: absolute; inset: -65px; border-radius: 50%; border: 0.8px dashed #ddd; animation: spin 30s linear infinite; }
+  
+  @keyframes radar-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes breathing { 0%, 100% { transform: scale(1) rotate(-8deg); } 50% { transform: scale(1.08) rotate(4deg); border-radius: 45%; } }
+  @keyframes spin-rev { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-  /* Stage 2: Searching */
-  .s2-core { width: 60px; height: 60px; border-radius: 50%; background: #111; box-shadow: 0 0 40px rgba(0,0,0,0.05); }
-  .s2-pulse { position: absolute; inset: 0; border: 4px solid #111; border-radius: 50%; animation: pulse-out-heavy 2s cubic-bezier(0.19, 1, 0.22, 1) infinite; }
-  .s2-node { position: absolute; width: 14px; height: 14px; background: #111; border-radius: 50%; animation: gather-in 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-  @keyframes pulse-out-heavy { from { transform: scale(0.2); opacity: 1; } to { transform: scale(1.8); opacity: 0; } }
-  @keyframes gather-in { from { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; } to { transform: translate(0, 0) scale(1); opacity: 0.8; } }
+  /* Stage 2: Store Searching (Neural Remaster) */
+  .s2-core { 
+    width: 72px; height: 72px; 
+    border-radius: 20px; 
+    background: #111; 
+    display: flex; align-items: center; justify-content: center; 
+    transform: rotate(45deg); 
+    animation: pulsar 2s ease-in-out infinite;
+    position: relative;
+    z-index: 5;
+  }
+  .s2-icon { width: 30px; height: 30px; color: #fff; transform: rotate(-45deg); z-index: 10; }
+  
+  .s2-signal {
+    position: absolute;
+    inset: -20px;
+    border: 1px solid #111;
+    border-radius: 50%;
+    animation: signal-out 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    opacity: 0;
+  }
+  .s2-signal-2 { animation-delay: 0.5s; }
+  .s2-signal-3 { animation-delay: 1s; }
+
+  .s2-crosshair-h { position: absolute; width: 140px; height: 1px; background: rgba(0,0,0,0.1); animation: cross-h 2.5s ease-in-out infinite; }
+  .s2-crosshair-v { position: absolute; height: 140px; width: 1px; background: rgba(0,0,0,0.1); animation: cross-v 2.5s ease-in-out infinite; }
+
+  @keyframes pulsar { 
+    0%, 100% { transform: rotate(45deg) scale(1); box-shadow: 0 0 0 rgba(0,0,0,0); } 
+    50% { transform: rotate(55deg) scale(1.15); box-shadow: 0 10px 40px rgba(0,0,0,0.2); } 
+  }
+  @keyframes signal-out { from { transform: scale(0.3); opacity: 1; } to { transform: scale(2.5); opacity: 0; } }
+  @keyframes cross-h { 0%, 100% { transform: scaleX(0.8); opacity: 0.2; } 50% { transform: scaleX(1.2); opacity: 1; } }
+  @keyframes cross-v { 0%, 100% { transform: scaleY(0.8); opacity: 0.2; } 50% { transform: scaleY(1.2); opacity: 1; } }
+
+  .s2-dot-frag {
+    position: absolute; width: 6px; height: 6px; background: #111; border-radius: 1px;
+    animation: scatter 2s cubic-bezier(0.19, 1, 0.22, 1) infinite;
+  }
+
+  @keyframes scatter { 
+    0% { transform: rotate(var(--r)) translate(0, 0) scale(1); opacity: 1; } 
+    100% { transform: rotate(var(--r)) translate(0, 100px) scale(0); opacity: 0; } 
+  }
 
   /* Stage 3: Decrypting (Deep Cypher) */
-  .s3-hex { width: 90px; height: 90px; border: 7px solid #111; border-radius: 20px; animation: hex-morph 3s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-  .s3-scanner { position: absolute; width: 160px; height: 4px; background: linear-gradient(90deg, transparent, #111, transparent); animation: scan-v-heavy 2s ease-in-out infinite; }
-  .s3-bit { position: absolute; width: 16px; height: 16px; background: #fff; border: 4px solid #111; border-radius: 6px; }
-  @keyframes hex-morph { 0%, 100% { border-radius: 20px; transform: rotate(0) scale(1); } 50% { border-radius: 50%; transform: rotate(180deg) scale(1.2); } }
-  @keyframes scan-v-heavy { 0%, 100% { transform: translateY(-100px); opacity: 0; } 50% { transform: translateY(100px); opacity: 1; } }
+  .s3-hex { width: 80px; height: 80px; border: 3px solid #111; border-radius: 20px; animation: hex-morph 3s cubic-bezier(0.4, 0, 0.2, 1) infinite; background: #fff; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .s3-hex-inner { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent, transparent 4px, rgba(0,0,0,0.03) 4px, rgba(0,0,0,0.03) 8px); animation: shift-bg 0.2s linear infinite; }
+  .s3-icon { width: 32px; height: 32px; color: #111; z-index: 2; }
+  .s3-scanner { position: absolute; width: 160px; height: 60px; background: linear-gradient(180deg, transparent, rgba(0,0,0,0.05), transparent); animation: scan-v-heavy 2s ease-in-out infinite; pointer-events: none; }
+  .s3-bit { position: absolute; width: 12px; height: 12px; background: #111; border-radius: 3px; }
+  @keyframes hex-morph { 0%, 100% { border-radius: 24px; transform: rotate(0) scale(1); } 50% { border-radius: 50%; transform: rotate(90deg) scale(1.1); } }
+  @keyframes scan-v-heavy { 0%, 100% { transform: translateY(-120px) scaleX(0.5); opacity: 0; } 50% { transform: translateY(120px) scaleX(1); opacity: 1; } }
+  @keyframes shift-bg { from { transform: translateY(0); } to { transform: translateY(8px); } }
 
   /* Stage 4: Success (Super Orbit + Shockwave) */
   .s4-con { position: relative; display: flex; align-items: center; justify-content: center; }
@@ -295,32 +375,49 @@ export const DATA_SEARCH_LOADER_HTML = `
 
   <div class="animation-container">
       <div class="icon-box">
-        <!-- Stage 1 -->
+        <!-- Stage 1 (Biometric Remaster) -->
         <div id="s1" class="stage-layer visible">
-          <div class="s1-ring-2"></div>
-          <div class="s1-scanner"></div>
-          <div class="s1-core"></div>
-          <div class="s1-dot"></div>
+          <div class="s1-orb-2"></div>
+          <div class="s1-orb-1"><div class="s1-bit-v"></div></div>
+          <div class="s1-radar"></div>
+          <div class="s1-core">
+            <svg class="s1-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
         </div>
 
-        <!-- Stage 2 -->
+        <!-- Stage 2 (Neural Remaster) -->
         <div id="s2" class="stage-layer">
-          <div class="s2-pulse"></div>
-          <div class="s2-pulse" style="animation-delay: 0.6s"></div>
-          <div class="s2-core"></div>
-          <div class="s2-node" style="--dx:-120px; --dy:-60px;"></div>
-          <div class="s2-node" style="--dx:120px; --dy:-60px; animation-delay: 0.4s"></div>
-          <div class="s2-node" style="--dx:0px; --dy:120px; animation-delay: 0.8s"></div>
+          <div class="s2-crosshair-h"></div>
+          <div class="s2-crosshair-v"></div>
+          <div class="s2-signal s2-signal-1"></div>
+          <div class="s2-signal s2-signal-2"></div>
+          <div class="s2-signal s2-signal-3"></div>
+          <div class="s2-core">
+            <svg class="s2-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <div class="s2-dot-frag" style="--r: 0deg"></div>
+          <div class="s2-dot-frag" style="--r: 72deg; animation-delay: 0.3s"></div>
+          <div class="s2-dot-frag" style="--r: 144deg; animation-delay: 0.6s"></div>
+          <div class="s2-dot-frag" style="--r: 216deg; animation-delay: 0.9s"></div>
+          <div class="s2-dot-frag" style="--r: 288deg; animation-delay: 1.2s"></div>
         </div>
 
         <!-- Stage 3 -->
         <div id="s3" class="stage-layer">
-          <div class="s3-hex"></div>
+          <div class="s3-hex">
+             <svg class="s3-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
           <div class="s3-scanner"></div>
-          <div class="s3-bit" style="top: 20px; left: 20px;"></div>
-          <div class="s3-bit" style="top: 20px; right: 20px; animation-delay: 0.5s"></div>
-          <div class="s3-bit" style="bottom: 20px; left: 20px; animation-delay: 0.9s"></div>
-          <div class="s3-bit" style="bottom: 20px; right: 20px; animation-delay: 0.3s"></div>
+          <div class="s3-bit" style="top: 0px; left: 0px;"></div>
+          <div class="s3-bit" style="top: 0px; right: 0px; animation-delay: 0.5s"></div>
+          <div class="s3-bit" style="bottom: 0px; left: 0px; animation-delay: 0.9s"></div>
+          <div class="s3-bit" style="bottom: 0px; right: 0px; animation-delay: 0.3s"></div>
         </div>
 
         <!-- Stage 4 -->

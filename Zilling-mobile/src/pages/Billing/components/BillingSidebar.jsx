@@ -50,7 +50,9 @@ const BillingSidebar = ({
     const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
     const [printCopyCount, setPrintCopyCount] = useState(1);
     const [isAuthorizedEnabled, setIsAuthorizedEnabled] = useState(false);
-    const activeReceptionists = (settings?.receptionists || []).filter(r => r.is_active === 1);
+    const activeReceptionists = (settings?.receptionists || []).filter(r => 
+        Number(r.is_active) === 1 || r.is_active === true
+    );
     const currentDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     const selectedBillTemplate = settings?.invoice?.billTemplate || 'Classic';
 
@@ -101,7 +103,7 @@ const BillingSidebar = ({
             </TouchableOpacity>
 
             {/* Receptionist Section */}
-            {activeReceptionists.length > 0 && (
+            {(activeReceptionists.length > 0 || receptionist) && (
                 <View style={[styles.receptionistCard, receptionist && styles.receptionistCardActive, isReceptionistLocked && styles.receptionistCardLocked]}>
                     <TouchableOpacity onPress={onReceptionistClick} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                         <View style={[
@@ -119,7 +121,7 @@ const BillingSidebar = ({
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={[styles.labelSmall, receptionist && { color: 'rgba(255,255,255,0.6)' }]}>
-                                {isReceptionistLocked ? 'STATION LOCK' : 'ISSUED BY (ONCE)'}
+                                {isReceptionistLocked ? (receptionist?.mode === 'weekly' ? 'WEEKLY LOCK' : (receptionist?.mode === 'shift' ? 'SHIFT LOCK' : 'STATION LOCK')) : 'ISSUED BY (ONCE)'}
                             </Text>
                             <Text style={[styles.customerNameMain, !receptionist && { color: '#94a3b8' }, (receptionist && (isReceptionistLocked || styles.receptionistCardActive)) && { color: '#fff' }]}>
                                 {receptionist ? String(receptionist.name) : 'Select Staff'}
