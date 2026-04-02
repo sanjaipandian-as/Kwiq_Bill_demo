@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, 
 import { Card } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-import { Calculator, Printer, Scan, Calendar, Save, Plus, Award, HelpCircle, Star, Minus, Contact } from 'lucide-react-native';
+import { Calculator, Printer, Scan, Calendar, Save, Plus, Award, HelpCircle, Star, Minus, Contact, X, User, Lock } from 'lucide-react-native';
 import CalculatorModal from './CalculatorModal';
 
 // Import for PDF Export
@@ -37,7 +37,9 @@ const BillingSidebar = ({
     loyaltyPointsRedeemed = 0,
     remarks = '',
     receptionist = null,
-    onReceptionistClick
+    isReceptionistLocked = false,
+    onReceptionistClick,
+    onClearReceptionistLock
 }) => {
     const isVIP = customer && (
         typeof customer.tags === 'string'
@@ -100,22 +102,49 @@ const BillingSidebar = ({
 
             {/* Receptionist Section */}
             {activeReceptionists.length > 0 && (
-                <TouchableOpacity onPress={onReceptionistClick} style={styles.receptionistCard}>
-                    <View style={[styles.customerIcon, { backgroundColor: receptionist ? '#10b981' : '#f1f5f9' }]}>
-                        <Contact size={20} color={receptionist ? '#fff' : '#64748b'} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.labelSmall}>ISSUED BY</Text>
-                        <Text style={[styles.customerNameMain, !receptionist && { color: '#94a3b8' }]}>
-                            {receptionist ? String(receptionist.name) : 'Select Staff'}
-                        </Text>
-                    </View>
-                    {receptionist && (
-                        <View style={styles.verifiedBadge}>
-                            <Award size={10} color="#10b981" />
+                <View style={[styles.receptionistCard, receptionist && styles.receptionistCardActive, isReceptionistLocked && styles.receptionistCardLocked]}>
+                    <TouchableOpacity onPress={onReceptionistClick} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <View style={[
+                            styles.customerIcon, 
+                            { backgroundColor: receptionist 
+                                ? '#000' 
+                                : '#f1f5f9' 
+                            }
+                        ]}>
+                            {isReceptionistLocked ? (
+                                <Lock size={18} color="#fff" />
+                            ) : (
+                                <User size={18} color={receptionist ? '#fff' : '#64748b'} />
+                            )}
                         </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.labelSmall, receptionist && { color: 'rgba(255,255,255,0.6)' }]}>
+                                {isReceptionistLocked ? 'STATION LOCK' : 'ISSUED BY (ONCE)'}
+                            </Text>
+                            <Text style={[styles.customerNameMain, !receptionist && { color: '#94a3b8' }, (receptionist && (isReceptionistLocked || styles.receptionistCardActive)) && { color: '#fff' }]}>
+                                {receptionist ? String(receptionist.name) : 'Select Staff'}
+                            </Text>
+                        </View>
+                        {receptionist && (
+                            <View style={[styles.verifiedBadge, isReceptionistLocked && { backgroundColor: '#fff', borderColor: '#fff' }]}>
+                                {isReceptionistLocked ? (
+                                    <Lock size={10} color="#000" />
+                                ) : (
+                                    <Award size={10} color="#000" />
+                                )}
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                    
+                    {isReceptionistLocked && (
+                        <TouchableOpacity 
+                            onPress={onClearReceptionistLock}
+                            style={styles.clearLockBtn}
+                        >
+                            <X size={14} color="#fff" />
+                        </TouchableOpacity>
                     )}
-                </TouchableOpacity>
+                </View>
             )}
 
             {/* Loyalty Points Section - Only visible when customer is selected */}
@@ -369,7 +398,7 @@ const BillingSidebar = ({
                     <View style={styles.statusInfoRow}>
                         <Printer size={18} color="#000" />
                         <Text style={styles.printerStatusLabel}>PRINTER STATUS</Text>
-                        <Text style={[styles.printerStatusValue, { color: isPrinterConnected ? '#22c55e' : '#ef4444' }]}>
+                        <Text style={[styles.printerStatusValue, { color: isPrinterConnected ? '#000' : '#ef4444' }]}>
                             {isPrinterConnected ? 'CONNECTED' : 'NOT CONNECTED'}
                         </Text>
                     </View>
@@ -423,17 +452,33 @@ const styles = StyleSheet.create({
         marginLeft: 8,
         marginRight: 8
     },
+    receptionistCardActive: {
+        backgroundColor: '#000',
+        borderColor: '#000'
+    },
+    receptionistCardLocked: {
+        backgroundColor: '#000',
+        borderColor: '#000'
+    },
+    clearLockBtn: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginLeft: 10
+    },
     verifiedBadge: {
         width: 20,
         height: 20,
         borderRadius: 10,
-        backgroundColor: '#ecfdf5',
+        backgroundColor: '#f1f5f9',
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
-        borderColor: '#d1fae5'
+        borderColor: '#e2e8f0'
     },
-
     taxToggleContainer: { marginBottom: 20, paddingHorizontal: 4 },
     taxSwitch: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 12, padding: 4, borderWidth: 1, borderColor: '#f1f5f9' },
     taxOption: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
@@ -470,12 +515,12 @@ const styles = StyleSheet.create({
 
     calcResult: { marginTop: 20, paddingTop: 20, borderTopWidth: 1.5, borderTopColor: '#f1f5f9', alignItems: 'center' },
     calcResultLabel: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
-    calcResultValue: { fontSize: 28, fontWeight: '900', color: '#22c55e', marginTop: 4 },
+    calcResultValue: { fontSize: 28, fontWeight: '900', color: '#000', marginTop: 4 },
 
     livePreviewFrame: { backgroundColor: '#f1f5f9', padding: 20, borderRadius: 32, marginBottom: 20 },
     previewMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
     previewMetaText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
-    previewDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' },
+    previewDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#000' },
 
     finalActions: { marginBottom: 30, paddingHorizontal: 4 },
     mainCompleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#000', height: 60, borderRadius: 16, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },

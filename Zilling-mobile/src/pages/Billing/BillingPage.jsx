@@ -23,7 +23,6 @@ import BillingGrid from './components/BillingGrid';
 import BillingSidebar from './components/BillingSidebar';
 import BottomFunctionBar from './components/BottomFunctionBar';
 import { DiscountModal, RemarksModal, AdditionalChargesModal, LoyaltyPointsModal } from './components/ActionModals';
-import CustomerSearchModal from './components/CustomerSearchModal';
 import CustomerCaptureModal from './components/CustomerCaptureModal';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import ReceptionistSelectionModal from './components/ReceptionistSelectionModal';
@@ -40,7 +39,7 @@ import PaymentStep from './components/steps/PaymentStep';
 export default function BillingPage({ navigation, route }) {
   const { addTransaction, editTransaction } = useTransactions();
   const { products, fetchProducts, updateStock } = useProducts();
-  const { fetchCustomers } = useCustomers();
+  const { fetchCustomers, customers } = useCustomers();
   const { settings, updateSettings } = useSettings();
   const { showToast } = useToast();
 
@@ -119,7 +118,28 @@ export default function BillingPage({ navigation, route }) {
 
   useEffect(() => {
     fetchCustomers();
+    loadStaffSession().then(staff => {
+      if (staff) {
+        setActiveBills(prev => prev.map(b => ({ ...b, receptionist: staff })));
+      }
+    });
   }, []);
+
+  // Sync: Handle customer deletion from other screens
+  useEffect(() => {
+    if (!customers) return;
+    setActiveBills(prev => {
+      let changed = false;
+      const next = prev.map(bill => {
+        if (bill.customer && !customers.find(c => String(c.id) === String(bill.customer.id))) {
+          changed = true;
+          return { ...bill, customer: null };
+        }
+        return bill;
+      });
+      return changed ? next : prev;
+    });
+  }, [customers]);
 
   // --- State: Tab Management ---
   const [activeBills, setActiveBills] = useState([
@@ -137,7 +157,7 @@ export default function BillingPage({ navigation, route }) {
       loyaltyPointsRedeemed: 0,
       status: 'PAID',
       taxType: settings?.tax?.defaultTaxType || 'intra',
-      receptionist: null
+      receptionist: null // Populated by loadStaffSession in useEffect
     }
   ]);
   const [activeBillId, setActiveBillId] = useState(1);
@@ -157,7 +177,6 @@ export default function BillingPage({ navigation, route }) {
     additionalCharges: false,
     loyaltyPoints: false,
     stockLimit: false,
-    customerSearch: false,
     customerCapture: false,
     clearCartConfirm: false,
     receptionistSelection: false
@@ -165,6 +184,58 @@ export default function BillingPage({ navigation, route }) {
 
   // Stock limit message state
   const [stockLimitMessage, setStockLimitMessage] = useState('');
+
+  // --- Session Management (Locked Staff) ---
+  const [lockedStaff, setLockedStaff] = useState(null);
+
+  const loadStaffSession = async () => {
+    try {
+      const sessionStr = await require('@react-native-async-storage/async-storage').default.getItem('@persistent_staff_session');
+      if (sessionStr) {
+        const session = JSON.parse(sessionStr);
+        // Check expiry if it's a 'Shift' lock
+        if (session.expiry && Date.now() > session.expiry) {
+          await require('@react-native-async-storage/async-storage').default.removeItem('@persistent_staff_session');
+          setLockedStaff(null);
+          return null;
+        }
+        setLockedStaff(session.staff);
+        return session.staff;
+      }
+    } catch (e) {
+      console.warn('Failed to load staff session', e);
+    }
+    return null;
+  };
+
+  const saveStaffSession = async (staff, mode) => {
+    try {
+      if (!staff) {
+        await require('@react-native-async-storage/async-storage').default.removeItem('@persistent_staff_session');
+        setLockedStaff(null);
+        return;
+      }
+
+      let expiry = null;
+      if (mode === 'shift') {
+        const midnight = new Date();
+        midnight.setHours(23, 59, 59, 999);
+        expiry = midnight.getTime();
+      } else if (mode === 'always') {
+        expiry = null; // No expiry
+      } else {
+        // Single bill mode - don't save to persistent storage
+        setLockedStaff(null);
+        return;
+      }
+
+      const session = { staff, expiry, mode };
+      await require('@react-native-async-storage/async-storage').default.setItem('@persistent_staff_session', JSON.stringify(session));
+      setLockedStaff(staff);
+    } catch (e) {
+      console.warn('Failed to save staff session', e);
+    }
+  };
 
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'sidebar' (on mobile)
   const [customerSearchValue, setCustomerSearchValue] = useState('');
@@ -763,7 +834,7 @@ export default function BillingPage({ navigation, route }) {
     if (!currentBill.customer || !currentBill.customer.phone) {
       showToast("Select or add a customer to save this bill.", 'customer', 5000, {
         label: 'Identify Customer',
-        onPress: () => setModals(m => ({ ...m, customerSearch: true }))
+        onPress: () => setModals(m => ({ ...m, customerCapture: true }))
       }, "Identification Required");
       return;
     }
@@ -861,7 +932,7 @@ export default function BillingPage({ navigation, route }) {
         5000,
         {
           label: 'SELECT CUSTOMER',
-          onPress: () => setModals(m => ({ ...m, customerSearch: true }))
+          onPress: () => setModals(m => ({ ...m, customerCapture: true }))
         },
         "Customer Details Required"
       );
@@ -1243,7 +1314,7 @@ export default function BillingPage({ navigation, route }) {
               settings={settings}
               billId={currentBill.id}
               customer={currentBill.customer}
-              onCustomerSearch={(val) => val === 'search' ? setModals(m => ({ ...m, customerSearch: true })) : updateCurrentBill({ customer: null })}
+              onCustomerSearch={(val) => val === 'search' ? setModals(m => ({ ...m, customerCapture: true })) : updateCurrentBill({ customer: null })}
               onHelpConnect={() => navigation.navigate('Settings', { tab: 'print' })}
               totals={currentBill.totals}
               paymentMode={currentBill.paymentMode}
@@ -1273,7 +1344,9 @@ export default function BillingPage({ navigation, route }) {
               onLoyaltyClick={() => setModals(m => ({ ...m, loyaltyPoints: true }))}
               loyaltyPointsRedeemed={currentBill.loyaltyPointsRedeemed || 0}
               receptionist={currentBill.receptionist}
+              isReceptionistLocked={!!lockedStaff}
               onReceptionistClick={() => setModals(m => ({ ...m, receptionistSelection: true }))}
+              onClearReceptionistLock={() => saveStaffSession(null)}
             />
           )}
         </View>
@@ -1309,15 +1382,6 @@ export default function BillingPage({ navigation, route }) {
           onSave={(val) => updateCurrentBill({ remarks: val })}
           initialValue={currentBill.remarks}
         />
-        <CustomerSearchModal
-          isOpen={modals.customerSearch}
-          onClose={() => setModals(m => ({ ...m, customerSearch: false }))}
-          onSelect={(cust) => updateCurrentBill({ customer: cust })}
-          onAddNew={(nameOrPhone) => {
-            setCustomerSearchValue(nameOrPhone);
-            setModals(m => ({ ...m, customerSearch: false, customerCapture: true }));
-          }}
-        />
         <CustomerCaptureModal
           isOpen={modals.customerCapture}
           onClose={() => setModals(m => ({ ...m, customerCapture: false }))}
@@ -1325,6 +1389,17 @@ export default function BillingPage({ navigation, route }) {
           onSelect={(cust) => {
             updateCurrentBill({ customer: cust });
           }}
+        />
+
+        <ReceptionistSelectionModal
+          visible={modals.receptionistSelection}
+          onClose={() => setModals(m => ({ ...m, receptionistSelection: false }))}
+          onSelect={(staff, mode) => {
+            updateCurrentBill({ receptionist: staff });
+            if (mode) saveStaffSession(staff, mode);
+            setModals(m => ({ ...m, receptionistSelection: false }));
+          }}
+          selectedId={currentBill.receptionist?.id}
         />
 
 

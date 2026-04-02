@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -6,36 +6,83 @@ import {
     TouchableOpacity,
     ScrollView,
     StyleSheet,
-    SafeAreaView,
     Alert,
     KeyboardAvoidingView,
     Platform,
     Dimensions,
-    ActivityIndicator
+    ActivityIndicator,
+    StatusBar
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useSettings } from '../../context/SettingsContext';
-import { Store, MapPin, User, CheckCircle2, ChevronRight, ChevronLeft, Building2, ShieldCheck, Mail, Phone, Globe, Layout } from 'lucide-react-native';
+import { 
+    Store, 
+    MapPin, 
+    User, 
+    CheckCircle2, 
+    Building2, 
+    ShieldCheck, 
+    Mail, 
+    Phone, 
+    Globe, 
+    Briefcase,
+    Zap,
+    Lock,
+    ArrowRight
+} from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-
 
 const { width } = Dimensions.get('window');
 
+// 🛠️ BUG FIX: Sub-components moved outside to prevent focus-loss on re-render
+const StepIcon = ({ currentStep, step, icon: Icon }) => {
+    const active = currentStep === step;
+    const done = currentStep > step;
+    return (
+        <View style={styles.stepContainer}>
+            <View style={[styles.stepCircle, active && styles.stepCircleActive, done && styles.stepCircleDone]}>
+                <Icon size={16} color={active ? '#000' : (done ? '#fff' : '#888')} strokeWidth={active ? 2.5 : 2} />
+            </View>
+            <Text style={[styles.stepLabel, active && styles.stepLabelActive]}>Step {step}</Text>
+        </View>
+    );
+};
+
+const InputField = ({ label, icon: Icon, value, onChange, placeholder, keyboard = 'default', error, autoCaps = 'none' }) => (
+    <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>{label}</Text>
+        <View style={[styles.inputBox, error && styles.inputBoxError]}>
+            <View style={styles.inputPrefix}>
+                <Icon size={18} color="#000" strokeWidth={2.5} />
+            </View>
+            <TextInput
+                style={styles.textInput}
+                value={value}
+                onChangeText={onChange}
+                placeholder={placeholder}
+                placeholderTextColor="#999"
+                keyboardType={keyboard}
+                autoCapitalize={autoCaps}
+            />
+        </View>
+        {error && <Text style={styles.errorHint}>{error}</Text>}
+    </View>
+);
+
 const ShopDetails = () => {
     const navigation = useNavigation();
+    const insets = useSafeAreaInsets();
     const { settings, saveFullSettings } = useSettings();
 
     const [currentStep, setCurrentStep] = useState(1);
     const [formData, setFormData] = useState({
-        // Step 1: Store Profile
         storeName: settings?.store?.name || '',
         legalName: settings?.store?.legalName || '',
         businessType: settings?.store?.businessType || 'Proprietorship',
         contact: settings?.store?.contact || '',
         email: settings?.store?.email || '',
         website: settings?.store?.website || '',
-
-        // Step 2: Address & Tax
         street: settings?.store?.address?.street || '',
         area: settings?.store?.address?.area || '',
         city: settings?.store?.address?.city || '',
@@ -43,8 +90,6 @@ const ShopDetails = () => {
         pincode: settings?.store?.address?.pincode || '',
         gstEnabled: settings?.tax?.gstEnabled ?? true,
         gstin: settings?.store?.gstin || '',
-
-        // Step 3: User Info
         fullName: settings?.user?.fullName || '',
         mobile: settings?.user?.mobile || '',
         userEmail: settings?.user?.email || '',
@@ -56,68 +101,53 @@ const ShopDetails = () => {
     const [saving, setSaving] = useState(false);
     const [showErrors, setShowErrors] = useState(false);
 
+    useEffect(() => {
+        if (settings?.store?.name || settings?.store?.email) {
+            setFormData(prev => ({
+                ...prev,
+                storeName: settings?.store?.name || prev.storeName,
+                legalName: settings?.store?.legalName || prev.legalName,
+                businessType: settings?.store?.businessType || prev.businessType,
+                contact: settings?.store?.contact || prev.contact,
+                email: settings?.store?.email || prev.email,
+                street: settings?.store?.address?.street || prev.street,
+                city: settings?.store?.address?.city || prev.city,
+                state: settings?.store?.address?.state || prev.state,
+                pincode: settings?.store?.address?.pincode || prev.pincode,
+                gstin: settings?.store?.gstin || prev.gstin,
+                fullName: settings?.user?.fullName || prev.fullName,
+                mobile: settings?.user?.mobile || prev.mobile,
+            }));
+        }
+    }, [settings]);
+
     const handleChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
-        // Clear error for this field if user starts typing
         if (showErrors) setShowErrors(false);
     };
 
-    const isStep1Valid = () => {
-        return (
-            formData.storeName?.trim() &&
-            formData.legalName?.trim() &&
-            formData.contact?.trim() &&
-            formData.email?.trim()
-        );
-    };
-
+    const isStep1Valid = () => formData.storeName?.trim() && formData.legalName?.trim() && formData.contact?.trim() && formData.email?.trim();
     const isStep2Valid = () => {
-        const baseValid = (
-            formData.street?.trim() &&
-            formData.city?.trim() &&
-            formData.state?.trim() &&
-            formData.pincode?.trim()
-        );
-        if (formData.gstEnabled) {
-            return baseValid && formData.gstin?.trim();
-        }
-        return baseValid;
+        const baseValid = formData.street?.trim() && formData.city?.trim() && formData.state?.trim() && formData.pincode?.trim();
+        return formData.gstEnabled ? (baseValid && formData.gstin?.trim()) : baseValid;
     };
-
-    const isStep3Valid = () => {
-        return formData.fullName?.trim() && formData.mobile?.trim();
-    };
-
-    const canProceed = () => {
-        if (currentStep === 1) return isStep1Valid();
-        if (currentStep === 2) return isStep2Valid();
-        if (currentStep === 3) return isStep3Valid();
-        return false;
-    };
+    const isStep3Valid = () => formData.fullName?.trim() && formData.mobile?.trim();
 
     const handleNext = () => {
-        if (canProceed()) {
+        const isValid = currentStep === 1 ? isStep1Valid() : (currentStep === 2 ? isStep2Valid() : isStep3Valid());
+        if (isValid) {
             setCurrentStep(currentStep + 1);
             setShowErrors(false);
         } else {
             setShowErrors(true);
-            Alert.alert('Incomplete Form', 'Please fill in all mandatory fields before proceeding.');
+            Alert.alert('Incomplete Profile', 'Please provide the mandatory business details to continue.');
         }
     };
 
-    const handleBack = () => {
-        if (currentStep > 1) {
-            setCurrentStep(currentStep - 1);
-        }
-    };
+    const handleBack = () => { if (currentStep > 1) setCurrentStep(currentStep - 1); };
 
     const handleComplete = async () => {
-        if (!isStep3Valid()) {
-            setShowErrors(true);
-            Alert.alert('Required Fields', 'Please fill in all mandatory fields marked with * before finalizing.');
-            return;
-        }
-
+        if (!isStep3Valid()) { setShowErrors(true); return; }
         setSaving(true);
         try {
             const finalSettings = {
@@ -140,439 +170,185 @@ const ShopDetails = () => {
                     },
                     gstin: formData.gstin,
                 },
-                tax: {
-                    ...settings.tax,
-                    gstEnabled: formData.gstEnabled,
-                },
+                tax: { ...settings.tax, gstEnabled: formData.gstEnabled },
                 user: {
+                    ...settings.user,
                     fullName: formData.fullName,
                     mobile: formData.mobile,
-                    email: formData.userEmail,
-                    role: formData.role,
-                    consent: {
-                        analytics: formData.consentAnalytics,
-                        contact: formData.consentContact,
-                    },
+                    email: formData.userEmail || settings.user?.email,
+                    consent: { analytics: formData.consentAnalytics, contact: formData.consentContact },
                 },
                 onboardingCompletedAt: new Date().toISOString(),
             };
-
             await saveFullSettings(finalSettings);
-
-            // If we are using AppNavigator gatekeeper, this update will cause re-render
-            // and redirect to Main.
         } catch (error) {
-            console.error('Failed to complete onboarding:', error);
-            Alert.alert('Error', 'Failed to save profile. Please try again.');
+            Alert.alert('Save Failed', 'Encryption service was unable to reach the cloud vault. Please retry.');
         } finally {
             setSaving(false);
         }
     };
 
-    const steps = [
-        { number: 1, title: 'Identity', icon: Store },
-        { number: 2, title: 'Location', icon: MapPin },
-        { number: 3, title: 'Profile', icon: User },
-    ];
-
-    const renderStep1 = () => (
-        <View style={styles.formContainer}>
-            <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Store Display Name *</Text>
-                <View style={[styles.inputFieldContainer, showErrors && !formData.storeName?.trim() && styles.errorInput]}>
-                    <Store size={20} color="#000" style={styles.inputIcon} />
-                    <TextInput
-                        style={styles.input}
-                        value={formData.storeName}
-                        onChangeText={(v) => handleChange('storeName', v)}
-                        placeholder="e.g. Kwiq Billing Store"
-                        placeholderTextColor="#94a3b8"
-                    />
-                </View>
-                {showErrors && !formData.storeName?.trim() && <Text style={styles.errorText}>Store name is required</Text>}
-            </View>
-
-            <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Legal Business Name *</Text>
-                <View style={[styles.inputFieldContainer, showErrors && !formData.legalName?.trim() && styles.errorInput]}>
-                    <Building2 size={20} color="#000" style={styles.inputIcon} />
-                    <TextInput
-                        style={styles.input}
-                        value={formData.legalName}
-                        onChangeText={(v) => handleChange('legalName', v)}
-                        placeholder="As per GST Certificate"
-                        placeholderTextColor="#94a3b8"
-                    />
-                </View>
-                {showErrors && !formData.legalName?.trim() && <Text style={styles.errorText}>Legal business name is required</Text>}
-            </View>
-
-            <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Contact Number *</Text>
-                <View style={[styles.inputFieldContainer, showErrors && !formData.contact?.trim() && styles.errorInput]}>
-                    <Phone size={20} color="#000" style={styles.inputIcon} />
-                    <TextInput
-                        style={styles.input}
-                        value={formData.contact}
-                        onChangeText={(v) => handleChange('contact', v)}
-                        placeholder="+91 98765 43210"
-                        keyboardType="phone-pad"
-                        placeholderTextColor="#94a3b8"
-                    />
-                </View>
-                {showErrors && !formData.contact?.trim() && <Text style={styles.errorText}>Contact number is required</Text>}
-            </View>
-
-            <View style={styles.row}>
-                <View style={[styles.col, styles.inputWrapper]}>
-                    <Text style={styles.inputLabel}>Email Address *</Text>
-                    <View style={[styles.inputFieldContainer, showErrors && !formData.email?.trim() && styles.errorInput]}>
-                        <Mail size={18} color="#000" style={styles.inputIcon} />
-                        <TextInput
-                            style={styles.input}
-                            value={formData.email}
-                            onChangeText={(v) => handleChange('email', v)}
-                            placeholder="store@mail.com"
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            placeholderTextColor="#94a3b8"
-                        />
-                    </View>
-                    {showErrors && !formData.email?.trim() && <Text style={styles.errorText}>Email address is required</Text>}
-                </View>
-            </View>
-        </View>
-    );
-
-    const renderStep2 = () => (
-        <View style={styles.formContainer}>
-            <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Street Address *</Text>
-                <View style={[styles.inputFieldContainer, showErrors && !formData.street?.trim() && styles.errorInput]}>
-                    <MapPin size={20} color="#000" style={styles.inputIcon} />
-                    <TextInput
-                        style={styles.input}
-                        value={formData.street}
-                        onChangeText={(v) => handleChange('street', v)}
-                        placeholder="Building name, street"
-                        placeholderTextColor="#94a3b8"
-                    />
-                </View>
-                {showErrors && !formData.street?.trim() && <Text style={styles.errorText}>Street address is required</Text>}
-            </View>
-
-            <View style={styles.row}>
-                <View style={styles.col}>
-                    <Text style={styles.inputLabel}>City *</Text>
-                    <TextInput
-                        style={[styles.input, styles.standaloneInput, showErrors && !formData.city?.trim() && styles.errorInput]}
-                        value={formData.city}
-                        onChangeText={(v) => handleChange('city', v)}
-                        placeholder="City"
-                        placeholderTextColor="#94a3b8"
-                    />
-                    {showErrors && !formData.city?.trim() && <Text style={styles.errorText}>City is required</Text>}
-                </View>
-                <View style={styles.col}>
-                    <Text style={styles.inputLabel}>State *</Text>
-                    <TextInput
-                        style={[styles.input, styles.standaloneInput, showErrors && !formData.state?.trim() && styles.errorInput]}
-                        value={formData.state}
-                        onChangeText={(v) => handleChange('state', v)}
-                        placeholder="State"
-                        placeholderTextColor="#94a3b8"
-                    />
-                    {showErrors && !formData.state?.trim() && <Text style={styles.errorText}>State is required</Text>}
-                </View>
-            </View>
-
-            <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Pincode *</Text>
-                <TextInput
-                    style={[styles.input, styles.standaloneInput, showErrors && !formData.pincode?.trim() && styles.errorInput]}
-                    value={formData.pincode}
-                    onChangeText={(v) => handleChange('pincode', v)}
-                    placeholder="123456"
-                    keyboardType="numeric"
-                    placeholderTextColor="#94a3b8"
-                />
-                {showErrors && !formData.pincode?.trim() && <Text style={styles.errorText}>Pincode is required</Text>}
-            </View>
-
-            <View style={styles.gstSection}>
-                <View style={styles.gstHeader}>
-                    <View>
-                        <Text style={styles.gstTitle}>GST Compliance</Text>
-                        <Text style={styles.gstSub}>Enable tax modules</Text>
-                    </View>
-                    <TouchableOpacity
-                        activeOpacity={0.8}
-                        style={[styles.toggle, formData.gstEnabled ? styles.toggleOn : styles.toggleOff]}
-                        onPress={() => handleChange('gstEnabled', !formData.gstEnabled)}
-                    >
-                        <View style={[styles.toggleDot, formData.gstEnabled ? styles.dotOn : styles.dotOff]} />
-                    </TouchableOpacity>
-                </View>
-
-                {formData.gstEnabled && (
-                    <View style={styles.gstInputContainer}>
-                        <Text style={styles.inputLabel}>GSTIN Number *</Text>
-                        <TextInput
-                            style={[styles.input, styles.standaloneInput, styles.monoInput, showErrors && !formData.gstin?.trim() && styles.errorInput]}
-                            value={formData.gstin}
-                            onChangeText={(v) => handleChange('gstin', v.toUpperCase())}
-                            placeholder="22AAAAA0000A1Z5"
-                            autoCapitalize="characters"
-                            placeholderTextColor="#94a3b8"
-                        />
-                        {showErrors && !formData.gstin?.trim() && <Text style={styles.errorText}>GSTIN is required when tax is enabled</Text>}
-                    </View>
-                )}
-            </View>
-        </View>
-    );
-
-    const renderStep3 = () => (
-        <View style={styles.formContainer}>
-            <View style={styles.infoBox}>
-                <ShieldCheck size={20} color="#000" />
-                <Text style={styles.infoText}>
-                    Personal details are AES-256 encrypted and used only for synchronization and security verification.
-                </Text>
-            </View>
-
-            <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Account Owner Name *</Text>
-                <TextInput
-                    style={[styles.input, styles.standaloneInput, showErrors && !formData.fullName?.trim() && styles.errorInput]}
-                    value={formData.fullName}
-                    onChangeText={(v) => handleChange('fullName', v)}
-                    placeholder="e.g. John Doe"
-                    placeholderTextColor="#94a3b8"
-                />
-                {showErrors && !formData.fullName?.trim() && <Text style={styles.errorText}>Owner name is required</Text>}
-            </View>
-
-            <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Owner Mobile Number *</Text>
-                <TextInput
-                    style={[styles.input, styles.standaloneInput, showErrors && !formData.mobile?.trim() && styles.errorInput]}
-                    value={formData.mobile}
-                    onChangeText={(v) => handleChange('mobile', v)}
-                    placeholder="+91 98765 43210"
-                    keyboardType="phone-pad"
-                    placeholderTextColor="#94a3b8"
-                />
-                {showErrors && !formData.mobile?.trim() && <Text style={styles.errorText}>Mobile number is required</Text>}
-            </View>
-
-            <View style={styles.consentContainer}>
-                <TouchableOpacity
-                    activeOpacity={0.7}
-                    style={styles.consentRow}
-                    onPress={() => handleChange('consentAnalytics', !formData.consentAnalytics)}
-                >
-                    <View style={[styles.checkbox, formData.consentAnalytics && styles.checkboxActive]}>
-                        {formData.consentAnalytics && <CheckCircle2 size={14} color="#fff" />}
-                    </View>
-                    <Text style={styles.consentLabel}>Anonymous analytics to improve app</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    activeOpacity={0.7}
-                    style={styles.consentRow}
-                    onPress={() => handleChange('consentContact', !formData.consentContact)}
-                >
-                    <View style={[styles.checkbox, formData.consentContact && styles.checkboxActive]}>
-                        {formData.consentContact && <CheckCircle2 size={14} color="#fff" />}
-                    </View>
-                    <Text style={styles.consentLabel}>Receive critical security & feature updates</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
-
     return (
-        <SafeAreaView style={styles.container}>
-            <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={{ flex: 1 }}
+        <View style={styles.container}>
+            <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+            
+            <LinearGradient colors={['#000', '#111']} style={[styles.header, { paddingTop: insets.top + 20 }]}>
+                <View style={styles.headerContent}>
+                    <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.headerTitleBold}>KWIQ BILL</Text>
+                    </View>
+                </View>
+
+                <View style={styles.progressRow}>
+                    <StepIcon currentStep={currentStep} step={1} icon={Store} />
+                    <View style={[styles.progressDivider, currentStep > 1 && styles.progressDividerDone]} />
+                    <StepIcon currentStep={currentStep} step={2} icon={MapPin} />
+                    <View style={[styles.progressDivider, currentStep > 2 && styles.progressDividerDone]} />
+                    <StepIcon currentStep={currentStep} step={3} icon={User} />
+                </View>
+            </LinearGradient>
+
+            <ScrollView 
+                style={styles.body} 
+                contentContainerStyle={[styles.scrollContent, { paddingBottom: 160 }]}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
             >
-                <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <View style={styles.iconCircle}>
-                            <Building2 color="#fff" size={32} />
+                <KeyboardAvoidingView 
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                >
+                    <View style={styles.stageHero}>
+                        <View style={styles.stageIconBox}>
+                            {currentStep === 1 ? <Building2 size={24} color="#fff" /> : 
+                             currentStep === 2 ? <Globe size={24} color="#fff" /> : <Lock size={24} color="#fff" />}
                         </View>
-                        <Text style={styles.title}>Business Profile</Text>
-                        <Text style={styles.subtitle}>Set up your digital store presence</Text>
+                        <View>
+                            <Text style={styles.stageTitle}>
+                                {currentStep === 1 ? 'Business Identity' : 
+                                 currentStep === 2 ? 'Store Location' : 'Global Profile'}
+                            </Text>
+                            <Text style={styles.stageSubtitle}>
+                                {currentStep === 1 ? 'Define your professional presence' : 
+                                 currentStep === 2 ? 'Configure tax and delivery zone' : 'Finalize secure account details'}
+                            </Text>
+                        </View>
                     </View>
 
-                    {/* Progress Bar */}
-                    <View style={styles.progressContainer}>
-                        {steps.map((step, idx) => (
-                            <View key={step.number} style={styles.stepItem}>
-                                <View style={styles.stepIconWrapper}>
-                                    <View style={[
-                                        styles.stepCircle,
-                                        currentStep === step.number ? styles.activeStep : (currentStep > step.number ? styles.completedStep : styles.inactiveStep)
-                                    ]}>
-                                        {currentStep > step.number ? (
-                                            <CheckCircle2 color="#fff" size={18} />
-                                        ) : (
-                                            <Text style={[styles.stepNum, currentStep === step.number && styles.activeStepNum]}>{step.number}</Text>
-                                        )}
-                                    </View>
-                                    <Text style={[styles.stepLabel, currentStep === step.number && styles.activeStepLabel]}>{step.title}</Text>
+                    <View style={styles.stepCard}>
+                        {currentStep === 1 && (
+                            <View style={styles.formGrid}>
+                                <InputField label="BUSINESS DISPLAY NAME *" icon={Store} value={formData.storeName} onChange={(v) => handleChange('storeName', v)} placeholder="e.g. Noir Boutique" error={showErrors && !formData.storeName?.trim() ? 'Name required' : null} />
+                                <InputField label="LEGAL FIRM NAME *" icon={Briefcase} value={formData.legalName} onChange={(v) => handleChange('legalName', v)} placeholder="As per GST/Trade file" error={showErrors && !formData.legalName?.trim() ? 'Legal name required' : null} />
+                                <InputField label="OFFICIAL CONTACT *" icon={Phone} value={formData.contact} onChange={(v) => handleChange('contact', v)} placeholder="+91..." keyboard="phone-pad" error={showErrors && !formData.contact?.trim() ? 'Contact number required' : null} />
+                                <InputField label="STORE EMAIL *" icon={Mail} value={formData.email} onChange={(v) => handleChange('email', v)} placeholder="mail@store.com" keyboard="email-address" error={showErrors && !formData.email?.trim() ? 'Email address required' : null} />
+                            </View>
+                        )}
+
+                        {currentStep === 2 && (
+                            <View style={styles.formGrid}>
+                                <InputField label="STREET ADDRESS *" icon={MapPin} value={formData.street} onChange={(v) => handleChange('street', v)} placeholder="Building No, Street Name" error={showErrors && !formData.street?.trim() ? 'Address required' : null} />
+                                <View style={styles.row}>
+                                    <View style={{ flex: 1 }}><InputField label="CITY *" icon={Globe} value={formData.city} onChange={(v) => handleChange('city', v)} placeholder="City" error={showErrors && !formData.city?.trim() ? 'Required' : null} /></View>
+                                    <View style={{ flex: 1 }}><InputField label="STATE *" icon={MapPin} value={formData.state} onChange={(v) => handleChange('state', v)} placeholder="State" error={showErrors && !formData.state?.trim() ? 'Required' : null} /></View>
                                 </View>
-                                {idx < steps.length - 1 && (
-                                    <View style={[styles.progressLine, currentStep > step.number && styles.completedLine]} />
-                                )}
+                                <InputField label="PINCODE *" icon={Zap} value={formData.pincode} onChange={(v) => handleChange('pincode', v)} placeholder="123456" keyboard="numeric" error={showErrors && !formData.pincode?.trim() ? 'Pincode required' : null} />
+                                <View style={styles.gstBox}>
+                                    <View style={styles.gstHead}>
+                                        <View><Text style={styles.gstTitle}>GST Compliance</Text><Text style={styles.gstSub}>Automatically apply tax on bills</Text></View>
+                                        <TouchableOpacity style={[styles.tog, formData.gstEnabled ? styles.togOn : styles.togOff]} onPress={() => handleChange('gstEnabled', !formData.gstEnabled)}><View style={[styles.togDot, formData.gstEnabled && { alignSelf: 'flex-end' }]} /></TouchableOpacity>
+                                    </View>
+                                    {formData.gstEnabled && <View style={{ marginTop: 16 }}><InputField label="GSTIN NUMBER *" icon={ShieldCheck} value={formData.gstin} onChange={(v) => handleChange('gstin', v.toUpperCase())} placeholder="22AAAAA0000A1Z5" autoCaps="characters" error={showErrors && !formData.gstin?.trim() ? 'GSTIN required' : null} /></View>}
+                                </View>
                             </View>
-                        ))}
+                        )}
+
+                        {currentStep === 3 && (
+                            <View style={styles.formGrid}>
+                                <View style={styles.vaultAlert}><Lock size={16} color="#000" /><Text style={styles.vaultText}>Account details are encrypted inside your local vault.</Text></View>
+                                <InputField label="ACCOUNT HOLDER NAME *" icon={User} value={formData.fullName} onChange={(v) => handleChange('fullName', v)} placeholder="Full Legal Name" error={showErrors && !formData.fullName?.trim() ? 'Name required' : null} />
+                                <InputField label="PERSONAL MOBILE *" icon={Phone} value={formData.mobile} onChange={(v) => handleChange('mobile', v)} placeholder="+91..." keyboard="phone-pad" error={showErrors && !formData.mobile?.trim() ? 'Mobile required' : null} />
+                                <View style={styles.optArea}>
+                                    <TouchableOpacity style={styles.optRow} onPress={() => handleChange('consentAnalytics', !formData.consentAnalytics)}><View style={[styles.chk, formData.consentAnalytics && styles.chkOn]}>{formData.consentAnalytics && <CheckCircle2 size={12} color="#fff" />}</View><Text style={styles.optLabel}>Allow anonymous cloud sync for stability</Text></TouchableOpacity>
+                                    <TouchableOpacity style={styles.optRow} onPress={() => handleChange('consentContact', !formData.consentContact)}><View style={[styles.chk, formData.consentContact && styles.chkOn]}>{formData.consentContact && <CheckCircle2 size={12} color="#fff" />}</View><Text style={styles.optLabel}>Critical security and backup notifications</Text></TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
                     </View>
+                </KeyboardAvoidingView>
+            </ScrollView>
 
-                    {/* Form Card */}
-                    <View style={styles.card}>
-                        <View style={styles.cardHeader}>
-                            <View style={styles.cardHeaderLeft}>
-                                <Layout size={18} color="#000" />
-                                <Text style={styles.cardTitle}>{steps[currentStep - 1].title} Details</Text>
-                            </View>
-                            <View style={styles.badge}>
-                                <Text style={styles.badgeText}>{currentStep} OF 3</Text>
-                            </View>
-                        </View>
-
-                        {currentStep === 1 && renderStep1()}
-                        {currentStep === 2 && renderStep2()}
-                        {currentStep === 3 && renderStep3()}
-
-                        {/* Navigation Footer */}
-                        <View style={styles.footer}>
-                            <TouchableOpacity
-                                style={[styles.backBtn, currentStep === 1 && { opacity: 0 }]}
-                                onPress={handleBack}
-                                disabled={currentStep === 1}
-                            >
-                                <ChevronLeft size={20} color="#64748b" />
-                                <Text style={styles.backText}>Back</Text>
-                            </TouchableOpacity>
-
-                            <View style={{ flex: 1 }} />
-
-                            {currentStep < 3 ? (
-                                <TouchableOpacity
-                                    activeOpacity={0.8}
-                                    style={[styles.nextBtn]}
-                                    onPress={handleNext}
-                                >
-                                    <Text style={styles.nextText}>Continue</Text>
-                                    <ChevronRight size={20} color="#fff" />
-                                </TouchableOpacity>
-                            ) : (
-                                <TouchableOpacity
-                                    activeOpacity={0.8}
-                                    style={[styles.completeBtn, saving && styles.disabledBtn]}
-                                    onPress={handleComplete}
-                                    disabled={saving}
-                                >
-                                    {saving ? (
-                                        <ActivityIndicator size="small" color="#fff" />
-                                    ) : (
-                                        <>
-                                            <Text style={styles.nextText}>Finalize Profile</Text>
-                                            <CheckCircle2 size={20} color="#fff" />
-                                        </>
-                                    )}
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </View>
-
-                    <Text style={styles.securityNote}>
-                        🔒 AES-256 Encrypted Local Storage
-                    </Text>
-
-                </ScrollView>
-            </KeyboardAvoidingView>
-        </SafeAreaView>
+            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+                {currentStep < 3 ? (
+                    <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
+                        <Text style={styles.nextTxt}>CONTINUE</Text>
+                        <ArrowRight size={20} color="#fff" strokeWidth={2.5} />
+                    </TouchableOpacity>
+                ) : (
+                    <TouchableOpacity style={styles.finishBtn} onPress={handleComplete} disabled={saving}>
+                        {saving ? <ActivityIndicator color="#fff" /> : (
+                            <><Text style={styles.finishTxt}>INITIALIZE STORE</Text><Zap size={20} color="#fff" fill="#fff" /></>
+                        )}
+                    </TouchableOpacity>
+                )}
+                <TouchableOpacity style={[styles.backBtn, currentStep === 1 && { display: 'none' }]} disabled={currentStep === 1} onPress={handleBack}><Text style={styles.backTxt}>GO BACK TO PREVIOUS STEP</Text></TouchableOpacity>
+            </View>
+        </View>
     );
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#ffffff' },
-    scrollContent: { padding: 24, paddingBottom: 60 },
-    header: { alignItems: 'center', marginBottom: 32, marginTop: 10 },
-    iconCircle: { width: 64, height: 64, borderRadius: 22, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-    title: { fontSize: 32, fontWeight: '900', color: '#000', letterSpacing: -1 },
-    subtitle: { fontSize: 14, color: '#64748b', fontWeight: '500', marginTop: 4 },
-
-    progressContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 36, paddingHorizontal: 10 },
-    stepItem: { flexDirection: 'row', alignItems: 'center' },
-    stepIconWrapper: { alignItems: 'center', width: 60 },
-    stepCircle: { width: 36, height: 36, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-    activeStep: { backgroundColor: '#000', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
-    completedStep: { backgroundColor: '#000' },
-    inactiveStep: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#e2e8f0' },
-    stepNum: { fontSize: 14, fontWeight: '900', color: '#94a3b8' },
-    activeStepNum: { color: '#fff' },
-    stepLabel: { fontSize: 10, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 },
-    activeStepLabel: { color: '#000' },
-    progressLine: { width: 40, height: 2, backgroundColor: '#e2e8f0', marginHorizontal: 4, marginTop: -18 },
-    completedLine: { backgroundColor: '#000' },
-
-    card: { backgroundColor: '#fff', borderRadius: 32, padding: 24, borderWidth: 2, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 5 },
-    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 },
-    cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    cardTitle: { fontSize: 18, fontWeight: '900', color: '#000' },
-    badge: { backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-    badgeText: { fontSize: 10, fontWeight: '900', color: '#64748b' },
-
-    formContainer: { gap: 20 },
-    inputWrapper: { width: '100%' },
-    inputLabel: { fontSize: 12, fontWeight: '900', color: '#000', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 },
-    inputFieldContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 16, paddingHorizontal: 16, height: 56 },
-    inputIcon: { marginRight: 12 },
-    input: { flex: 1, fontSize: 16, color: '#000', fontWeight: '700' },
-    standaloneInput: { borderWidth: 2, borderColor: '#e2e8f0', borderRadius: 16, paddingHorizontal: 16, height: 56, backgroundColor: '#fff' },
+    container: { flex: 1, backgroundColor: '#fcfcfc' },
+    header: { paddingBottom: 30, borderBottomLeftRadius: 35, borderBottomRightRadius: 35 },
+    headerContent: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, marginBottom: 25 },
+    headerTitleBold: { fontSize: 32, color: '#fff', fontWeight: '900', marginTop: -5, letterSpacing: -1, textAlign: 'center' },
+    progressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
+    stepContainer: { alignItems: 'center', gap: 6 },
+    stepCircle: { width: 32, height: 32, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)' },
+    stepCircleActive: { backgroundColor: '#fff', borderColor: '#fff' },
+    stepCircleDone: { backgroundColor: '#000', borderColor: '#444' },
+    stepLabel: { fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' },
+    stepLabelActive: { color: '#fff' },
+    progressDivider: { flex: 1, height: 2, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 8, marginTop: -15 },
+    progressDividerDone: { backgroundColor: '#fff' },
+    body: { flex: 1 },
+    scrollContent: { paddingHorizontal: 20, paddingTop: 30, paddingBottom: 120 },
+    stageHero: { flexDirection: 'row', alignItems: 'center', gap: 15, marginBottom: 25 },
+    stageIconBox: { width: 54, height: 54, borderRadius: 18, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 15, elevation: 10 },
+    stageTitle: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+    stageSubtitle: { fontSize: 13, fontWeight: '600', color: '#777', marginTop: 2 },
+    stepCard: { backgroundColor: '#fff', borderRadius: 24, padding: 20, borderWidth: 1.5, borderColor: '#eee', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 },
+    formGrid: { gap: 18 },
+    inputGroup: { gap: 8 },
+    inputLabel: { fontSize: 11, fontWeight: '800', color: '#000', letterSpacing: 0.5, textTransform: 'uppercase' },
+    inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8f8f8', borderWidth: 1.5, borderColor: '#f0f0f0', borderRadius: 14, height: 54 },
+    inputBoxError: { borderColor: '#ff4b4b', backgroundColor: '#fff5f5' },
+    inputPrefix: { width: 44, alignItems: 'center', borderRightWidth: 1, borderRightColor: '#eee' },
+    textInput: { flex: 1, paddingHorizontal: 14, fontSize: 15, fontWeight: '700', color: '#000' },
     row: { flexDirection: 'row', gap: 12 },
-    col: { flex: 1 },
-    monoInput: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', letterSpacing: 1 },
-
-    gstSection: { marginTop: 10, backgroundColor: '#f8fafc', padding: 20, borderRadius: 20, borderWidth: 1.5, borderColor: '#e2e8f0' },
-    gstHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    gstTitle: { fontSize: 15, fontWeight: '900', color: '#000' },
-    gstSub: { fontSize: 12, color: '#64748b', fontWeight: '500' },
-    toggle: { width: 52, height: 28, borderRadius: 14, padding: 2 },
-    toggleOn: { backgroundColor: '#000' },
-    toggleOff: { backgroundColor: '#e2e8f0' },
-    toggleDot: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' },
-    dotOn: { alignSelf: 'flex-end' },
-    dotOff: { alignSelf: 'flex-start' },
-    gstInputContainer: { marginTop: 20 },
-
-    infoBox: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fafafa', padding: 16, borderRadius: 16, marginBottom: 8, borderWidth: 1.5, borderColor: '#e2e8f0' },
-    infoText: { flex: 1, fontSize: 12, color: '#475569', fontWeight: '600', lineHeight: 18 },
-
-    consentContainer: { gap: 12, marginTop: 10 },
-    consentRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
-    checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center' },
-    checkboxActive: { backgroundColor: '#000', borderColor: '#000' },
-    consentLabel: { fontSize: 13, color: '#475569', fontWeight: '600' },
-
-    footer: { flexDirection: 'row', alignItems: 'center', marginTop: 36, paddingTop: 24, borderTopWidth: 1.5, borderTopColor: '#f1f5f9' },
+    errorHint: { fontSize: 11, fontWeight: '700', color: '#ff4b4b', marginLeft: 4 },
+    gstBox: { backgroundColor: '#fafafa', padding: 18, borderRadius: 16, borderWidth: 1, borderColor: '#f0f0f0' },
+    gstHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    gstTitle: { fontSize: 16, fontWeight: '900', color: '#000' },
+    gstSub: { fontSize: 12, fontWeight: '500', color: '#666' },
+    tog: { width: 50, height: 26, borderRadius: 13, backgroundColor: '#eee', padding: 3 },
+    togOn: { backgroundColor: '#000' },
+    togDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
+    vaultAlert: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#eee', padding: 12, borderRadius: 12, marginBottom: 5 },
+    vaultText: { flex: 1, fontSize: 11, fontWeight: '700', color: '#000' },
+    optArea: { gap: 12, marginTop: 5 },
+    optRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    chk: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center' },
+    chkOn: { backgroundColor: '#000' },
+    optLabel: { fontSize: 13, fontWeight: '600', color: '#444' },
+    footer: { position: 'absolute', bottom: 0, width: '100%', backgroundColor: '#fff', alignItems: 'center', paddingHorizontal: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#f0f0f0', gap: 8 },
     backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10 },
-    backText: { color: '#64748b', fontWeight: '800', fontSize: 15 },
-    nextBtn: { backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
-    completeBtn: { backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 10 },
-    nextText: { color: '#fff', fontWeight: '900', fontSize: 15, textTransform: 'uppercase', letterSpacing: 0.5 },
-    disabledBtn: { backgroundColor: '#e2e8f0', shadowOpacity: 0, elevation: 0 },
-
-    errorText: { color: '#ef4444', fontSize: 11, fontWeight: '700', marginTop: 4, marginLeft: 2 },
-    errorInput: { borderColor: '#ef4444' },
-
-    securityNote: { textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 32, fontWeight: '800', letterSpacing: 0.5 }
+    backTxt: { fontSize: 13, fontWeight: '900', color: '#000', letterSpacing: 0.5 },
+    nextBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#000', paddingHorizontal: 22, paddingVertical: 13, borderRadius: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 },
+    nextTxt: { fontSize: 14, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
+    finishBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#000', paddingHorizontal: 22, paddingVertical: 13, borderRadius: 15 },
+    finishTxt: { fontSize: 14, fontWeight: '900', color: '#fff', letterSpacing: 0.5 }
 });
 
 export default ShopDetails;

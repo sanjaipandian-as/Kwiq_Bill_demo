@@ -24,7 +24,7 @@ if (
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import {
   Search,
@@ -56,15 +56,16 @@ import {
   UserX,
   Landmark,
 } from 'lucide-react-native';
+import { useNavBarColor } from '../../hooks/useNavBarColor';
 
 
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useSettings } from '../../context/SettingsContext';
 import { APP_VERSION } from '../../config/version';
-import { 
-  printReceipt, 
-  shareReceiptPDF, 
+import {
+  printReceipt,
+  shareReceiptPDF,
   printMultipleReceipts,
   saveReceiptPDF,
   shareCombinedReceiptPDF,
@@ -94,6 +95,7 @@ const safeDateDisplay = (dateStr) => {
 
 export default function InvoicesPage() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { transactions, loading, fetchTransactions, updateTransaction, addTransaction, deleteTransaction, clearAllTransactions } = useTransactions();
   const { showToast } = useToast();
   // Using direct DB access for customer lookup to avoid context overhead or circular deps if any
@@ -141,6 +143,10 @@ export default function InvoicesPage() {
   const [previewFormat, setPreviewFormat] = useState('A4'); // 'A4' or 'Thermal'
   const [previewA4Template, setPreviewA4Template] = useState('Classic');
   const [previewThermalTemplate, setPreviewThermalTemplate] = useState('Professional');
+
+  // Use custom hook to manage Android navigation bar color based on preview state
+  useNavBarColor('#000000', 'light', previewVisible);
+
   const [showBankAndSignature, setShowBankAndSignature] = useState(false);
 
   const [isNonAuthorizedSignatory, setIsNonAuthorizedSignatory] = useState(false);
@@ -323,7 +329,7 @@ export default function InvoicesPage() {
     try {
       setDownloadFormatModalVisible(false);
       if (!invoiceToDownload) return;
-      
+
       const billData = mapInvoiceToBillData(invoiceToDownload);
       const downloadOptions = {
         isNonAuthorized: isNonAuthorizedSignatory,
@@ -332,15 +338,15 @@ export default function InvoicesPage() {
 
       if (type === 'bill') {
         // Force Thermal Mode
-        await saveReceiptPDF(billData, { 
-          ...settings, 
-          invoice: { ...settings.invoice, paperSize: settings?.invoice?.billPaperSize || '80mm' } 
+        await saveReceiptPDF(billData, {
+          ...settings,
+          invoice: { ...settings.invoice, paperSize: settings?.invoice?.billPaperSize || '80mm' }
         }, 'customer', downloadOptions);
       } else if (type === 'invoice') {
         // Force A4 Mode
-        await saveReceiptPDF(billData, { 
-          ...settings, 
-          invoice: { ...settings.invoice, paperSize: 'A4' } 
+        await saveReceiptPDF(billData, {
+          ...settings,
+          invoice: { ...settings.invoice, paperSize: 'A4' }
         }, 'invoice', downloadOptions);
       } else if (type === 'both') {
         // Combined PDF
@@ -674,8 +680,8 @@ export default function InvoicesPage() {
 
 
   const renderInvoiceItem = useCallback(({ item }) => (
-    <InvoiceItem 
-      item={item} 
+    <InvoiceItem
+      item={item}
       settings={settings}
       onPress={handleInvoicePress}
       onPrint={handlePrint}
@@ -867,8 +873,8 @@ export default function InvoicesPage() {
       {/* --- DETAILS MODAL --- */}
       <Modal visible={isDetailModalVisible} animationType="slide" transparent={true} onRequestClose={() => setDetailModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalIndicator} />
+          <View style={[styles.modalContent, { height: '100%', maxHeight: '100%', borderTopLeftRadius: 0, borderTopRightRadius: 0, paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 20) }]}>
+
             <View style={styles.modalHeader}>
               <View style={styles.headerTextSection}>
                 <Text style={styles.modalTitle}>Invoice Summary</Text>
@@ -1040,7 +1046,7 @@ export default function InvoicesPage() {
                     <Text style={[styles.modernActionText, { color: '#ef4444' }]}>Delete</Text>
                   </TouchableOpacity>
                 </View>
-                <View style={{ height: 40 }} />
+                <View style={{ height: Math.max(insets.bottom, 120) }} />
               </ScrollView>
             )}
           </View>
@@ -1171,7 +1177,7 @@ export default function InvoicesPage() {
                   </View>
                 </ScrollView>
 
-                <View style={styles.footerContainer}>
+                <View style={[styles.footerContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
                   <View style={styles.modalFooter}>
                     <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditModalVisible(false)}>
                       <Text style={{ color: '#000', fontWeight: '800' }}>DISCARD</Text>
@@ -1208,7 +1214,7 @@ export default function InvoicesPage() {
         onRequestClose={() => setIsFilterOpen(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setIsFilterOpen(false)}>
-          <View style={styles.filterModal}>
+          <View style={[styles.filterModal, { paddingBottom: Math.max(insets.bottom, 24) }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Filter Invoices</Text>
               <Pressable onPress={() => setIsFilterOpen(false)} style={styles.modalCloseBtn}>
@@ -1322,7 +1328,7 @@ export default function InvoicesPage() {
       {/* --- PRINT FORMAT MODAL --- */}
       <Modal visible={printFormatModalVisible} animationType="fade" transparent={true}>
         <Pressable style={styles.modalOverlay} onPress={() => setPrintFormatModalVisible(false)}>
-          <View style={styles.filterModal}>
+          <View style={[styles.filterModal, { paddingBottom: Math.max(insets.bottom, 24) }]}>
             <View style={styles.modalHeader}>
               <View style={styles.headerTextSection}>
                 <Text style={styles.modalTitle}>Choose Print Format</Text>
@@ -1340,7 +1346,7 @@ export default function InvoicesPage() {
                   <View style={{ flex: 1, height: 1.5, backgroundColor: '#f1f5f9' }} />
                 </View>
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => setIsNonAuthorizedSignatory(!isNonAuthorizedSignatory)}
                     style={{ flex: 1, backgroundColor: isNonAuthorizedSignatory ? '#000' : '#fff', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#000' : '#e2e8f0', elevation: isNonAuthorizedSignatory ? 2 : 0 }}
                   >
@@ -1352,7 +1358,7 @@ export default function InvoicesPage() {
                     </View>
                   </TouchableOpacity>
 
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => setHideAccountDetails(!hideAccountDetails)}
                     style={{ flex: 1, backgroundColor: hideAccountDetails ? '#000' : '#fff', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: hideAccountDetails ? '#000' : '#e2e8f0', elevation: hideAccountDetails ? 2 : 0 }}
                   >
@@ -1386,7 +1392,7 @@ export default function InvoicesPage() {
       {/* --- PREVIEW FORMAT MODAL --- */}
       <Modal visible={previewFormatModalVisible} animationType="fade" transparent={true}>
         <Pressable style={styles.modalOverlay} onPress={() => setPreviewFormatModalVisible(false)}>
-          <View style={styles.filterModal}>
+          <View style={[styles.filterModal, { paddingBottom: Math.max(insets.bottom, 24) }]}>
             <View style={styles.modalHeader}>
               <View style={styles.headerTextSection}>
                 <Text style={styles.modalTitle}>Choose Preview Type</Text>
@@ -1404,7 +1410,7 @@ export default function InvoicesPage() {
                   <View style={{ flex: 1, height: 1.5, backgroundColor: '#f1f5f9' }} />
                 </View>
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => setIsNonAuthorizedSignatory(!isNonAuthorizedSignatory)}
                     style={{ flex: 1, backgroundColor: isNonAuthorizedSignatory ? '#000' : '#fff', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#000' : '#e2e8f0', elevation: isNonAuthorizedSignatory ? 2 : 0 }}
                   >
@@ -1416,7 +1422,7 @@ export default function InvoicesPage() {
                     </View>
                   </TouchableOpacity>
 
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => setHideAccountDetails(!hideAccountDetails)}
                     style={{ flex: 1, backgroundColor: hideAccountDetails ? '#000' : '#fff', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: hideAccountDetails ? '#000' : '#e2e8f0', elevation: hideAccountDetails ? 2 : 0 }}
                   >
@@ -1450,7 +1456,7 @@ export default function InvoicesPage() {
       {/* --- DOWNLOAD FORMAT MODAL --- */}
       <Modal visible={downloadFormatModalVisible} animationType="fade" transparent={true}>
         <Pressable style={styles.modalOverlay} onPress={() => setDownloadFormatModalVisible(false)}>
-          <View style={styles.filterModal}>
+          <View style={[styles.filterModal, { paddingBottom: Math.max(insets.bottom, 24) }]}>
             <View style={styles.modalHeader}>
               <View style={styles.headerTextSection}>
                 <Text style={styles.modalTitle}>Choose Download Content</Text>
@@ -1558,33 +1564,33 @@ export default function InvoicesPage() {
 
             {/* Quick Settings Card in Preview */}
             <View style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-               <View style={{ backgroundColor: '#f8fafc', padding: 10, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0' }}>
-                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                   <TouchableOpacity 
-                      onPress={() => setIsNonAuthorizedSignatory(!isNonAuthorizedSignatory)}
-                      style={{ flex: 1, backgroundColor: isNonAuthorizedSignatory ? '#000' : '#fff', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#000' : '#cbd5e1' }}
-                   >
-                     <UserX size={14} color={isNonAuthorizedSignatory ? '#fff' : '#64748b'} strokeWidth={2.5} />
-                     <Text style={{ fontSize: 10, fontWeight: '900', color: isNonAuthorizedSignatory ? '#fff' : '#000', letterSpacing: 0.5 }}>SKIP SIGN</Text>
-                     <View style={{ flex: 1 }} />
-                     <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#fff' : '#000', backgroundColor: isNonAuthorizedSignatory ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                       {isNonAuthorizedSignatory && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
-                     </View>
-                   </TouchableOpacity>
+              <View style={{ backgroundColor: '#f8fafc', padding: 10, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => setIsNonAuthorizedSignatory(!isNonAuthorizedSignatory)}
+                    style={{ flex: 1, backgroundColor: isNonAuthorizedSignatory ? '#000' : '#fff', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#000' : '#cbd5e1' }}
+                  >
+                    <UserX size={14} color={isNonAuthorizedSignatory ? '#fff' : '#64748b'} strokeWidth={2.5} />
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: isNonAuthorizedSignatory ? '#fff' : '#000', letterSpacing: 0.5 }}>SKIP SIGN</Text>
+                    <View style={{ flex: 1 }} />
+                    <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: isNonAuthorizedSignatory ? '#fff' : '#000', backgroundColor: isNonAuthorizedSignatory ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {isNonAuthorizedSignatory && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
+                    </View>
+                  </TouchableOpacity>
 
-                   <TouchableOpacity 
-                      onPress={() => setHideAccountDetails(!hideAccountDetails)}
-                      style={{ flex: 1, backgroundColor: hideAccountDetails ? '#000' : '#fff', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: hideAccountDetails ? '#000' : '#cbd5e1' }}
-                   >
-                     <Landmark size={14} color={hideAccountDetails ? '#fff' : '#64748b'} strokeWidth={2.5} />
-                     <Text style={{ fontSize: 10, fontWeight: '900', color: hideAccountDetails ? '#fff' : '#000', letterSpacing: 0.5 }}>HIDE BANK</Text>
-                     <View style={{ flex: 1 }} />
-                     <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: hideAccountDetails ? '#fff' : '#000', backgroundColor: hideAccountDetails ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                       {hideAccountDetails && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
-                     </View>
-                   </TouchableOpacity>
-                 </View>
-               </View>
+                  <TouchableOpacity
+                    onPress={() => setHideAccountDetails(!hideAccountDetails)}
+                    style={{ flex: 1, backgroundColor: hideAccountDetails ? '#000' : '#fff', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: hideAccountDetails ? '#000' : '#cbd5e1' }}
+                  >
+                    <Landmark size={14} color={hideAccountDetails ? '#fff' : '#64748b'} strokeWidth={2.5} />
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: hideAccountDetails ? '#fff' : '#000', letterSpacing: 0.5 }}>HIDE BANK</Text>
+                    <View style={{ flex: 1 }} />
+                    <View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: hideAccountDetails ? '#fff' : '#000', backgroundColor: hideAccountDetails ? '#fff' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {hideAccountDetails && <Text style={{ color: '#000', fontSize: 8, fontWeight: 'bold' }}>✓</Text>}
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
 
 
@@ -1650,7 +1656,13 @@ export default function InvoicesPage() {
             </ScrollView>
 
             {/* Bottom Actions - Now Absolute to ensure visibility */}
-            <View style={styles.a4PreviewActions}>
+            <View style={[
+              styles.a4PreviewActions,
+              {
+                height: 70 + Math.max(insets.bottom, 16),
+                paddingBottom: Math.max(insets.bottom, 16)
+              }
+            ]}>
               <TouchableOpacity
                 onPress={() => setPreviewVisible(false)}
                 style={styles.a4BackBtn}
@@ -2130,7 +2142,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 32,
     paddingTop: 24,
     paddingHorizontal: 0,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     maxHeight: '80%',
   },
   statusOption: {
@@ -2149,7 +2160,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0f172a'
   },
-  detailScroll: { paddingHorizontal: 24 },
+  detailScroll: { flex: 1, paddingHorizontal: 24 },
   summaryTopCard: {
     backgroundColor: '#f8fafc',
     borderRadius: 24,
@@ -2277,7 +2288,6 @@ const styles = StyleSheet.create({
   },
   dateText: { fontSize: 15, fontWeight: '700', color: '#000' },
   footerContainer: {
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     backgroundColor: '#fff',
   },
 
@@ -2372,8 +2382,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1.5,
     borderTopColor: '#f1f5f9',
     gap: 12,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
-    height: 100,
     alignItems: 'center',
     zIndex: 9999,
     elevation: 30,

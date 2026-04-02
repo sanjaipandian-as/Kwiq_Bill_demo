@@ -34,7 +34,7 @@ const CustomSyncLoader = () => {
           outputRange: [1, 0.25, 1],
           extrapolate: 'clamp'
         });
-        
+
         return (
           <Animated.View
             key={i}
@@ -47,8 +47,8 @@ const CustomSyncLoader = () => {
                 ],
                 opacity: anim.interpolate({
                   inputRange: [
-                    Math.max(0, i - 1), 
-                    i, 
+                    Math.max(0, i - 1),
+                    i,
                     Math.min(12, i + 1)
                   ],
                   outputRange: [0.25, 1, 0.25],
@@ -63,12 +63,12 @@ const CustomSyncLoader = () => {
   );
 };
 
-const DashboardHeader = ({ 
-  user, 
-  storeLogo, 
-  isSyncing, 
-  onMenuPress, 
-  dateFilter, 
+const DashboardHeader = ({
+  user,
+  storeLogo,
+  isSyncing,
+  onMenuPress,
+  dateFilter,
   onDatePickerPress,
   totalInvoices,
   paidCount,

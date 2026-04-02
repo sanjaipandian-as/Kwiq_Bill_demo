@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Alert, InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { triggerAutoSave } from '../services/autosaveService';
 import services, { API } from '../services/api';
@@ -12,17 +12,14 @@ import { SecurityService } from '../services/SecurityService';
 import CryptoJS from 'crypto-js';
 import { getDriveEncSalt, deriveEncryptionKey, encryptContent, decryptContent, prewarmEncryptionKeys } from '../services/googleDriveservices';
 
+// Fix: include store fields so AES-encrypted values from MongoDB are decrypted
 const SENSITIVE_FIELDS = [
     { section: 'security', fields: ['managerPin'] },
     { section: 'receptionists', fields: ['pin'] },
     { section: 'bankDetails', fields: ['accountNumber', 'ifsc'] },
-    // Fix: include store fields so AES-encrypted values from MongoDB are decrypted
-    { section: 'store', fields: ['name', 'legalName', 'contact', 'email', 'gstin'] }
+    { section: 'store', fields: ['name', 'legalName', 'contact', 'email', 'gstin'] },
+    { section: 'user', fields: ['fullName', 'mobile'] }
 ];
-
-const SettingsContext = createContext();
-
-export const useSettings = () => useContext(SettingsContext);
 
 const INITIAL_SETTINGS = {
     store: {
@@ -32,32 +29,31 @@ const INITIAL_SETTINGS = {
         contact: '',
         email: '',
         website: '',
-        whatsapp: '',
         address: {
             street: '',
             area: '',
             city: '',
             state: '',
-            pincode: ''
+            pincode: '',
         },
         gstin: '',
-        fssai: '',
-        logo: null
-    },
-    bankDetails: {
-        accountName: '',
-        accountNumber: '',
-        ifsc: '',
-        bankName: '',
-        branch: ''
+        logo: null,
     },
     tax: {
         gstEnabled: true,
-        defaultType: 'Exclusive',
+        taxType: 'none',
+        gstNumber: '',
         taxGroups: [
             { id: '1', name: 'GST 18%', rate: 18, cgst: 9, sgst: 9, igst: 18, active: true },
             { id: '2', name: 'GST 5%', rate: 5, cgst: 2.5, sgst: 2.5, igst: 5, active: true }
         ]
+    },
+    bankDetails: {
+        accountName: '',
+        bankName: '',
+        accountNumber: '',
+        ifsc: '',
+        upiId: '',
     },
     invoice: {
         template: 'Classic',
@@ -86,7 +82,7 @@ const INITIAL_SETTINGS = {
     defaults: {
         language: 'en',
         currency: 'INR',
-        autoSave: true
+        autoSave: true // Forced ALWAYS ON for data protection
     },
     user: {
         fullName: '',
@@ -106,6 +102,34 @@ const INITIAL_SETTINGS = {
     onboardingCompletedAt: null,
     lastUpdatedAt: null
 };
+
+/**
+ * 🚀 ROBUSTNESS: Unwrap settings if it comes from the server wrapped in a { settings: ... } object
+ */
+const unwrapSettings = (data) => {
+    if (!data) return data;
+    
+    // Case 1: Wrapped in { settings: { ... } }
+    if (data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings)) {
+        return data.settings;
+    }
+    
+    // Case 2: Wrapped in { user: { settings: { ... } } } (Some Mongo-Aggregate routes)
+    if (data.user?.settings && typeof data.user.settings === 'object') {
+        return data.user.settings;
+    }
+
+    // Case 3: Wrapped in { data: { ... } } (Double-wrap fallback)
+    if (data.data && typeof data.data === 'object' && !data.data.store && data.data.settings) {
+        return data.data.settings;
+    }
+
+    return data;
+};
+
+const SettingsContext = createContext();
+
+export const useSettings = () => useContext(SettingsContext);
 
 export const SettingsProvider = ({ children, user }) => {
     const [settings, setSettings] = useState(INITIAL_SETTINGS);
@@ -198,14 +222,20 @@ export const SettingsProvider = ({ children, user }) => {
             // Navigate to the leaf parent
             for (let i = 0; i < sectionParts.length - 1; i++) {
                 const part = sectionParts[i];
-                if (!parent[part]) return; // Section doesn't exist
+                if (!parent[part]) {
+                    parent = null;
+                    break; 
+                }
                 parent[part] = Array.isArray(parent[part]) ? [...parent[part]] : { ...parent[part] };
                 parent = parent[part];
             }
+            if (!parent) continue; // Section path doesn't exist
 
             const sectionName = sectionParts[sectionParts.length - 1];
             let sectionData = parent[sectionName];
-            if (!sectionData) continue;
+            // 🚀 ROBUSTNESS: Only process and update parent if the section actually exists in the data.
+            // Previously, this would overwrite missing sections with 'undefined', wiping the state.
+            if (sectionData === undefined) continue;
 
             if (typeof sectionData === 'string' && (sectionData.startsWith('{') || sectionData.startsWith('['))) {
                 try {
@@ -277,6 +307,25 @@ export const SettingsProvider = ({ children, user }) => {
         return processed;
     }, []);
 
+    // 🔍 DEBUG UTILITY: Log full decrypted profile to terminal for verification
+    const logDecryptedSettings = React.useCallback((data, source = 'Cloud') => {
+        if (!data) return;
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`💎 [${source.toUpperCase()}] SETTINGS ALIGNED: Decrypted Profile Data`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`🏪 Store Name:`, data?.store?.name || 'Not Set');
+        console.log(`🏢 Legal Name:`, data?.store?.legalName || 'Not Set');
+        console.log(`📞 Contact:`, data?.store?.contact || 'Not Set');
+        console.log(`📧 Store Email:`, data?.store?.email || 'Not Set');
+        console.log(`💰 Bank Holder:`, data?.bankDetails?.accountName || 'Not Set');
+        console.log(`🏦 Bank Name:`, data?.bankDetails?.bankName || 'Not Set');
+        console.log(`🔢 Account No:`, data?.bankDetails?.accountNumber || 'Not Set');
+        console.log(`🔑 IFSC Code:`, data?.bankDetails?.ifsc || 'Not Set');
+        console.log(`👤 Owner Full Name:`, data?.user?.fullName || 'Not Set');
+        console.log(`📱 Owner Mobile:`, data?.user?.mobile || 'Not Set');
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    }, []);
+
     const repairSettingsFromDrive = React.useCallback(async () => {
         if (!user?.email || isRepairing) return;
 
@@ -298,6 +347,7 @@ export const SettingsProvider = ({ children, user }) => {
                 const salt = await getDriveEncSalt();
                 const activeStrongKey = deriveEncryptionKey(user.email, salt);
                 const decoded = await processSensitiveFields(driveData, user.email, 'decrypt', activeStrongKey);
+                logDecryptedSettings(decoded, 'Background Repair');
 
                 setSettings(prev => {
                     // Deep merge to preserve logo or other local-only states if any
@@ -339,20 +389,48 @@ export const SettingsProvider = ({ children, user }) => {
 
                 const saved = await AsyncStorage.getItem(settingsKey);
                 if (saved && saved !== 'null') {
-                    const parsed = JSON.parse(saved);
+                    const rawParsed = JSON.parse(saved);
+                    const parsed = unwrapSettings(rawParsed || {});
                     if (parsed) {
                         const salt = await getDriveEncSalt();
                         const activeStrongKey = user?.email ? deriveEncryptionKey(user.email, salt) : null;
                         
                         // Fix: The data fetched post-login may still contain raw MongoDB encrypted strings
                         // like 'U2FsdGVkX1...'. We MUST decrypt them FIRST before setting state!
+                        // Fix #3: Deep merge to preserve existing data (like receptionists) when loading fresh MongoDB data
                         const decrypted = await processSensitiveFields(parsed, user?.email, 'decrypt', activeStrongKey);
+                        logDecryptedSettings(decrypted, 'Post-Login Cache');
+                        setSettings(prev => ({
+                            ...prev,
+                            ...decrypted,
+                            store: { ...(prev.store || {}), ...(decrypted.store || {}) },
+                            bankDetails: { ...(prev.bankDetails || {}), ...(decrypted.bankDetails || {}) },
+                            user: { ...(prev.user || {}), ...(decrypted.user || {}) },
+                            security: { ...(prev.security || {}), ...(decrypted.security || {}) },
+                            receptionists: prev.receptionists?.length > 0 ? prev.receptionists : (decrypted.receptionists || [])
+                        }));
+
                         const toSave = await processSensitiveFields(decrypted, user?.email, 'encrypt', activeStrongKey);
-                        
                         await AsyncStorage.setItem(settingsKey, JSON.stringify(toSave));
-                        setSettings(decrypted);
+                        
                         if (parsed.onboardingCompletedAt) setDbProfileComplete(true);
-                        setIsDecryptionReady(true); // ✅ keys warm, data decrypted
+                        
+                        // 🚀 ADDED: IMMEDIATE VAULT RECOVERY AFTER LOGIN
+                        try {
+                            const vaultRecep = await SecurityService.getReceptionists(user);
+                            if (vaultRecep && vaultRecep.length > 0) {
+                                setSettings(prev => ({ ...prev, receptionists: vaultRecep }));
+                            }
+                            const hasPin = await SecurityService.hasManagerPin();
+                            if (hasPin) {
+                                setSettings(prev => ({ 
+                                    ...prev, 
+                                    security: { ...(prev.security || {}), managerPin: prev.security?.managerPin || 'RECLAIMED' } 
+                                }));
+                            }
+                        } catch (vaultErr) { console.warn('[Settings] Post-login vault recovery failed'); }
+
+                        setIsDecryptionReady(true);
                         console.log('[Settings] ✅ Loaded FRESH data from post-login fetch.');
                         return;
                     }
@@ -362,16 +440,44 @@ export const SettingsProvider = ({ children, user }) => {
                 if (isConnected) {
                     try {
                         const response = await services.settings.getSettings();
-                        const dbSettings = response?.data || response;
+                        const body = response?.data || response;
+                        const dbSettings = unwrapSettings(body);
                         if (dbSettings) {
                             const salt = await getDriveEncSalt();
                             const activeStrongKey = user?.email ? deriveEncryptionKey(user.email, salt) : null;
                             const decryptedFromMongo = await processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
+                            logDecryptedSettings(decryptedFromMongo, 'Login Fallback Mongo');
+                            setSettings(prev => ({
+                                ...prev,
+                                ...decryptedFromMongo,
+                                store: { ...(prev.store || {}), ...(decryptedFromMongo.store || {}) },
+                                bankDetails: { ...(prev.bankDetails || {}), ...(decryptedFromMongo.bankDetails || {}) },
+                                user: { ...(prev.user || {}), ...(decryptedFromMongo.user || {}) },
+                                security: { ...(prev.security || {}), ...(decryptedFromMongo.security || {}) },
+                                receptionists: prev.receptionists?.length > 0 ? prev.receptionists : (decryptedFromMongo.receptionists || [])
+                            }));
+
                             const toPersist = await processSensitiveFields(decryptedFromMongo, user?.email, 'encrypt', activeStrongKey);
                             await AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
-                            setSettings(decryptedFromMongo);
+                            
                             if (dbSettings.onboardingCompletedAt) setDbProfileComplete(true);
-                            setIsDecryptionReady(true); // ✅
+                            
+                            // 🚀 ADDED: IMMEDIATE VAULT RECOVERY AFTER LOGIN FALLBACK
+                            try {
+                                const vaultRecep = await SecurityService.getReceptionists(user);
+                                if (vaultRecep && vaultRecep.length > 0) {
+                                    setSettings(prev => ({ ...prev, receptionists: vaultRecep }));
+                                }
+                                const hasPin = await SecurityService.hasManagerPin();
+                                if (hasPin) {
+                                    setSettings(prev => ({ 
+                                        ...prev, 
+                                        security: { ...(prev.security || {}), managerPin: prev.security?.managerPin || 'RECLAIMED' } 
+                                    }));
+                                }
+                            } catch (vaultErr) { console.warn('[Settings] Post-login fallback vault recovery failed'); }
+
+                            setIsDecryptionReady(true);
                             console.log('[Settings] ✅ Fresh settings loaded on login fallback.');
                             return;
                         }
@@ -394,6 +500,7 @@ export const SettingsProvider = ({ children, user }) => {
                     const salt = await getDriveEncSalt();
                     const activeStrongKey = user?.email ? deriveEncryptionKey(user.email, salt) : null;
                     const decrypted = await processSensitiveFields(parsed, user?.email, 'decrypt', activeStrongKey);
+                    logDecryptedSettings(decrypted, 'Local Cache');
 
                     // 🛡️ RECOVERY TRIGGER: If critical fields are still encrypted, trigger repair
                     const stringified = JSON.stringify(decrypted);
@@ -403,7 +510,34 @@ export const SettingsProvider = ({ children, user }) => {
                     }
 
                     if (parsed.onboardingCompletedAt) setDbProfileComplete(true);
-                    setSettings(decrypted || {});
+                    
+                    // 🚀 PROTECTION: Always preserve local receptionists & deep merge objects
+                    setSettings(prev => ({
+                        ...prev,
+                        ...decrypted,
+                        store: { ...(prev.store || {}), ...(decrypted.store || {}) },
+                        bankDetails: { ...(prev.bankDetails || {}), ...(decrypted.bankDetails || {}) },
+                        user: { ...(prev.user || {}), ...(decrypted.user || {}) },
+                        security: { ...(prev.security || {}), ...(decrypted.security || {}) },
+                        receptionists: prev.receptionists?.length > 0 ? prev.receptionists : (decrypted.receptionists || [])
+                    }));
+
+                    // 🚀 ADDED: IMMEDIATE VAULT RECOVERY FROM CACHE
+                    // Correctly uses SecurityService to handle decryption/cache logic
+                    try {
+                        const vaultRecep = await SecurityService.getReceptionists(user);
+                        if (vaultRecep && vaultRecep.length > 0) {
+                            setSettings(prev => ({ ...prev, receptionists: vaultRecep }));
+                        }
+                        const hasPin = await SecurityService.hasManagerPin();
+                        if (hasPin) {
+                            setSettings(prev => ({ 
+                                ...prev, 
+                                security: { ...(prev.security || {}), managerPin: prev.security?.managerPin || 'RECLAIMED' } 
+                            }));
+                        }
+                    } catch (vaultErr) { console.warn('[Settings] Local vault recovery failed'); }
+
                     setIsDecryptionReady(true); // ✅ keys warm, data decrypted
                     setIsTokenReady(true); // ✅ token exists
                     return;
@@ -417,12 +551,33 @@ export const SettingsProvider = ({ children, user }) => {
                     const response = await services.settings.getSettings();
                     const dbSettings = response?.data || response;
                     if (dbSettings) {
+                        console.log("Raw DB Settings:", JSON.stringify(dbSettings));
                         const salt = await getDriveEncSalt();
                         const activeStrongKey = user?.email ? deriveEncryptionKey(user.email, salt) : null;
                         const decryptedFromMongo = await processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
+                        logDecryptedSettings(decryptedFromMongo, 'Fallback Mongo');
                         const toPersist = await processSensitiveFields(decryptedFromMongo, user?.email, 'encrypt', activeStrongKey);
                         await AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
-                        setSettings(decryptedFromMongo);
+                        
+                        setSettings(prev => ({
+                            ...prev,
+                            ...decryptedFromMongo,
+                            store: { ...(prev.store || {}), ...(decryptedFromMongo.store || {}) },
+                            bankDetails: { ...(prev.bankDetails || {}), ...(decryptedFromMongo.bankDetails || {}) },
+                            user: { ...(prev.user || {}), ...(decryptedFromMongo.user || {}) },
+                            security: { ...(prev.security || {}), ...(decryptedFromMongo.security || {}) },
+                            receptionists: prev.receptionists?.length > 0 ? prev.receptionists : (decryptedFromMongo.receptionists || [])
+                        }));
+
+                        // 🚀 ADDED: Check PIN presence during fallback
+                        const hasPin = await SecurityService.hasManagerPin();
+                        if (hasPin) {
+                            setSettings(prev => ({ 
+                                ...prev, 
+                                security: { ...(prev.security || {}), managerPin: prev.security?.managerPin || 'RECLAIMED' } 
+                            }));
+                        }
+
                         if (dbSettings.onboardingCompletedAt) setDbProfileComplete(true);
                         setIsDecryptionReady(true); // ✅
                         console.log('[Settings] Loaded from MongoDB:', JSON.stringify(dbSettings)?.slice(0, 200));
@@ -559,10 +714,12 @@ export const SettingsProvider = ({ children, user }) => {
 
                 // 4. Perform settings refinement in a separate step
                 setSettings(prev => {
-                    (async () => {
+                    const performRefinement = async () => {
                         const refined = await processSensitiveFields(prev, user?.email, 'decrypt', key);
                         setSettings(refined);
-                    })();
+                        setIsDecryptionReady(true);
+                    };
+                    performRefinement();
                     return prev;
                 });
                 
@@ -602,30 +759,46 @@ export const SettingsProvider = ({ children, user }) => {
     }, [isConnected, wasOfflinePreviously, checkQueueStatus, showToast]);
 
     const syncSettingsWithCloud = React.useCallback(async () => {
-        // Fix: email-login users have no user.id — allow them through using user.email
         if (!user || (!user.id && !user.email)) return;
         try {
             const response = await services.settings.getSettings();
-            const dbSettings = response?.data || response;
+            const body = response?.data || response;
+            const dbSettings = unwrapSettings(body);
             if (dbSettings) {
+                console.log("📡 [BACKEND] RAW Cloud Data:", JSON.stringify(dbSettings));
                 if (dbSettings.onboardingCompletedAt) setDbProfileComplete(true);
 
-                // Fix: decrypt store/sensitive fields before merging into state
                 let activeStrongKey = null;
                 if (user?.email) {
                     const salt = await getDriveEncSalt();
                     activeStrongKey = deriveEncryptionKey(user.email, salt);
                 }
                 const decrypted = await processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
+                
+                logDecryptedSettings(decrypted, 'Cloud Sync');
 
                 setSettings(prev => {
                     const updated = { 
                         ...prev, 
                         ...decrypted,
                         store: { ...(prev.store || {}), ...(decrypted.store || {}) },
-                        bankDetails: { ...(prev.bankDetails || {}), ...(decrypted.bankDetails || {}) }
+                        bankDetails: { ...(prev.bankDetails || {}), ...(decrypted.bankDetails || {}) },
+                        // 🚀 PROTECTION: Deep merge user profile details to prevent wiping "Full Name" 
+                        // if the server only returns specific fields (like email).
+                        user: { ...(prev.user || {}), ...(decrypted.user || {}) },
+                        // 🚀 PROTECTION: Only overwrite receptionists if server returns a NON-EMPTY array.
+                        // This prevents MongoDB (which doesn't store staff for security) from wiping the vault data.
+                        receptionists: (decrypted.receptionists && decrypted.receptionists.length > 0) 
+                            ? decrypted.receptionists 
+                            : (prev.receptionists && prev.receptionists.length > 0 ? prev.receptionists : (decrypted.receptionists || [])),
+                        security: {
+                            ...(prev.security || {}),
+                            ...(decrypted.security || {}),
+                            managerPin: (decrypted.security?.managerPin) 
+                                ? decrypted.security.managerPin 
+                                : (prev.security?.managerPin || null)
+                        }
                     };
-                    // Re-encrypt sensitive fields before persisting locally in background
                     (async () => {
                         const toSave = await processSensitiveFields(updated, user?.email, 'encrypt', activeStrongKey);
                         AsyncStorage.setItem(settingsKey, JSON.stringify(toSave));
@@ -665,16 +838,9 @@ export const SettingsProvider = ({ children, user }) => {
             } catch (e) { }
 
             // DEFER ALL BACKGROUND METADATA SCRAPING
-            setTimeout(() => {
-                Promise.all([
-                    SecurityService.getReceptionists(user).then(vaultRecep => {
-                        if (vaultRecep && vaultRecep.length > 0) {
-                            setSettings(prev => ({ ...prev, receptionists: vaultRecep }));
-                        }
-                    }).catch(() => { }),
-
-                    syncSettingsWithCloud()
-                ]).catch(() => { }); // swallow errors silently
+            setTimeout(async () => {
+                // Now sync with MongoDB settings
+                await syncSettingsWithCloud();
             }, hasUnlockedUI ? 3000 : 500);
         })();
     }, [user, generateLocalAccessToken, syncSettingsWithCloud]);
@@ -716,21 +882,20 @@ export const SettingsProvider = ({ children, user }) => {
                     setInitStage(3);
                     await Promise.all([loadSyncTime(), checkQueueStatus()]);
                     
-                    // 🚀 FETCH INTEGRATION: Perform full sync during Stage 3 as requested.
-                    // This holds the user in the sleek DataSearchLoader until the cloud is aligned.
                     const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
                     const isFreshLogin = justLoggedIn === 'true';
-                    await syncAllData(isFreshLogin).catch(e => console.warn('[Sync] Initial fetch failed:', e.message));
+                    // 🚀 PERFORMANCE FIX: Limit UI-blocking sync to 6.5 seconds.
+                    // If the cloud sync takes longer (due to heavy history), we move it to the background
+                    // to keep the user experience snappy and professional.
+                    const syncTask = syncAllData(isFreshLogin);
+                    await Promise.race([
+                        syncTask,
+                        new Promise(resolve => setTimeout(resolve, 6500))
+                    ]).catch(e => console.warn('[Sync] Initial fetch error/timeout:', e.message));
 
+                    // 🛡️ SECURITY FIX: Removed "hasLocalData" shortcut as it caused new users to skip onboarding.
+                    // Onboarding is now strictly controlled by the 'onboardingCompletedAt' profile field.
                     let hasUnlockedUI = false;
-                    try {
-                        const { SyncService } = require('../services/OneWaySyncService');
-                        const hasLocal = await SyncService.hasLocalData();
-                        if (hasLocal) {
-                            setDbProfileComplete(true);
-                            hasUnlockedUI = true;
-                        }
-                    } catch (e) { }
 
                     setInitStage(4); // 🟢 COMPULSORY move to Stage 4 after fetch
 
@@ -792,70 +957,63 @@ export const SettingsProvider = ({ children, user }) => {
     const updateSettings = React.useCallback(async (section, updates) => {
         setLastLocalUpdateAt(Date.now());
 
-        // 🚀 PRO-LEVEL FIX: Calculate newSettings synchronously here.
-        // This ensures the value is available for both the UI (setSettings)
-        // AND the background side-effects (Drive/Vault sync) without race conditions.
-        const prevSettings = settings;
-        const newSettings = { ...prevSettings, [section]: { ...(prevSettings[section] || {}), ...updates } };
+        // 🚀 ATOMIC UPDATE: Use functional state to avoid stale closure race conditions
+        setSettings(prevSettings => {
+            const newSettings = { 
+                ...prevSettings, 
+                [section]: { ...(prevSettings[section] || {}), ...updates },
+                // Explicitly preserve receptionists across section-level updates
+                receptionists: prevSettings.receptionists || []
+            };
 
-        setSettings(newSettings);
+            // Side-effects (Background persistence)
+            (async () => {
+                try {
+                    // Persist locally
+                    const toPersist = await processSensitiveFields(newSettings, user?.email, 'encrypt', strongKey);
+                    AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
 
-        // Persist locally immediately
-        try {
-            const toPersist = processSensitiveFields(newSettings, user?.email, 'encrypt', strongKey);
-            AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
-        } catch (e) { console.warn('[SettingsContext] Local persistence failed:', e.message); }
-
-        // Sidebar side-effects
-        try {
-            // Defer intense security updates to keep the "continue/save" animation buttery smooth
-            if (section === 'security' && updates.managerPin) {
-                setTimeout(async () => {
-                    try {
+                    // Security Vault Side-effect (Manager PIN)
+                    if (section === 'security' && updates.managerPin) {
                         await SecurityService.saveVault(user, updates.managerPin, newSettings.receptionists);
-                    } catch (secErr) {
-                        console.error('[SettingsContext] Security Vault Save failed:', secErr.message);
                     }
-                }, 800);
-            }
 
-            let finalSettings = newSettings;
-            if (section === 'store' && updates.logo && !updates.logo.startsWith('http')) {
-                const cloudLogo = await uploadLogoToCloud(updates.logo);
-                if (cloudLogo !== updates.logo) {
-                    finalSettings = { ...newSettings, store: { ...newSettings.store, logo: cloudLogo } };
-                    setSettings(finalSettings);
-                    AsyncStorage.setItem(settingsKey, JSON.stringify(finalSettings));
+                    // Cloudinary Branding Side-effect
+                    if (section === 'store' && updates.logo && !updates.logo.startsWith('http')) {
+                        const cloudLogo = await uploadLogoToCloud(updates.logo);
+                        if (cloudLogo !== updates.logo) {
+                            const settingsWithCloudLogo = { ...newSettings, store: { ...newSettings.store, logo: cloudLogo } };
+                            setSettings(settingsWithCloudLogo);
+                            AsyncStorage.setItem(settingsKey, JSON.stringify(settingsWithCloudLogo));
+                        }
+                    }
+
+                    // MongoDB/Drive Cloud Sync
+                    const portable = await ensurePortableSettings(newSettings);
+                    const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = portable;
+
+                    try {
+                        const { services } = require('../services/api');
+                        await services.settings.updateSettings(cleanToCloud);
+                        AsyncStorage.setItem('settings_dirty', 'false');
+                        setIsSettingsDirty(false);
+                    } catch (err) {
+                        AsyncStorage.setItem('settings_dirty', 'true');
+                        setIsSettingsDirty(true);
+                    }
+
+                    if (user?.id) {
+                        const { syncSettingsToDrive } = require('../services/googleDriveservices');
+                        const encryptedForDrive = await processSensitiveFields(portable, user?.email, 'encrypt');
+                        syncSettingsToDrive(user, encryptedForDrive).catch(() => {});
+                    }
+                } catch (e) {
+                    console.error('[SettingsContext] Post-update failed:', e);
                 }
-            }
+            })();
 
-            const portable = await ensurePortableSettings(finalSettings);
-            // 🚀 FIX: For MongoDB, send DECRYPTED data (MongoDB stores plain text)
-            // The processSensitiveFields with 'encrypt' is only for Drive storage
-            const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = portable;
-
-            try {
-                const { services } = require('../services/api');
-                await services.settings.updateSettings(cleanToCloud).catch(() => { });
-                AsyncStorage.setItem('settings_dirty', 'false');
-                setIsSettingsDirty(false);
-            } catch (err) {
-                AsyncStorage.setItem('settings_dirty', 'true');
-                setIsSettingsDirty(true);
-            }
-
-            if (user && user.id) {
-                const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                // For Drive: send ENCRYPTED version (Drive stores encrypted data)
-                const encryptedForDrive = processSensitiveFields(portable, user?.email, 'encrypt');
-                // Use a slight delay to let the UI finish any "Press" animations
-                setTimeout(() => {
-                    syncSettingsToDrive(user, encryptedForDrive).catch(e => console.error('[DriveSync] Settings upload failed:', e));
-                }, 100);
-            }
-        } catch (e) {
-            console.error('[SettingsContext] Post-update side effects failed:', e);
-        }
+            return newSettings;
+        });
     }, [processSensitiveFields, strongKey, user, settingsKey]);
 
     const saveFullSettings = React.useCallback(async (fullSettings) => {
@@ -870,7 +1028,7 @@ export const SettingsProvider = ({ children, user }) => {
                 activeStrongKey = deriveEncryptionKey(user.email, salt);
             }
 
-            const toPersist = processSensitiveFields(updated, user?.email, 'encrypt', activeStrongKey);
+            const toPersist = await processSensitiveFields(updated, user?.email, 'encrypt', activeStrongKey);
             await AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
 
             let finalToSync = updated;
@@ -906,7 +1064,7 @@ export const SettingsProvider = ({ children, user }) => {
 
                 try {
                     const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                    const encryptedForDrive = processSensitiveFields(portable, user?.email, 'encrypt');
+                    const encryptedForDrive = await processSensitiveFields(portable, user?.email, 'encrypt');
                     await syncSettingsToDrive(user, encryptedForDrive);
                 } catch (e) { }
             }
@@ -1014,59 +1172,85 @@ export const SettingsProvider = ({ children, user }) => {
 
     const addReceptionist = React.useCallback(async (name) => {
         const newReceptionist = { id: `RECEP-${Date.now()}`, name, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-        const updatedReceptionists = [...(settings.receptionists || []), newReceptionist];
-        const updated = { ...settings, receptionists: updatedReceptionists, lastUpdatedAt: new Date().toISOString() };
-        setSettings(updated);
-        try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { console.error('[Settings] Vault save failed on add:', e.message); }
-        try {
-            const { db } = require('../services/database');
-            const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-            await db.runAsync('INSERT INTO receptionists (id, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [newReceptionist.id, newReceptionist.name, newReceptionist.is_active, newReceptionist.created_at, newReceptionist.updated_at]);
-            SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_CREATED, newReceptionist);
-        } catch (e) { console.error('[Settings] DB/Sync failed on add receptionist:', e.message); }
-    }, [settings, user]);
+        
+        setSettings(prev => {
+            const updatedReceptionists = [...(prev.receptionists || []), newReceptionist];
+            const updated = { ...prev, receptionists: updatedReceptionists, lastUpdatedAt: new Date().toISOString() };
+            
+            // Side effects
+            (async () => {
+                try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { }
+                try {
+                    const { db } = require('../services/database');
+                    const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                    await db.runAsync('INSERT INTO receptionists (id, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [newReceptionist.id, newReceptionist.name, newReceptionist.is_active, newReceptionist.created_at, newReceptionist.updated_at]);
+                    SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_CREATED, newReceptionist);
+                } catch (e) { }
+            })();
+            
+            return updated;
+        });
+    }, [user]);
 
     const updateReceptionist = React.useCallback(async (id, name) => {
         const updatedAt = new Date().toISOString();
-        const updatedReceptionists = settings.receptionists.map(r => r.id === id ? { ...r, name, updated_at: updatedAt } : r);
-        const updated = { ...settings, receptionists: updatedReceptionists, lastUpdatedAt: updatedAt };
-        setSettings(updated);
-        try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { console.error('[Settings] Vault save failed on update:', e.message); }
-        try {
-            const { db } = require('../services/database');
-            const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-            await db.runAsync('UPDATE receptionists SET name = ?, updated_at = ? WHERE id = ?', [name, updatedAt, id]);
-            SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_UPDATED, { id, name, updated_at: updatedAt });
-        } catch (e) { console.error('[Settings] DB/Sync failed on update receptionist:', e.message); }
-    }, [settings, user]);
+        setSettings(prev => {
+            const updatedReceptionists = (prev.receptionists || []).map(r => r.id === id ? { ...r, name, updated_at: updatedAt } : r);
+            const updated = { ...prev, receptionists: updatedReceptionists, lastUpdatedAt: updatedAt };
+            
+            (async () => {
+                try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { }
+                try {
+                    const { db } = require('../services/database');
+                    const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                    await db.runAsync('UPDATE receptionists SET name = ?, updated_at = ? WHERE id = ?', [name, updatedAt, id]);
+                    SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_UPDATED, { id, name, updated_at: updatedAt });
+                } catch (e) { }
+            })();
+            
+            return updated;
+        });
+    }, [user]);
 
     const toggleReceptionistActive = React.useCallback(async (id, isActive) => {
         const updatedAt = new Date().toISOString();
         const activeStatus = isActive ? 1 : 0;
-        const updatedReceptionists = settings.receptionists.map(r => r.id === id ? { ...r, is_active: activeStatus, updated_at: updatedAt } : r);
-        const updated = { ...settings, receptionists: updatedReceptionists, lastUpdatedAt: updatedAt };
-        setSettings(updated);
-        try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { console.error('[Settings] Vault save failed on toggle:', e.message); }
-        try {
-            const { db } = require('../services/database');
-            const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-            await db.runAsync('UPDATE receptionists SET is_active = ?, updated_at = ? WHERE id = ?', [activeStatus, updatedAt, id]);
-            SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_UPDATED, { id, is_active: activeStatus, updated_at: updatedAt });
-        } catch (e) { console.error('[Settings] DB/Sync failed on toggle receptionist:', e.message); }
-    }, [settings, user]);
+        setSettings(prev => {
+            const updatedReceptionists = (prev.receptionists || []).map(r => r.id === id ? { ...r, is_active: activeStatus, updated_at: updatedAt } : r);
+            const updated = { ...prev, receptionists: updatedReceptionists, lastUpdatedAt: updatedAt };
+
+            (async () => {
+                try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { }
+                try {
+                    const { db } = require('../services/database');
+                    const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                    await db.runAsync('UPDATE receptionists SET is_active = ?, updated_at = ? WHERE id = ?', [activeStatus, updatedAt, id]);
+                    SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_UPDATED, { id, is_active: activeStatus, updated_at: updatedAt });
+                } catch (e) { }
+            })();
+
+            return updated;
+        });
+    }, [user]);
 
     const deleteReceptionist = React.useCallback(async (id) => {
-        const updatedReceptionists = settings.receptionists.filter(r => r.id !== id);
-        const updated = { ...settings, receptionists: updatedReceptionists, lastUpdatedAt: new Date().toISOString() };
-        setSettings(updated);
-        try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { console.error('[Settings] Vault save failed on delete:', e.message); }
-        try {
-            const { db } = require('../services/database');
-            const { SyncService, EventTypes } = require('../services/OneWaySyncService');
-            await db.runAsync('DELETE FROM receptionists WHERE id = ?', [id]);
-            SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_DELETED, { id });
-        } catch (e) { console.error('[Settings] DB/Sync failed on delete receptionist:', e.message); }
-    }, [settings, user]);
+        setSettings(prev => {
+            const updatedReceptionists = (prev.receptionists || []).filter(r => r.id !== id);
+            const updated = { ...prev, receptionists: updatedReceptionists, lastUpdatedAt: new Date().toISOString() };
+
+            (async () => {
+                try { await SecurityService.saveVault(user, null, updatedReceptionists); } catch (e) { }
+                try {
+                    const { db } = require('../services/database');
+                    const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                    await db.runAsync('DELETE FROM receptionists WHERE id = ?', [id]);
+                    SyncService.createAndUploadEvent(EventTypes.RECEPTIONIST_DELETED, { id });
+                } catch (e) { }
+            })();
+
+            return updated;
+        });
+    }, [user]);
 
     const syncToCloud = React.useCallback(async () => {
         if (!user || (!user.id && !user.email)) { return false; }

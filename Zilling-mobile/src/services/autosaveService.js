@@ -15,12 +15,8 @@ export const triggerAutoSave = async () => {
     if (!settingsStr) return;
 
     const settings = JSON.parse(settingsStr);
-    if (!settings.defaults?.autoSave) {
-      console.log("[AutoSave] Disabled in settings.");
-      return;
-    }
-
-    console.log("[AutoSave] Running background sync to local files...");
+    // Auto Save is now PERMANENTLY ENABLED by request - ignoring manual toggle checks
+    console.log("[AutoSave] Running mandatory background sync to local files...");
 
     // 2. Fetch all data from SQLite (it's now async because it pulls settings too)
     const allData = await fetchAllTableData();

@@ -317,9 +317,14 @@ export const AuthProvider = ({ children }) => {
         const settingsKey = getUserSpecificKey(SK, userData.email);
 
         const freshResponse = await services.settings.getSettings();
-        const freshSettings = freshResponse?.data || freshResponse;
+        const body = freshResponse?.data || freshResponse;
+        
+        // UNWRAP: Handle both direct object or { settings: ... } wrapper
+        const freshSettings = (body && body.settings && typeof body.settings === 'object') 
+          ? body.settings 
+          : body;
 
-        if (freshSettings) {
+        if (freshSettings && typeof freshSettings === 'object') {
           // Persist to user-specific AsyncStorage key so SettingsContext loads it instantly
           await AsyncStorage.setItem(settingsKey, JSON.stringify(freshSettings));
           console.log('[Auth] ✅ Fresh store/bank settings fetched and cached for:', userData.email);

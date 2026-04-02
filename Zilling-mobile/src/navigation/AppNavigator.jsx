@@ -41,28 +41,16 @@ export default function AppNavigator() {
 // 🚀 PRO-LEVEL OPTIMIZATION: Sub-component prevents full-app re-renders 
 // during background sync. Only this component re-renders when syncStatus changes.
 function LoadingTransition({ isLoading, settingsLoading }) {
-  const { syncStatus, syncStats, dbProfileComplete, initStage, finishLoading, isTokenReady } = useSettings();
-  const message = isLoading ? "Authenticating Session..." : (syncStatus || "Preparing Data Sync...");
+  const { syncStatus, syncStats, initStage, finishLoading, isTokenReady } = useSettings();
   
-  let currentProgress = settingsLoading ? 0.35 : 0.15;
-  if (syncStatus?.includes('aligned') || syncStatus?.includes('Opening app')) {
-    currentProgress = 1.0;
-  }
-
-  // 🛡️ KwiqLoader Injection: If the app is verifying if the user has database
-  // records before throwing them to the Onboarding form, show the sleek HTML loader
-  // instead of the bulky DataSyncPage.
-  // 🛡️ KwiqLoader Injection: Use the premium loader for all INITIAL data alignment
-  // flows (onboarding OR local data restoration). 
-  if (settingsLoading) {
-    return <DataSearchLoader stage={initStage || 1} tokenReady={isTokenReady} onReady={finishLoading} />;
-  }
-
+  // 🛡️ KwiqLoader Injection: Use the premium loader for ALL initial bottleneck 
+  // phases (Auth verification OR Settings loading). This prevents the "loader jump"
+  // between the HTML animation and the React Native Sync page.
   return (
-    <DataSyncPage
-      progressMessage={message}
-      progressValue={currentProgress}
-      syncStats={syncStats}
+    <DataSearchLoader 
+      stage={settingsLoading ? (initStage || 1) : 1} 
+      tokenReady={settingsLoading ? isTokenReady : true} 
+      onReady={finishLoading} 
     />
   );
 }

@@ -33,32 +33,32 @@ export const CategoryFilter = ({ categories = [], selectedCategory, onCategoryCh
 
 const styles = StyleSheet.create({
     container: {
-        marginBottom: 4,
+        marginBottom: 12,
     },
     scrollContent: {
         paddingHorizontal: 20,
-        gap: 8,
-        paddingBottom: 6
+        gap: 10,
+        paddingBottom: 4
     },
     chip: {
-        paddingHorizontal: 18,
-        paddingVertical: 10,
-        borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 16,
+        backgroundColor: '#fff',
         borderWidth: 1.5,
-        borderColor: 'rgba(255,255,255,0.12)',
+        borderColor: '#f1f5f9',
     },
     chipActive: {
-        backgroundColor: '#fff',
-        borderColor: '#fff',
+        backgroundColor: '#000',
+        borderColor: '#000',
     },
     chipText: {
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: '700',
-        color: 'rgba(255,255,255,0.5)',
+        color: '#64748b',
     },
     chipTextActive: {
-        color: '#000',
-        fontWeight: '800'
+        color: '#fff',
+        fontWeight: '900'
     }
 });

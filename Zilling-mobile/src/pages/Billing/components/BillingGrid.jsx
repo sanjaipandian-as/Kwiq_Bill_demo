@@ -376,7 +376,7 @@ const BillingGrid = ({
                     styles.suggestionSection,
                     (isKeyboardVisible || isSearchFocused)
                         ? { flex: 1, paddingTop: 10 }
-                        : (cart.length > 0 ? { flex: 0, height: '50%', minHeight: 330 } : { flex: 1 })
+                        : (cart.length > 0 ? { flex: 0, height: '65%', minHeight: 380 } : { flex: 1 })
                 ]}
             >
                 {cart.length > 0 && !isSearchFocused && !isKeyboardVisible && (
@@ -426,7 +426,7 @@ const BillingGrid = ({
                     numColumns={2}
                     columnWrapperStyle={{ gap: 4 }}
                     contentContainerStyle={[
-                        { paddingBottom: isKeyboardVisible ? 60 : 80, paddingTop: 8 }
+                        { paddingBottom: isKeyboardVisible ? 60 : 120, paddingTop: 8 }
                     ]}
                     initialNumToRender={12}
                     windowSize={5}

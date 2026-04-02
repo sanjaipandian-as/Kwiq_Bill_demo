@@ -11,9 +11,9 @@ import {
     Animated,
     Platform,
     Share,
-    SafeAreaView,
     StatusBar
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
     X, Upload, Download, FileSpreadsheet, CheckCircle2,
     AlertCircle, Clock, Package, ChevronRight, File,
@@ -45,6 +45,7 @@ const TEMPLATE_VARIANT_EXAMPLES = 3;
 import { useProducts } from '../../context/ProductContext';
 
 const BulkUploadScreen = ({ navigation }) => {
+    const insets = useSafeAreaInsets();
     const { importProducts, fetchProducts } = useProducts();
     const { showToast } = useToast();
     const [step, setStep] = useState('template'); // 'template' | 'uploading' | 'preview' | 'importing' | 'success'
@@ -493,9 +494,9 @@ const BulkUploadScreen = ({ navigation }) => {
 
     // ── RENDER ──
     return (
-        <View style={s.fullScreenContainer}>
+        <View style={[s.fullScreenContainer, { paddingTop: insets.top }]}>
                 <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-                <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+                <View style={{ flex: 1, backgroundColor: '#fff' }}>
                     {/* Header */}
                     <View style={s.header}>
                         <View>
@@ -831,7 +832,7 @@ const BulkUploadScreen = ({ navigation }) => {
                         </ScrollView>
 
                     {/* ── Footer ── */}
-                    <View style={s.footer}>
+                    <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
                         {step === 'template' && (
                             <>
                                 <TouchableOpacity style={s.ghostBtn} onPress={handleClose}>
@@ -876,7 +877,7 @@ const BulkUploadScreen = ({ navigation }) => {
                             </View>
                         )}
                     </View>
-                </SafeAreaView> 
+                </View> 
             
         </View>
     );
@@ -885,7 +886,6 @@ const BulkUploadScreen = ({ navigation }) => {
 const s = StyleSheet.create({
     fullScreenContainer: {
         flex: 1,
-        paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
         backgroundColor: '#fff'
     },
     sheet: {
@@ -1199,7 +1199,6 @@ const s = StyleSheet.create({
         flexDirection: 'row',
         paddingHorizontal: 24,
         paddingTop: 16,
-        paddingBottom: 24,
         borderTopWidth: 1.5,
         borderColor: '#e5e5e5',
         gap: 12,

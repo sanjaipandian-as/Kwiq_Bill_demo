@@ -90,6 +90,14 @@ export default function Dashboard() {
 
   // Smart Sync Integration
   const { isSyncing } = useSmartSync(user);
+  
+  // 🚀 UX IMPROVEMENT: Force the sync handshake to show on every app launch
+  // to provide a premium 'Modern Noir' security feeling.
+  const [launchSync, setLaunchSync] = useState(true);
+  React.useEffect(() => {
+    const timer = setTimeout(() => setLaunchSync(false), 7500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -229,14 +237,14 @@ export default function Dashboard() {
     <View style={styles.mainContainer}>
       <BroadcastOverlay />
       
-      <SyncOverlay isVisible={isSyncing} />
+      <SyncOverlay isVisible={isSyncing || launchSync} />
       <SideMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
 
       {/* 1. Enhanced Mesh Gradient Header */}
       <DashboardHeader 
         user={user}
         storeLogo={storeLogo}
-        isSyncing={isSyncing}
+        isSyncing={isSyncing || launchSync}
         onMenuPress={handleMenuPress}
         dateFilter={dateFilter}
         onDatePickerPress={handleDatePickerPress}

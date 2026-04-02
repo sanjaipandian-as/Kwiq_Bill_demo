@@ -1,41 +1,23 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, FlatList, Dimensions, Platform } from 'react-native';
-import { Contact, X, CheckCircle2 } from 'lucide-react-native';
+import { User, X, CheckCircle2, Contact } from 'lucide-react-native';
 import { useSettings } from '../../../context/SettingsContext';
 
 const { width } = Dimensions.get('window');
 
 const ReceptionistSelectionModal = ({ visible, onClose, onSelect, selectedId }) => {
     const { settings } = useSettings();
-    const activeReceptionists = (settings?.receptionists || []).filter(r => r.is_active === 1);
-
-    const renderItem = ({ item }) => (
-        <TouchableOpacity
-            style={[
-                styles.item,
-                selectedId === item.id && styles.selectedItem
-            ]}
-            onPress={() => onSelect(item)}
-            activeOpacity={0.7}
-        >
-            <View style={[
-                styles.avatar,
-                selectedId === item.id && styles.selectedAvatar
-            ]}>
-                <Contact size={20} color={selectedId === item.id ? '#fff' : '#64748b'} />
-            </View>
-            <View style={{ flex: 1 }}>
-                <Text style={[
-                    styles.name,
-                    selectedId === item.id && styles.selectedName
-                ]}>{item.name}</Text>
-                <Text style={styles.id}>ID: {item.id}</Text>
-            </View>
-            {selectedId === item.id && (
-                <CheckCircle2 size={20} color="#000" />
-            )}
-        </TouchableOpacity>
+    const activeReceptionists = (settings?.receptionists || []).filter(r =>
+        Number(r.is_active) === 1 || r.is_active === true
     );
+
+
+
+    const [lockMode, setLockMode] = React.useState('none'); // 'none', 'shift', 'always'
+
+    const handleSelect = (item) => {
+        onSelect(item, lockMode !== 'none' ? lockMode : null);
+    };
 
     return (
         <Modal
@@ -65,12 +47,60 @@ const ReceptionistSelectionModal = ({ visible, onClose, onSelect, selectedId }) 
                             </Text>
                         </View>
                     ) : (
-                        <FlatList
-                            data={activeReceptionists}
-                            keyExtractor={item => item.id}
-                            renderItem={renderItem}
-                            contentContainerStyle={styles.list}
-                        />
+                        <>
+                            <View style={styles.lockSelector}>
+                                <Text style={styles.lockLabel}>SESSION TYPE</Text>
+                                <View style={styles.lockOptions}>
+                                    {[
+                                        { id: 'none', label: 'ONCE', sub: 'Reset per bill' },
+                                        { id: 'shift', label: 'SHIFT', sub: 'Lasts until midnight' },
+                                        { id: 'always', label: 'STATION', sub: 'Saved on device' }
+                                    ].map(opt => (
+                                        <TouchableOpacity
+                                            key={opt.id}
+                                            style={[styles.lockOpt, lockMode === opt.id && styles.lockOptActive]}
+                                            onPress={() => setLockMode(opt.id)}
+                                        >
+                                            <Text style={[styles.lockOptLabel, lockMode === opt.id && styles.lockOptLabelActive]}>{opt.label}</Text>
+                                            <Text style={[styles.lockOptSub, lockMode === opt.id && styles.lockOptSubActive]}>{opt.sub}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+
+                            <FlatList
+                                data={activeReceptionists}
+                                keyExtractor={item => item.id}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.item,
+                                            selectedId === item.id && styles.selectedItem
+                                        ]}
+                                        onPress={() => handleSelect(item)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <View style={[
+                                            styles.avatar,
+                                            selectedId === item.id && styles.selectedAvatar
+                                        ]}>
+                                            <User size={20} color={selectedId === item.id ? '#fff' : '#64748b'} />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[
+                                                styles.name,
+                                                selectedId === item.id && styles.selectedName
+                                            ]}>{item.name}</Text>
+                                            <Text style={styles.id}>ID: {item.id}</Text>
+                                        </View>
+                                        {selectedId === item.id && (
+                                            <CheckCircle2 size={20} color="#000" />
+                                        )}
+                                    </TouchableOpacity>
+                                )}
+                                contentContainerStyle={styles.list}
+                            />
+                        </>
                     )}
                 </View>
             </View>
@@ -185,6 +215,53 @@ const styles = StyleSheet.create({
         color: '#64748b',
         textAlign: 'center',
         lineHeight: 18
+    },
+    lockSelector: {
+        padding: 20,
+        backgroundColor: '#f8fafc',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9'
+    },
+    lockLabel: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#94a3b8',
+        letterSpacing: 1,
+        marginBottom: 12
+    },
+    lockOptions: {
+        flexDirection: 'row',
+        gap: 8
+    },
+    lockOpt: {
+        flex: 1,
+        padding: 10,
+        borderRadius: 12,
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        alignItems: 'center'
+    },
+    lockOptActive: {
+        backgroundColor: '#000',
+        borderColor: '#000'
+    },
+    lockOptLabel: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#475569'
+    },
+    lockOptLabelActive: {
+        color: '#fff'
+    },
+    lockOptSub: {
+        fontSize: 7,
+        fontWeight: '600',
+        color: '#94a3b8',
+        marginTop: 2
+    },
+    lockOptSubActive: {
+        color: 'rgba(255,255,255,0.6)'
     }
 });
 
