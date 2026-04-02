@@ -9,6 +9,7 @@ export const useExpenses = () => useContext(ExpenseContext);
 
 export const ExpenseProvider = ({ children }) => {
     const [expenses, setExpenses] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -24,23 +25,28 @@ export const ExpenseProvider = ({ children }) => {
 
     // Initial load from SQLite - reload when user changes
     useEffect(() => {
-        const loadExpenses = async () => {
+        const loadInitialData = async () => {
             if (!user) {
                 setExpenses([]);
+                setCategories([]);
                 setLoading(false);
                 return;
             }
             try {
-                const data = await db.getAllAsync('SELECT * FROM expenses ORDER BY date DESC');
-                setExpenses((data || []).map(normalizeExpense));
+                const [expData, catData] = await Promise.all([
+                    db.getAllAsync('SELECT * FROM expenses ORDER BY date DESC'),
+                    db.getAllAsync('SELECT * FROM expense_categories ORDER BY name ASC')
+                ]);
+                setExpenses((expData || []).map(normalizeExpense));
+                setCategories((catData || []).map(c => c.name));
             } catch (err) {
-                console.error('Failed to load expenses:', err);
-                setError('Failed to load expenses');
+                console.error('Failed to load expenses/categories:', err);
+                setError('Failed to load data');
             } finally {
                 setLoading(false);
             }
         };
-        loadExpenses();
+        loadInitialData();
 
         // ═══════════════════════════════════════════════════════════════
         // AUTOMATIC REFRESH LISTENER
@@ -49,7 +55,7 @@ export const ExpenseProvider = ({ children }) => {
         const { SYNC_EVENTS } = require('../services/OneWaySyncService');
         const refreshSub = DeviceEventEmitter.addListener(SYNC_EVENTS.DATA_UPDATED, () => {
             console.log('[ExpenseContext] Cloud data updated, refreshing state...');
-            loadExpenses();
+            loadInitialData();
         });
 
         return () => {
@@ -60,10 +66,37 @@ export const ExpenseProvider = ({ children }) => {
     const fetchExpenses = async () => {
         setLoading(true);
         try {
-            const data = await db.getAllAsync('SELECT * FROM expenses ORDER BY date DESC');
-            setExpenses((data || []).map(normalizeExpense));
+            const [expData, catData] = await Promise.all([
+                db.getAllAsync('SELECT * FROM expenses ORDER BY date DESC'),
+                db.getAllAsync('SELECT * FROM expense_categories ORDER BY name ASC')
+            ]);
+            setExpenses((expData || []).map(normalizeExpense));
+            setCategories((catData || []).map(c => c.name));
         } finally {
             setLoading(false);
+        }
+    };
+
+    const addCategory = async (name) => {
+        if (!name) return;
+        try {
+            const id = Date.now().toString();
+            const now = new Date().toISOString();
+            await db.runAsync(
+                `INSERT OR IGNORE INTO expense_categories (id, name, color, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+                [id, name, '#000', now, now]
+            );
+            setCategories(prev => [...new Set([...prev, name])].sort());
+
+            // Sync
+            try {
+                const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                SyncService.createAndUploadEvent(EventTypes.CATEGORY_CREATED, { id, name, color: '#000', created_at: now, updated_at: now });
+            } catch (e) {
+                console.log('Sync Add Category Error:', e);
+            }
+        } catch (err) {
+            console.error('Add Category Error:', err);
         }
     };
 
@@ -241,12 +274,14 @@ export const ExpenseProvider = ({ children }) => {
     return (
         <ExpenseContext.Provider value={{
             expenses,
+            categories,
             loading,
             error,
             fetchExpenses,
             updateExpense,
             deleteExpense,
             addExpense,
+            addCategory,
             uploadReceipt,
             bulkDeleteExpenses,
             bulkUpdateExpenses: async (ids, updates) => {

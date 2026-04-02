@@ -12,6 +12,7 @@ import {
 
 import SideMenu from '../components/SideMenu';
 import BroadcastOverlay from '../components/BroadcastOverlay';
+import SyncOverlay from '../components/SyncOverlay';
 import ExpenseModal from './Expenses/ExpenseModal';
 import { useProducts } from '../context/ProductContext';
 import { useTransactions } from '../context/TransactionContext';
@@ -227,6 +228,8 @@ export default function Dashboard() {
   return (
     <View style={styles.mainContainer}>
       <BroadcastOverlay />
+      
+      <SyncOverlay isVisible={isSyncing} />
       <SideMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
 
       {/* 1. Enhanced Mesh Gradient Header */}

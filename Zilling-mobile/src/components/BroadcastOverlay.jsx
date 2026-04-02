@@ -13,7 +13,7 @@ const BroadcastOverlay = () => {
     const user = auth ? auth.user : null;
     const [broadcast, setBroadcast] = useState(null);
     const [visible, setVisible] = useState(false);
-    
+
     // Animation refs
     const slideAnim = useRef(new Animated.Value(-150)).current;
     const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -34,13 +34,13 @@ const BroadcastOverlay = () => {
                 // Use user-specific key so it persists correctly per account on the device
                 const userKey = user?.email ? user.email.replace(/[@.]/g, '_') : 'guest';
                 const storageKey = `seen_broadcast_${userKey}_${latest._id}`;
-                
+
                 const seenStatus = await AsyncStorage.getItem(storageKey);
-                
+
                 if (!seenStatus) {
                     setBroadcast(latest);
                     setVisible(true);
-                    
+
                     // PRO-LEVEL: Mark as seen immediately if it's just an announcement
                     // This satisfies the "once they saw it, don't show again" request strictly
                     if (latest.type === 'announcement') {
@@ -79,7 +79,7 @@ const BroadcastOverlay = () => {
             const storageKey = `seen_broadcast_${userKey}_${broadcast._id}`;
             await AsyncStorage.setItem(storageKey, 'true');
         }
-        
+
         Animated.parallel([
             Animated.timing(slideAnim, {
                 toValue: -200,
@@ -98,24 +98,24 @@ const BroadcastOverlay = () => {
 
     const getTheme = () => {
         switch (broadcast.type) {
-            case 'maintenance': return { 
-                colors: ['#F59E0B', '#D97706'], 
-                text: '#FFFFFF', 
-                icon: Wrench, 
+            case 'maintenance': return {
+                colors: ['#F59E0B', '#D97706'],
+                text: '#FFFFFF',
+                icon: Wrench,
                 label: 'MAINTENANCE',
                 accent: 'rgba(255,255,255,0.2)'
             };
-            case 'critical': return { 
-                colors: ['#EF4444', '#B91C1C'], 
-                text: '#FFFFFF', 
-                icon: ShieldAlert, 
+            case 'critical': return {
+                colors: ['#EF4444', '#B91C1C'],
+                text: '#FFFFFF',
+                icon: ShieldAlert,
                 label: 'CRITICAL ALERT',
                 accent: 'rgba(255,255,255,0.2)'
             };
-            default: return { 
-                colors: ['#FFFFFF', '#F8FAFC'], 
-                text: '#1E293B', 
-                icon: Megaphone, 
+            default: return {
+                colors: ['#FFFFFF', '#F8FAFC'],
+                text: '#1E293B',
+                icon: Megaphone,
                 label: 'ANNOUNCEMENT',
                 accent: '#F1F5F9'
             };
@@ -137,7 +137,7 @@ const BroadcastOverlay = () => {
         const days = Math.floor(hours / 24);
         const remHours = hours % 24;
         const remMinutes = totalMinutes % 60;
-        
+
         if (days > 0) return `${days}d ${remHours}h`;
         if (hours > 0) return `${hours}h ${remMinutes}m`;
         return `${remMinutes}m`;
@@ -149,7 +149,7 @@ const BroadcastOverlay = () => {
         <View style={styles.container} pointerEvents="box-none">
             <Animated.View style={[
                 styles.wrapper,
-                { 
+                {
                     opacity: opacityAnim,
                     transform: [
                         { translateY: slideAnim },
@@ -172,7 +172,7 @@ const BroadcastOverlay = () => {
                         <Text style={styles.brandedHeader}>KWIQ BILL</Text>
                     </View>
                     <View style={[styles.separator, { backgroundColor: theme.colors[0] }]} />
-                    
+
                     <ScrollView style={styles.cardBody} bounces={false}>
                         <View style={styles.contentSection}>
                             <Text style={styles.metaLabel}>SIGNAL TITLE :</Text>
@@ -194,7 +194,7 @@ const BroadcastOverlay = () => {
                                 <ChevronRight size={10} color="#94a3b8" />
                                 <Text style={styles.tText}>EXPIRY: {broadcast.expiryTime ? new Date(broadcast.expiryTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'PERPETUAL'}</Text>
                             </View>
-                            
+
                             {duration && (
                                 <View style={styles.durationPill}>
                                     <Text style={styles.durationText}>TOTAL DURATION: {duration}</Text>
@@ -203,7 +203,7 @@ const BroadcastOverlay = () => {
                         </View>
                     </ScrollView>
 
-                    <Pressable 
+                    <Pressable
                         onPress={handleDismiss}
                         style={({ pressed }) => [
                             styles.dismissBtn,

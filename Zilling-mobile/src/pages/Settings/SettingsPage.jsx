@@ -252,12 +252,12 @@ const SettingsPage = ({ navigation, route }) => {
     if (settings && !isEditing) {
       // Ensure localSettings has base structure to prevent property access crashes
       const robustSettings = {
-        store: { address: {}, ...settings.store },
-        bankDetails: { ...settings.bankDetails },
-        tax: { taxGroups: [], ...settings.tax },
-        invoice: { ...settings.invoice },
-        security: { managerPin: null, ...settings.security },
-        ...settings
+        ...settings,
+        store: { address: {}, ...(settings?.store || {}) },
+        bankDetails: { ...(settings?.bankDetails || {}) },
+        tax: { taxGroups: [], ...(settings?.tax || {}) },
+        invoice: { template: 'Classic', ...(settings?.invoice || {}) },
+        security: { managerPin: null, ...(settings?.security || {}) }
       };
       setLocalSettings(JSON.parse(JSON.stringify(robustSettings)));
       if (settings?.tax?.taxGroups) {

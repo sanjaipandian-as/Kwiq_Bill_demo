@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 
 const CompactInvoiceTemplate = ({ settings, data, taxType, options = {} }) => {
 
@@ -121,10 +121,10 @@ const CompactInvoiceTemplate = ({ settings, data, taxType, options = {} }) => {
             <View style={styles.compactFooter}>
                 <View style={styles.compactTermsBox}>
                     <Text style={[styles.compactLabel, { fontSize: 9 }]}>Terms & Instructions</Text>
-                    {settings.invoice.termsAndConditions && (
+                    {settings?.invoice?.termsAndConditions && (
                         <Text style={[styles.compactFooterText, { marginBottom: 2 }]}>{settings.invoice.termsAndConditions}</Text>
                     )}
-                    {settings.invoice.conditionsText && (
+                    {settings?.invoice?.conditionsText && (
                         <Text style={styles.compactFooterText}>{settings.invoice.conditionsText}</Text>
                     )}
                     <Text style={[styles.compactLabel, { fontSize: 9 }]}>Payment Mode: <Text style={{ fontWeight: '400', color: '#334155' }}>{invoice.paymentMode || 'Cash/UPI'}</Text></Text>
@@ -164,8 +164,8 @@ const CompactInvoiceTemplate = ({ settings, data, taxType, options = {} }) => {
                         </View>
                     )}
                     <View style={styles.compactGrandTotal}>
-                        <Text style={[styles.compactLabel, { marginBottom: 0, color: '#855E01' }]}>GRAND TOTAL</Text>
-                        <Text style={[styles.compactLabel, { marginBottom: 0, fontSize: 12, color: '#855E01' }]}>₹{parseFloat(invoice.totals.total).toFixed(2)}</Text>
+                        <Text style={[styles.compactLabel, { flex: 1, marginBottom: 0, color: '#855E01' }]} numberOfLines={1}>GRAND TOTAL</Text>
+                        <Text style={[styles.compactLabel, { flex: 1.5, textAlign: 'right', marginBottom: 0, fontSize: 13, color: '#855E01' }]} numberOfLines={1} adjustsFontSizeToFit>₹{parseFloat(invoice.totals.total).toFixed(2)}</Text>
                     </View>
                 </View>
             </View>
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
         borderColor: '#855E01',
     },
     compactTermsBox: {
-        flex: 1.5,
+        flex: 1.2,
         padding: 8,
         borderRightWidth: 1,
         borderRightColor: '#855E01',

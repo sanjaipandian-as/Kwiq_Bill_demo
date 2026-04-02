@@ -134,6 +134,8 @@ export const EventTypes = {
     RECEPTIONIST_CREATED: 'RECEPTIONIST_CREATED',
     RECEPTIONIST_UPDATED: 'RECEPTIONIST_UPDATED',
     RECEPTIONIST_DELETED: 'RECEPTIONIST_DELETED',
+    CATEGORY_CREATED: 'CATEGORY_CREATED',
+    CATEGORY_DELETED: 'CATEGORY_DELETED',
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -196,11 +198,8 @@ async function smartParse(text, key, fileName = "unknown") {
             return null;
         }
         try {
-            // Fix #6: Use the robust helper from googleDriveservices
-            // Key here is assumed to be the user email in syncDown/createAndUploadEvent calls.
-            // We fetch the salt here to allow for PBKDF2 check.
             const salt = await getDriveEncSalt();
-            const decrypted = decryptContent(cleaned, key, salt);
+            const decrypted = await decryptContent(cleaned, key, salt);
             
             if (decrypted && (decrypted.trim().startsWith('{') || decrypted.trim().startsWith('['))) {
                 return JSON.parse(decrypted);
@@ -238,13 +237,17 @@ function normalizeItems(raw) {
  * Desktop/Electron may send fields that are already encrypted (U2Fsd...).
  * This helper tries multiple legacy keys and salts used by the PC app.
  */
-function bilingualFieldDecrypt(value, email) {
+async function bilingualFieldDecrypt(value, email) {
     if (typeof value !== 'string' || (!value.startsWith('U2FsdGVkX1') && !value.startsWith('KWIQV2:'))) return value;
     
     // We try decryption with email and a fallback to the common PC salt 
     // to ensure the phone can read data created on the computer.
-    const decrypted = decryptContent(value, email, 'kwiq-bill-shared-salt-2024');
-    return decrypted || value; // Return decrypted or original if failed
+    try {
+        const decrypted = await decryptContent(value, email, 'kwiq-bill-shared-salt-2024');
+        return decrypted || value; // Return decrypted or original if failed
+    } catch (e) {
+        return value;
+    }
 }
 
 /**
@@ -321,22 +324,21 @@ function calculateTotalFromItems(items, fallbackTotal) {
  * Normalizes a full invoice payload into a strict, consistent schema.
  * Map Desktop (snake_case/remarks) to Mobile (camelCase/internalNotes)
  */
-function normalizeInvoicePayload(payload, email = null) {
+async function normalizeInvoicePayload(payload, email = null) {
     const items = normalizeItems(payload.items);
     const payments = normalizePayments(payload.payments);
 
     const customerName = bilingualFieldDecrypt(payload.customer_name || payload.customerName || 'Guest', email);
-
     return {
         id: payload.id,
         customer_id: payload.customer_id || payload.customerId || '',
-        customer_name: customerName,
+        customer_name: await bilingualFieldDecrypt(payload.customer_name || payload.customerName || 'Walk-in Customer', email),
         date: payload.date || new Date().toISOString(),
-        type: payload.type || 'sale',
+        type: payload.type || 'Standard',
         items,
-        itemsStr: JSON.stringify(items),       // GOLDEN RULE: Always stringify for SQLite
+        itemsStr: typeof payload.items === 'string' ? payload.items : JSON.stringify(items),
         payments,
-        paymentsStr: JSON.stringify(payments),  // GOLDEN RULE: Always stringify for SQLite
+        paymentsStr: typeof payload.payments === 'string' ? payload.payments : JSON.stringify(payments),
         subtotal: parseFloat(payload.subtotal) || 0,
         tax: parseFloat(payload.tax) || 0,
         discount: parseFloat(payload.discount) || 0,
@@ -345,38 +347,35 @@ function normalizeInvoicePayload(payload, email = null) {
         created_at: payload.created_at || payload.createdAt || new Date().toISOString(),
         updated_at: payload.updated_at || payload.updatedAt || new Date().toISOString(),
         taxType: payload.taxType || payload.tax_type || 'intra',
-        grossTotal: parseFloat(payload.grossTotal || payload.total_cost || payload.gross_total) || 0,
-        itemDiscount: parseFloat(payload.itemDiscount || payload.item_discount) || 0,
-        additionalCharges: parseFloat(payload.additionalCharges || payload.additional_charges) || 0,
-        roundOff: parseFloat(payload.roundOff || payload.round_off) || 0,
-        amountReceived: parseFloat(payload.amountReceived || payload.amount_received) || 0,
-        internalNotes: bilingualFieldDecrypt(payload.internalNotes || payload.remarks || '', email),
-        receptionist_name: bilingualFieldDecrypt(payload.receptionist_name || payload.receptionistName || null, email),
+        grossTotal: parseFloat(payload.grossTotal || payload.gross_total || payload.total_cost || 0),
+        itemDiscount: parseFloat(payload.itemDiscount || payload.item_discount || 0),
+        additionalCharges: parseFloat(payload.additionalCharges || payload.additional_charges || 0),
+        roundOff: parseFloat(payload.roundOff || payload.round_off || 0),
+        amountReceived: parseFloat(payload.amountReceived || payload.amount_received || 0),
+        internalNotes: await bilingualFieldDecrypt(payload.internalNotes || payload.remarks || '', email),
+        receptionist_name: await bilingualFieldDecrypt(payload.receptionist_name || payload.receptionistName || null, email),
         receptionist_id: payload.receptionist_id || payload.receptionistId || null,
-        is_deleted: payload.is_deleted ? 1 : 0,
+        is_deleted: (payload.is_deleted || payload.deleted) ? 1 : 0,
     };
 }
 
-/**
- * Normalizes a product payload.
- */
-function normalizeProductPayload(payload, email = null) {
+async function normalizeProductPayload(p, email = null) {
     return {
-        id: String(payload.id),
-        name: bilingualFieldDecrypt(String(payload.name || ''), email),
-        sku: String(payload.sku || ''),
-        category: bilingualFieldDecrypt(String(payload.category || ''), email),
-        price: Number(payload.price || 0),
-        cost_price: Number(payload.costPrice || payload.cost_price || 0),
-        stock: parseInt(payload.stock || payload.qty || payload.quantity) || 0,
-        min_stock: parseInt(payload.minStock || payload.min_stock) || 0,
-        unit: String(payload.unit || 'pc'),
-        tax_rate: Number(payload.tax_rate || payload.taxRate || 0),
-        variants: JSON.stringify(normalizeVariants(payload.variants)),
-        variant: String(payload.variant || ''),
-        is_deleted: payload.is_deleted ? 1 : 0,
-        created_at: String(payload.created_at || payload.createdAt || new Date().toISOString()),
-        updated_at: String(payload.updated_at || payload.updatedAt || new Date().toISOString()),
+        id: String(p.id),
+        name: await bilingualFieldDecrypt(String(p.name || 'Untitled Product'), email),
+        sku: await bilingualFieldDecrypt(String(p.sku || ''), email),
+        category: await bilingualFieldDecrypt(String(p.category || 'General'), email),
+        price: Number(p.price || 0),
+        cost_price: Number(p.costPrice || p.cost_price || 0),
+        stock: parseInt(p.stock || p.qty || p.quantity) || 0,
+        min_stock: parseInt(p.minStock || p.min_stock) || 0,
+        unit: String(p.unit || 'pc'),
+        tax_rate: Number(p.tax_rate || p.taxRate || 0),
+        variants: JSON.stringify(normalizeVariants(p.variants)),
+        variant: String(p.variant || ''),
+        is_deleted: (p.is_deleted || p.deleted) ? 1 : 0,
+        created_at: String(p.created_at || p.createdAt || new Date().toISOString()),
+        updated_at: String(p.updated_at || p.updatedAt || new Date().toISOString()),
     };
 }
 
@@ -385,28 +384,28 @@ function normalizeProductPayload(payload, email = null) {
  * Normalizes a customer payload.
  * Handles Name concatenation for Desktop (firstName/lastName) and field snake_case.
  */
-function normalizeCustomerPayload(payload, email = null) {
+async function normalizeCustomerPayload(payload, email = null) {
     // Handle concatenated name if Desktop sends firstName + lastName
     const rawName = payload.name || 
                         (payload.firstName ? `${payload.firstName} ${payload.lastName || ''}`.trim() : '') || 
                         'Guest';
     
-    const resolvedName = bilingualFieldDecrypt(rawName, email);
+    const resolvedName = await bilingualFieldDecrypt(rawName, email);
 
     return {
         id: payload.id,
         name: resolvedName,
-        phone: bilingualFieldDecrypt(payload.phone || payload.mobile || '', email),
-        email: bilingualFieldDecrypt(payload.email || '', email),
+        phone: await bilingualFieldDecrypt(payload.phone || payload.mobile || '', email),
+        email: await bilingualFieldDecrypt(payload.email || '', email),
         type: payload.type || 'retail',
-        gstin: bilingualFieldDecrypt(payload.gstin || '', email),
-        address: typeof payload.address === 'object' ? JSON.stringify(payload.address) : bilingualFieldDecrypt(payload.address || '', email),
+        gstin: await bilingualFieldDecrypt(payload.gstin || '', email),
+        address: typeof payload.address === 'object' ? JSON.stringify(payload.address) : await bilingualFieldDecrypt(payload.address || '', email),
         source: payload.source || '',
         tags: Array.isArray(payload.tags) ? payload.tags.join(',') : (payload.tags || ''),
         loyaltyPoints: parseInt(payload.loyaltyPoints || payload.loyalty_points) || 0,
         outstanding: parseFloat(payload.outstanding) || 0,
         amountPaid: parseFloat(payload.amountPaid || payload.amount_paid) || 0,
-        notes: bilingualFieldDecrypt(payload.notes || payload.remarks || '', email),
+        notes: await bilingualFieldDecrypt(payload.notes || payload.remarks || '', email),
         created_at: payload.created_at || payload.createdAt || new Date().toISOString(),
         updated_at: payload.updated_at || payload.updatedAt || new Date().toISOString(),
         whatsappOptIn: (payload.whatsappOptIn || payload.whatsapp_opt_in) ? 1 : 0,
@@ -414,12 +413,12 @@ function normalizeCustomerPayload(payload, email = null) {
     };
 }
 
-function normalizeExpensePayload(payload, email = null) {
+async function normalizeExpensePayload(payload, email = null) {
     return {
         id: payload.id,
-        title: bilingualFieldDecrypt(payload.title || '', email),
+        title: await bilingualFieldDecrypt(payload.title || '', email),
         amount: parseFloat(payload.amount) || 0,
-        category: bilingualFieldDecrypt(payload.category || '', email),
+        category: await bilingualFieldDecrypt(payload.category || '', email),
         date: payload.date || new Date().toISOString(),
         payment_method: payload.payment_method || payload.paymentMethod || 'Cash',
         receipt_url: payload.receipt_url || payload.receiptUrl || '',
@@ -432,13 +431,23 @@ function normalizeExpensePayload(payload, email = null) {
 /**
  * Normalizes a receptionist payload.
  */
-function normalizeReceptionistPayload(payload, email = null) {
+async function normalizeReceptionistPayload(payload, email = null) {
     return {
         id: String(payload.id),
-        name: bilingualFieldDecrypt(String(payload.name || ''), email),
+        name: await bilingualFieldDecrypt(String(payload.name || ''), email),
         is_active: payload.is_active !== undefined ? (payload.is_active ? 1 : 0) : 1,
         created_at: payload.created_at || new Date().toISOString(),
         updated_at: payload.updated_at || new Date().toISOString(),
+    };
+}
+
+async function normalizeCategoryPayload(payload, email = null) {
+    return {
+        id: payload.id,
+        name: await bilingualFieldDecrypt(payload.name || '', email),
+        color: payload.color || '#000',
+        created_at: payload.created_at || payload.createdAt || new Date().toISOString(),
+        updated_at: payload.updated_at || payload.updatedAt || new Date().toISOString(),
     };
 }
 
@@ -867,13 +876,13 @@ export const SyncService = {
             // Nuclear wipe and re-insert
             await clearDatabase();
             
-            const { customers, products, invoices, expenses, receptionists } = snapshot.data;
+            const { customers, products, invoices, expenses, receptionists, expense_categories } = snapshot.data;
             
             // Re-insert logic (simplified for batch)
             await db.withTransactionAsync(async () => {
                 if (Array.isArray(customers)) {
                   for (const c of customers) {
-                    const nc = normalizeCustomerPayload(c, user.email);
+                    const nc = await normalizeCustomerPayload(c, user.email);
                     await db.runAsync(
                       `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, amountPaid, whatsappOptIn, smsOptIn, outstanding)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -883,7 +892,7 @@ export const SyncService = {
                 }
                 if (Array.isArray(products)) {
                   for (const p of products) {
-                    const np = normalizeProductPayload(p, user.email);
+                    const np = await normalizeProductPayload(p, user.email);
                     await db.runAsync(
                       `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at, is_deleted)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -894,7 +903,7 @@ export const SyncService = {
 
                 if (Array.isArray(invoices)) {
                   for (const inv of invoices) {
-                    const ni = normalizeInvoicePayload(inv, user.email);
+                    const ni = await normalizeInvoicePayload(inv, user.email);
                     await db.runAsync(
                       `INSERT OR REPLACE INTO invoices (id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, taxType, created_at, updated_at, is_deleted)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -904,7 +913,7 @@ export const SyncService = {
                 }
                 if (Array.isArray(expenses)) {
                   for (const e of expenses) {
-                    const ne = normalizeExpensePayload(e, user.email);
+                    const ne = await normalizeExpensePayload(e, user.email);
                     await db.runAsync(
                       `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -914,13 +923,23 @@ export const SyncService = {
                 }
                 if (Array.isArray(receptionists)) {
                   for (const r of receptionists) {
-                    const nr = normalizeReceptionistPayload(r, user.email);
+                    const nr = await normalizeReceptionistPayload(r, user.email);
                     await db.runAsync(
                       `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?)`,
                       [nr.id, nr.name, nr.is_active, nr.created_at, nr.updated_at]
                     );
                   }
+                }
+                if (Array.isArray(expense_categories)) {
+                    for (const c of expense_categories) {
+                        const nc = await normalizeCategoryPayload(c, user.email);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO expense_categories (id, name, color, created_at, updated_at)
+                             VALUES (?, ?, ?, ?, ?)`,
+                            [nc.id, nc.name, nc.color, nc.created_at, nc.updated_at]
+                        );
+                    }
                 }
                 // Restore expense adjustments if present in snapshot
                 const { expense_adjustments } = snapshot.data;
@@ -1268,6 +1287,13 @@ export const SyncService = {
                                 if (!res.ok) continue;
                                 const text = await res.text();
                                 
+                                // 🚀 500KB PAYLOAD GUARD: Check for heavy data files
+                                const fileSizeKB = text.length / 1024;
+                                if (fileSizeKB > 500) {
+                                    console.warn(`[Sync] Heavy Payload Guard active: ${file.name} is ${Math.round(fileSizeKB)}KB. Throttling CPU...`);
+                                    await new Promise(r => setTimeout(r, 64)); // Deeper yield for heavy parsing
+                                }
+
                                 // 🚀 DEFER DECRYPTION/PARSING (CPU Intensive)
                                 // We yield after EACH file download + parse to keep JS thread responsive
                                 const parsed = await smartParse(text, syncKey, file.name);
@@ -1300,6 +1326,8 @@ export const SyncService = {
                         
                         // Throttled UI update (at most every ~1.2s to prevent Context re-render spam)
                         if (i % (BATCH_SIZE * 3) === 0 || i + BATCH_SIZE >= files.length) {
+                             // 🚀 UI OPTIMIZATION: Always yield before state updates to ensure responsiveness
+                             await new Promise(r => setTimeout(r, 0));
                             updateStatus(`Syncing ${name}... ${Math.round((i/files.length)*100)}%`, 0.6 + (i/files.length)*0.3, liveStats());
                         }
                     }
@@ -1357,8 +1385,10 @@ export const SyncService = {
                                 await yieldToUI();
 
                                 if (backendOps.length > 0) {
+                                    // 🚀 YIELD BEFORE HEAVY BACKEND SYNC PROCESSING
+                                    await new Promise(r => setTimeout(r, 64));
                                     await writeQueue.enqueue(backendOps, true);
-                                    await yieldToUI();
+                                    await new Promise(r => setTimeout(r, 0));
                                 }
                             }
 
@@ -1599,12 +1629,13 @@ export const SyncService = {
                 }
             };
 
-            const [products, customers, expenses, invoices] = await Promise.all([
+            const [products, customers, expenses, invoices, receptionists, expense_categories] = await Promise.all([
                 fetchSnapshot('products.json'),
                 fetchSnapshot('customers.json'),
                 fetchSnapshot('expenses.json'),
                 fetchSnapshot('invoices.json'),
                 fetchSnapshot('receptionists.json'),
+                fetchSnapshot('expense_categories.json'),
             ]);
 
             // 3. WIPE all local data (the nuclear clear)
@@ -1616,8 +1647,9 @@ export const SyncService = {
             await db.execAsync('DELETE FROM products');
             await db.execAsync('DELETE FROM customers');
             await db.execAsync('DELETE FROM receptionists');
+            await db.execAsync('DELETE FROM expense_categories');
 
-            const restored = { products: 0, customers: 0, expenses: 0, invoices: 0, receptionists: 0 };
+            const restored = { products: 0, customers: 0, expenses: 0, invoices: 0, receptionists: 0, categories: 0 };
 
             // 4. Re-insert from snapshots using batched INSERT OR REPLACE
             // GOLDEN RULE #2: Idempotency — all inserts use INSERT OR REPLACE
@@ -1626,7 +1658,7 @@ export const SyncService = {
                 onProgress(`Restoring ${customers.length} customers...`, 0.55);
                 await db.withTransactionAsync(async () => {
                     for (const c of customers) {
-                        const nc = normalizeCustomerPayload(c, user.email);
+                        const nc = await normalizeCustomerPayload(c, user.email);
                         await db.runAsync(
                             `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, outstanding, amountPaid, notes, created_at, updated_at, whatsappOptIn, smsOptIn)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1641,7 +1673,7 @@ export const SyncService = {
                 onProgress(`Restoring ${products.length} products...`, 0.65);
                 await db.withTransactionAsync(async () => {
                     for (const p of products) {
-                        const np = normalizeProductPayload(p, user.email);
+                        const np = await normalizeProductPayload(p, user.email);
                         await db.runAsync(
                             `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1656,7 +1688,7 @@ export const SyncService = {
                 onProgress(`Restoring ${expenses.length} expenses...`, 0.75);
                 await db.withTransactionAsync(async () => {
                     for (const e of expenses) {
-                        const ne = normalizeExpensePayload(e, user.email);
+                        const ne = await normalizeExpensePayload(e, user.email);
                         await db.runAsync(
                             `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1671,7 +1703,7 @@ export const SyncService = {
                 onProgress(`Restoring ${invoices.length} invoices...`, 0.85);
                 await db.withTransactionAsync(async () => {
                     for (const i of invoices) {
-                        const ni = normalizeInvoicePayload(i, user.email);
+                        const ni = await normalizeInvoicePayload(i, user.email);
                         // Ensure customer exists before inserting invoice (ghost creation)
                         await ensureCustomerExists(ni.customer_id, ni.customer_name);
 
@@ -1695,7 +1727,7 @@ export const SyncService = {
                 onProgress(`Restoring ${receptionists.length} receptionists...`, 0.90);
                 await db.withTransactionAsync(async () => {
                     for (const r of receptionists) {
-                        const nr = normalizeReceptionistPayload(r, user.email);
+                        const nr = await normalizeReceptionistPayload(r, user.email);
                         await db.runAsync(
                             `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
                              VALUES (?, ?, ?, ?, ?)`,
@@ -1706,8 +1738,22 @@ export const SyncService = {
                 });
             }
 
+            if (expense_categories && Array.isArray(expense_categories) && expense_categories.length > 0) {
+                onProgress(`Restoring ${expense_categories.length} categories...`, 0.95);
+                await db.withTransactionAsync(async () => {
+                    for (const c of expense_categories) {
+                        const nc = await normalizeCategoryPayload(c, user.email);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO expense_categories (id, name, color, created_at, updated_at)
+                             VALUES (?, ?, ?, ?, ?)`,
+                            [nc.id, nc.name, nc.color, nc.created_at, nc.updated_at]
+                        );
+                        restored.categories++;
+                    }
+                });
+            }
+
             // 5. Reset sync timestamp to the force-push date
-            //    This ensures future event-based syncs only process events AFTER this snapshot.
             const userLastSyncedKey = await this.getUserSyncKey(LAST_SYNCED_KEY);
             const userProcessedEventsKey = await this.getUserSyncKey(PROCESSED_EVENTS_KEY);
             
@@ -1762,7 +1808,7 @@ export const SyncService = {
         try {
             if (type === EventTypes.INVOICE_CREATED) {
                 // ─── Strict Schema Parse ───
-                const inv = normalizeInvoicePayload(payload, syncKey);
+                const inv = await normalizeInvoicePayload(payload, syncKey);
 
                 // ─── GOLDEN RULE #3: Ensure customer exists (ghost creation) ───
                 await ensureCustomerExists(inv.customer_id, inv.customer_name);
@@ -1814,7 +1860,7 @@ export const SyncService = {
 
             } else if (type === EventTypes.PRODUCT_CREATED) {
                 // ─── Strict Schema Parse + Idempotent Insert ───
-                const p = normalizeProductPayload(payload, syncKey);
+                const p = await normalizeProductPayload(payload, syncKey);
                 await db.runAsync(
                     `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1822,7 +1868,7 @@ export const SyncService = {
                 );
 
             } else if (type === EventTypes.PRODUCT_UPDATED) {
-                const cloudProduct = normalizeProductPayload(payload, syncKey);
+                const cloudProduct = await normalizeProductPayload(payload, syncKey);
                 // 🚀 PRO-LEVEL: Check for conflicts before overwriting
                 const localRes = await db.getAllAsync(`SELECT * FROM products WHERE id = ?`, [cloudProduct.id]);
                 if (localRes.length > 0) {
@@ -1844,7 +1890,7 @@ export const SyncService = {
 
             } else if (type === EventTypes.CUSTOMER_CREATED) {
                 // ─── Idempotent: INSERT OR REPLACE handles duplicates ───
-                const c = normalizeCustomerPayload(payload, syncKey);
+                const c = await normalizeCustomerPayload(payload, syncKey);
                 await db.runAsync(
                     `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, outstanding, amountPaid, notes, created_at, updated_at, whatsappOptIn, smsOptIn)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1852,7 +1898,7 @@ export const SyncService = {
                 );
 
             } else if (type === EventTypes.CUSTOMER_UPDATED) {
-                const cloudCustomer = normalizeCustomerPayload(payload, syncKey);
+                const cloudCustomer = await normalizeCustomerPayload(payload, syncKey);
                 const localRes = await db.getAllAsync(`SELECT * FROM customers WHERE id = ?`, [cloudCustomer.id]);
                 if (localRes.length > 0) {
                     const localCustomer = localRes[0];
@@ -1873,7 +1919,7 @@ export const SyncService = {
 
             } else if (type === EventTypes.EXPENSE_CREATED) {
                 // ─── Idempotent: INSERT OR REPLACE ───
-                const e = normalizeExpensePayload(payload, syncKey);
+                const e = await normalizeExpensePayload(payload, syncKey);
                 await db.runAsync(
                     `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1933,7 +1979,7 @@ export const SyncService = {
                 await db.runAsync(`DELETE FROM products WHERE id = ?`, [payload.id]);
 
             } else if (type === EventTypes.EXPENSE_UPDATED) {
-                const e = normalizeExpensePayload(payload, syncKey);
+                const e = await normalizeExpensePayload(payload, syncKey);
                 await db.runAsync(
                     `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1944,7 +1990,7 @@ export const SyncService = {
                 await db.runAsync(`DELETE FROM expenses WHERE id = ?`, [payload.id]);
 
             } else if (type === EventTypes.INVOICE_UPDATED) {
-                const inv = normalizeInvoicePayload(payload, syncKey);
+                const inv = await normalizeInvoicePayload(payload, syncKey);
                 // Ensure customer exists for updated invoice too
                 await ensureCustomerExists(inv.customer_id, inv.customer_name);
 
@@ -1977,7 +2023,7 @@ export const SyncService = {
                     await db.runAsync(`UPDATE products SET stock = ? WHERE id = ?`, [parseInt(payload.stock) || 0, payload.id]);
                 }
             } else if (type === EventTypes.RECEPTIONIST_CREATED) {
-                const r = normalizeReceptionistPayload(payload);
+                const r = await normalizeReceptionistPayload(payload);
                 await db.runAsync(
                     `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
                      VALUES (?, ?, ?, ?, ?)`,
@@ -1985,7 +2031,7 @@ export const SyncService = {
                 );
 
             } else if (type === EventTypes.RECEPTIONIST_UPDATED) {
-                const r = normalizeReceptionistPayload(payload);
+                const r = await normalizeReceptionistPayload(payload);
                 await db.runAsync(
                     `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
                      VALUES (?, ?, ?, ?, ?)`,
@@ -1994,6 +2040,15 @@ export const SyncService = {
 
             } else if (type === EventTypes.RECEPTIONIST_DELETED) {
                 await db.runAsync(`DELETE FROM receptionists WHERE id = ?`, [payload.id]);
+            } else if (type === EventTypes.CATEGORY_CREATED) {
+                const c = await normalizeCategoryPayload(payload, syncKey);
+                await db.runAsync(
+                    `INSERT OR REPLACE INTO expense_categories (id, name, color, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?)`,
+                    [c.id, c.name, c.color, c.created_at, c.updated_at]
+                );
+            } else if (type === EventTypes.CATEGORY_DELETED) {
+                await db.runAsync(`DELETE FROM expense_categories WHERE id = ?`, [payload.id]);
             }
         } catch (e) {
             console.error(`[Sync] Apply Event Error (${type}):`, e);
