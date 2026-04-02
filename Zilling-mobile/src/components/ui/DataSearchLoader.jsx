@@ -12,12 +12,14 @@ const { width, height } = Dimensions.get('window');
  *   stage   {number} 1-4  — current real progress stage from the parent
  *   onReady {function}    — called when the Stage 4 tick animation finishes (~1s after stage=4)
  */
-const DataSearchLoader = ({ stage = 1, onReady }) => {
+const DataSearchLoader = ({ stage = 1, tokenReady = false, onReady }) => {
     const webViewRef = useRef(null);
     // Track whether WebView is ready to receive JS injections
     const webViewReady = useRef(false);
     // Buffer stage advances that arrive before the WebView is loaded
     const pendingStage = useRef(stage);
+    // Track if the completion animation in WebView has finished
+    const [animationDone, setAnimationDone] = React.useState(false);
 
     const injectStage = (s) => {
         if (webViewRef.current && webViewReady.current) {
@@ -31,6 +33,14 @@ const DataSearchLoader = ({ stage = 1, onReady }) => {
         injectStage(stage);
     }, [stage]);
 
+    // Final Gate: Only release the loader when both the animation is done AND the token is ready.
+    useEffect(() => {
+        if (animationDone && tokenReady && onReady) {
+            console.log('[Loader] Release gate open: Token ready and Animation done.');
+            onReady();
+        }
+    }, [animationDone, tokenReady, onReady]);
+
     const handleLoad = () => {
         webViewReady.current = true;
         // Flush any stage that arrived before the WebView was ready
@@ -39,8 +49,8 @@ const DataSearchLoader = ({ stage = 1, onReady }) => {
 
     const handleMessage = (event) => {
         if (event.nativeEvent.data === 'STAGE_DONE') {
-            // Stage 4 tick animation has completed — tell the parent to navigate home
-            if (onReady) onReady();
+            // Stage 4 tick animation has completed
+            setAnimationDone(true);
         }
     };
 

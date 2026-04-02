@@ -35,6 +35,10 @@ const _keyCache = {
 // Extremely fast static cache for legacy decrypt fallback loop
 const _legacyKeyCache = {};
 
+// 🚀 PERFORMANCE FIX: Track the salt that actually succeeded for this session
+// Prevents the 3-salt "death loop" (30k iters) from running on every single file.
+let _winningSalt = null;
+
 // Access token caching for 5-minute performance windows
 const _syncCache = {
   accessToken: null,
@@ -173,18 +177,20 @@ export const encryptContent = (content, key) => {
  * Old U2FsdGVkX1 values (no prefix) fall through to the legacy loop for
  * full backward compatibility.
  */
-export const decryptContent = (encryptedText, email, keyOrSalt) => {
-  if (!encryptedText) return null;
+export const decryptContent = async (encryptedText, email, keyOrSalt = null) => {
+  if (!encryptedText || typeof encryptedText !== 'string') return null;
+  if (!encryptedText.startsWith('U2FsdGVkX1') && !encryptedText.startsWith('KWIQV2:')) return encryptedText;
 
-  // ── NEW FORMAT: KWIQV2:<iterations>:<ciphertext> ──
+  const normalizedEmail = email?.toLowerCase()?.trim?.() || email;
+
+  // 1. NEW FORMAT: KWIQV2:<iterations>:<ciphertext>
   if (encryptedText.startsWith('KWIQV2:')) {
     try {
       const parts = encryptedText.split(':');
-      // parts[0]='KWIQV2', parts[1]=iterations, parts[2..]=ciphertext (ciphertext may contain ':')
       const embeddedIter = parseInt(parts[1], 10);
       const ciphertext = parts.slice(2).join(':');
 
-      // If a pre-derived 256-bit key was passed, try it first (fast path)
+      // Fast path: use passed-in key
       if (keyOrSalt && typeof keyOrSalt === 'string' && keyOrSalt.length >= 32) {
         try {
           const bytes = CryptoJS.AES.decrypt(ciphertext, keyOrSalt);
@@ -193,9 +199,8 @@ export const decryptContent = (encryptedText, email, keyOrSalt) => {
         } catch (e) { }
       }
 
-      // Derive key with the EXACT iteration count embedded in the prefix — single attempt
-      if (email) {
-        const normalizedEmail = email.toLowerCase().trim();
+      // Derive key with EXACT iterations - single attempt
+      if (normalizedEmail) {
         const salt = 'kwiq-bill-shared-salt-2024';
         const key = CryptoJS.PBKDF2(normalizedEmail, salt, {
           keySize: 256 / 32,
@@ -207,11 +212,10 @@ export const decryptContent = (encryptedText, email, keyOrSalt) => {
         if (result && result.length > 0) return result;
       }
     } catch (e) { }
-    // If KWIQV2 prefix parse fully fails, fall through to legacy loop below
   }
 
-  // ── LEGACY FORMAT: U2FsdGVkX1... (no prefix) ──
-  // 1. PRIMARY: pre-derived key passed in directly
+  // 2. LEGACY FORMAT: U2FsdGVkX1... (no prefix)
+  // ── 2.1 PRIMARY: pre-derived key passed in directly
   if (keyOrSalt && typeof keyOrSalt === 'string' && keyOrSalt.length >= 32) {
     try {
       const bytes = CryptoJS.AES.decrypt(encryptedText, keyOrSalt);
@@ -220,48 +224,32 @@ export const decryptContent = (encryptedText, email, keyOrSalt) => {
     } catch (e) { }
   }
 
-  // 2. RAW STATIC KEY FALLBACK (Bilingual Desktop Support - NO EMAIL NEEDED)
-  const staticKeys = ['kwiq-bill-shared-salt-2024', 'kwiq_bill_shared_salt_2024', 'kwiq-bill-secret-2024', 'kwiq_bill_secret_salt', 'kwiq-bill-master-2024'];
-  for (const sKey of staticKeys) {
-    try {
-      const bytes = CryptoJS.AES.decrypt(encryptedText, sKey);
-      const result = bytes.toString(CryptoJS.enc.Utf8);
-      if (result && result.length > 0) return result;
-    } catch (e) { }
-  }
-
-  // 2.5 DIRECT NAKED EMAIL FALLBACK (Desktop pure AES without hash)
-  if (email) {
-    try {
-      const bytes = CryptoJS.AES.decrypt(encryptedText, email);
-      const result = bytes.toString(CryptoJS.enc.Utf8);
-      if (result && result.length > 0) return result;
-    } catch (e) { }
-    try {
-      const bytes = CryptoJS.AES.decrypt(encryptedText, email.toLowerCase().trim());
-      const result = bytes.toString(CryptoJS.enc.Utf8);
-      if (result && result.length > 0) return result;
-    } catch (e) { }
-  }
-
-  if (!email) return null;
-  const normalizedEmail = email.toLowerCase().trim();
-
-  // 3. TIERED FALLBACKS (legacy only — new values never reach here)
+  // ── 2.2 CROSS-PLATFORM FALLBACKS (Tiers)
   const salts = [
     { value: 'kwiq_bill_shared_supreme_salt_2024_x922_long_v5_vulnerability_proof_6002', type: 'supreme' },
     { value: 'kwiq-bill-shared-salt-2024', type: 'standard' },
     { value: 'kwiq_bill_secret_salt', type: 'legacy' }
   ];
-  const iterations = [20000, 10000, 5000, 1000];
+  const iterations = [10000];
   const hashers = [CryptoJS.algo.SHA256, CryptoJS.algo.SHA1];
-  const emails = [normalizedEmail];
-  if (email && email !== normalizedEmail) emails.push(email);
+  const emails = normalizedEmail ? [normalizedEmail] : [];
+  if (email && email.toLowerCase().trim() !== normalizedEmail) emails.push(email);
 
-  for (const saltItem of salts) {
+  // 🚀 PERFORMANCE BINGO: Prioritize the salt that worked last time for this session
+  const prioritizedSalts = _winningSalt 
+    ? [salts.find(s => s.value === _winningSalt), ...salts.filter(s => s.value !== _winningSalt)].filter(Boolean)
+    : salts;
+
+  for (const saltItem of prioritizedSalts) {
+    if (!saltItem) continue;
     for (const iter of iterations) {
       for (const hashAlgo of hashers) {
         for (const mail of emails) {
+          // 🚀 AGGRESSIVE YIELDING: prevent UI lockup during exhaustive salt searches
+          if (!_winningSalt) {
+            await new Promise(res => setTimeout(res, 0));
+          }
+          
           try {
             const isModern = (iter === KWIQ_ITERATIONS && hashAlgo === CryptoJS.algo.SHA256);
             let key;
@@ -270,29 +258,35 @@ export const decryptContent = (encryptedText, email, keyOrSalt) => {
             if (_legacyKeyCache[cacheKey]) {
                 key = _legacyKeyCache[cacheKey];
             } else if (isModern) {
-               key = deriveEncryptionKey(mail, saltItem.value);
-               _legacyKeyCache[cacheKey] = key;
+                key = deriveEncryptionKey(mail, saltItem.value);
+                _legacyKeyCache[cacheKey] = key;
             } else {
-               key = CryptoJS.PBKDF2(mail, saltItem.value, { 
-                 keySize: 256 / 32, 
-                 iterations: iter, 
-                 hasher: hashAlgo 
-               }).toString(CryptoJS.enc.Hex);
-               _legacyKeyCache[cacheKey] = key;
+                key = CryptoJS.PBKDF2(mail, saltItem.value, { 
+                    keySize: 256 / 32, 
+                    iterations: iter, 
+                    hasher: hashAlgo 
+                }).toString(CryptoJS.enc.Hex);
+                _legacyKeyCache[cacheKey] = key;
             }
+
             const bytes = CryptoJS.AES.decrypt(encryptedText, key);
             const result = bytes.toString(CryptoJS.enc.Utf8);
-            if (result && result.length > 0) return result;
-          } catch (e) { }
+            if (result && result.length > 0) {
+              if (!_winningSalt) _winningSalt = saltItem.value;
+              return result;
+            }
+          } catch (err) { }
         }
       }
     }
   }
 
-  // 4. RAW EMAIL FALLBACK: V1 Backups (No PBKDF2)
-  for (const mail of emails) {
+  // ── 2.3 RAW EMAIL/SALT FALLBACKS (Pure AES without PBKDF2)
+  const rawPasswords = [...emails, ...salts.map(s => s.value), 'kwiq-bill-shared-salt-2024'];
+  for (const pass of rawPasswords) {
     try {
-      const bytes = CryptoJS.AES.decrypt(encryptedText, mail);
+      if (!pass) continue;
+      const bytes = CryptoJS.AES.decrypt(encryptedText, pass);
       const result = bytes.toString(CryptoJS.enc.Utf8);
       if (result && result.length > 0) return result;
     } catch (e) { }
@@ -745,8 +739,14 @@ export const syncUserDataToDrive = async (user, allData) => {
       for (const table of tables) {
         if (allData[table] && allData[table].length > 0) {
           const fileName = `${table}.json`;
+          
+          await new Promise(res => setTimeout(res, 50)); // Yield before stringification
           let content = JSON.stringify(allData[table], null, 2);
-          if (derivedKey) content = encryptContent(content, derivedKey);
+          
+          if (derivedKey) {
+            await new Promise(res => setTimeout(res, 50)); // Yield before heavy AES encryption
+            content = encryptContent(content, derivedKey);
+          }
           
           await uploadFileToFolder(accessToken, snapshotsId, fileName, content);
         }
@@ -784,8 +784,12 @@ export const syncUserDataToDrive = async (user, allData) => {
       }
 
       // 4. Save User Details (for Restore reference) in THIS root
+      await new Promise(res => setTimeout(res, 50));
       let profileContent = JSON.stringify(user, null, 2);
-      if (derivedKey) profileContent = encryptContent(profileContent, derivedKey);
+      if (derivedKey) {
+          await new Promise(res => setTimeout(res, 50));
+          profileContent = encryptContent(profileContent, derivedKey);
+      }
       await uploadFileToFolder(accessToken, snapshotsId, 'user details.json', profileContent);
     }
 
@@ -940,7 +944,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
             if (cleanText.startsWith('U2FsdGVkX1')) {
               try {
                 const salt = await getDriveEncSalt();
-                const decryptedData = decryptContent(cleanText, user.email, salt);
+                const decryptedData = await decryptContent(cleanText, user.email, salt);
                 if (decryptedData) cleanText = decryptedData;
               } catch (err) {
                 console.warn(`[Restore] Decryption failed for ${baseName}. Key mismatch or corrupted.`);
@@ -1350,9 +1354,12 @@ export const syncSettingsToDrive = async (user, settings) => {
 
     // 🚀 PHASE 2: Heavy Encryption (Runs ONCE per session)
     const salt = await getDriveEncSalt();
+    await new Promise(res => setTimeout(res, 100)); // Yield to allow WebView to render Stage 3
     const derivedKey = deriveEncryptionKey(user.email, salt);
     
+    await new Promise(res => setTimeout(res, 100)); // Yield before massive stringify/encrypt
     const settingsContent = encryptContent(JSON.stringify([settingsSnapshot]), derivedKey);
+    
     const userDetails = {
       store: settingsSnapshot.store,
       user: settingsSnapshot.user,
@@ -1361,6 +1368,7 @@ export const syncSettingsToDrive = async (user, settings) => {
       invoice: settingsSnapshot.invoice,
       onboardingCompletedAt: settingsSnapshot.onboardingCompletedAt
     };
+    await new Promise(res => setTimeout(res, 100)); // Yield before next heavy encrypt
     const detailsContent = encryptContent(JSON.stringify(userDetails, null, 2), derivedKey);
 
     // 🚀 PHASE 3: Network I/O (Loop only through found folders)
@@ -1544,7 +1552,7 @@ export const fetchSettingsFromDrive = async (user) => {
         if (cleanText.startsWith('U2FsdGVkX1') || cleanText.startsWith('U2V') || cleanText.startsWith('KWIQV2:')) {
           try {
             const salt = await getDriveEncSalt();
-            const decrypted = decryptContent(cleanText, user.email, salt);
+            const decrypted = await decryptContent(cleanText, user.email, salt);
             if (decrypted) cleanText = decrypted;
             else {
                console.warn('[DriveSettings] Decryption failed for ' + baseName);
@@ -1640,26 +1648,28 @@ export const fetchSettingsFromDrive = async (user) => {
     const salt = await getDriveEncSalt();
     const derivedKey = deriveEncryptionKey(user.email, salt);
 
-    const decryptField = (val) => {
+    const decryptField = async (val) => {
       if (!val || typeof val !== 'string') return val;
       if (!val.startsWith('U2FsdGVkX1') && !val.startsWith('KWIQV2:')) return val;
-      const result = decryptContent(val, user.email, derivedKey);
+      const result = await decryptContent(val, user.email, derivedKey);
       return result || val; // fallback to raw if all decryption attempts fail
     };
 
     if (merged.store && typeof merged.store === 'object') {
-      ['name', 'legalName', 'contact', 'email', 'gstin', 'fssai', 'website', 'pan'].forEach(f => {
-        if (merged.store[f]) merged.store[f] = decryptField(merged.store[f]);
-      });
+      const storeFields = ['name', 'legalName', 'contact', 'email', 'gstin', 'fssai', 'website', 'pan'];
+      for (const f of storeFields) {
+        if (merged.store[f]) merged.store[f] = await decryptField(merged.store[f]);
+      }
       if (merged.store.address && typeof merged.store.address === 'string') {
-        const addrDec = decryptField(merged.store.address);
+        const addrDec = await decryptField(merged.store.address);
         try { merged.store.address = JSON.parse(addrDec); } catch(e) { merged.store.address = addrDec; }
       }
     }
     if (merged.user && typeof merged.user === 'object') {
-      ['fullName', 'mobile', 'email'].forEach(f => {
-        if (merged.user[f]) merged.user[f] = decryptField(merged.user[f]);
-      });
+      const userFields = ['fullName', 'mobile', 'email'];
+      for (const f of userFields) {
+        if (merged.user[f]) merged.user[f] = await decryptField(merged.user[f]);
+      }
     }
     // ────────────────────────────────────────────────────────────────────────────
 
@@ -1724,9 +1734,11 @@ export const fetchSecurityVaultFromDrive = async (user) => {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     const encryptedText = await contentRes.text();
-    if (encryptedText && encryptedText.trim().startsWith('U2FsdGVkX1')) {
+    const cleanText = encryptedText ? encryptedText.trim() : '';
+    if (cleanText.startsWith('U2FsdGVkX1') || cleanText.startsWith('KWIQV2:')) {
       const salt = await getDriveEncSalt();
-      const decrypted = decryptContent(encryptedText.trim(), user.email, salt);
+      const derivedKey = deriveEncryptionKey(user.email, salt);
+      const decrypted = await decryptContent(cleanText, user.email, derivedKey);
       if (decrypted) return JSON.parse(decrypted);
     }
     return null;

@@ -122,6 +122,7 @@ export const SettingsProvider = ({ children, user }) => {
     // Fix #1: Tracks whether keys are warm and decryption of sensitive fields is done.
     // UI components gate on this to show skeleton instead of "Not set".
     const [isDecryptionReady, setIsDecryptionReady] = useState(false);
+    const [isTokenReady, setIsTokenReady] = useState(false);
     const [initStage, setInitStage] = useState(1);
 
     const finishLoading = React.useCallback(() => {
@@ -183,13 +184,13 @@ export const SettingsProvider = ({ children, user }) => {
         }
     }, []);
 
-    const processSensitiveFields = React.useCallback((data, email, mode = 'encrypt', activeStrongKey = null) => {
+    const processSensitiveFields = React.useCallback(async (data, email, mode = 'encrypt', activeStrongKey = null) => {
         if (!data || (!email && !activeStrongKey)) return data;
 
         const normalizedEmail = email?.toLowerCase()?.trim?.() || email;
         const processed = { ...data };
 
-        SENSITIVE_FIELDS.forEach(({ section, fields }) => {
+        for (const { section, fields } of SENSITIVE_FIELDS) {
             // Support deep nesting (e.g. 'store.address')
             const sectionParts = section.split('.');
             let parent = processed;
@@ -198,37 +199,31 @@ export const SettingsProvider = ({ children, user }) => {
             for (let i = 0; i < sectionParts.length - 1; i++) {
                 const part = sectionParts[i];
                 if (!parent[part]) return; // Section doesn't exist
-                // Shallow copy along the way
                 parent[part] = Array.isArray(parent[part]) ? [...parent[part]] : { ...parent[part] };
                 parent = parent[part];
             }
 
             const sectionName = sectionParts[sectionParts.length - 1];
             let sectionData = parent[sectionName];
-            if (!sectionData) return;
+            if (!sectionData) continue;
 
-            // 🛡️ RECOVERY: If Desktop backend sends the section (e.g. store) as a JSON string, parse it first!
             if (typeof sectionData === 'string' && (sectionData.startsWith('{') || sectionData.startsWith('['))) {
                 try {
                     sectionData = JSON.parse(sectionData);
                 } catch(e) {}
             }
 
-            // Deep-ish copy the final sectionTarget - Guard against spreading strings
             const sectionTarget = Array.isArray(sectionData) ? [...sectionData] : (sectionData && typeof sectionData === 'object' ? { ...sectionData } : sectionData);
-
-            // If sectionTarget is not an object/array, we can't process it
-            if (!sectionTarget || typeof sectionTarget !== 'object') return;
+            if (!sectionTarget || typeof sectionTarget !== 'object') continue;
 
             parent[sectionName] = sectionTarget;
 
-            const processObject = (obj, objFields) => {
+            const processObject = async (obj, objFields) => {
                 if (!obj || typeof obj !== 'object') return;
-                objFields.forEach(field => {
+                for (const field of objFields) {
                     let value = obj[field];
-                    if (!value) return;
+                    if (!value) continue;
 
-                    // 🛡️ RECOVERY: If value is an object with numeric keys (result of spreading a string), heal it back to a string
                     if (value && typeof value === 'object' && !Array.isArray(value) && value['0'] !== undefined) {
                         try {
                             value = Object.values(value).join('');
@@ -245,11 +240,11 @@ export const SettingsProvider = ({ children, user }) => {
                         } else {
                             if (typeof value === 'string' && (value.startsWith('U2FsdGVkX1') || value.startsWith('KWIQV2:'))) {
                                 // 1. Try Mobile Key (Strong Key or Email)
-                                let result = decryptContent(value, email, activeStrongKey || null);
+                                let result = await decryptContent(value, email, activeStrongKey || null);
 
                                 // 2. FALLBACK: Try Desktop Salt if first attempt fails
                                 if (!result) {
-                                    result = decryptContent(value, email, 'kwiq-bill-shared-salt-2024');
+                                    result = await decryptContent(value, email, 'kwiq-bill-shared-salt-2024');
                                 }
 
                                 if (result) {
@@ -264,20 +259,21 @@ export const SettingsProvider = ({ children, user }) => {
                     } catch (err) {
                         console.warn(`[Crypto] Failed to ${mode} field ${section}.${field}:`, err.message);
                     }
-                });
+                }
             };
 
             if (Array.isArray(sectionTarget)) {
-                parent[sectionName] = sectionTarget.map(item => {
-                    if (!item || typeof item !== 'object') return item;
-                    const newItem = { ...item };
-                    processObject(newItem, fields);
-                    return newItem;
-                });
+                for (let i = 0; i < sectionTarget.length; i++) {
+                    if (sectionTarget[i] && typeof sectionTarget[i] === 'object') {
+                        const newItem = { ...sectionTarget[i] };
+                        await processObject(newItem, fields);
+                        sectionTarget[i] = newItem;
+                    }
+                }
             } else {
-                processObject(sectionTarget, fields);
+                await processObject(sectionTarget, fields);
             }
-        });
+        }
         return processed;
     }, []);
 
@@ -301,14 +297,16 @@ export const SettingsProvider = ({ children, user }) => {
 
                 const salt = await getDriveEncSalt();
                 const activeStrongKey = deriveEncryptionKey(user.email, salt);
-                const decoded = processSensitiveFields(driveData, user.email, 'decrypt', activeStrongKey);
+                const decoded = await processSensitiveFields(driveData, user.email, 'decrypt', activeStrongKey);
 
                 setSettings(prev => {
                     // Deep merge to preserve logo or other local-only states if any
                     const updated = { ...prev, ...decoded };
                     // Persist fixed data
-                    const toSave = processSensitiveFields(updated, user.email, 'encrypt', activeStrongKey);
-                    AsyncStorage.setItem(settingsKey, JSON.stringify(toSave));
+                    (async () => {
+                        const toSave = await processSensitiveFields(updated, user.email, 'encrypt', activeStrongKey);
+                        AsyncStorage.setItem(settingsKey, JSON.stringify(toSave));
+                    })();
                     return updated;
                 });
                 console.log('[Settings] ✓ Background repair successful.');
@@ -348,8 +346,8 @@ export const SettingsProvider = ({ children, user }) => {
                         
                         // Fix: The data fetched post-login may still contain raw MongoDB encrypted strings
                         // like 'U2FsdGVkX1...'. We MUST decrypt them FIRST before setting state!
-                        const decrypted = processSensitiveFields(parsed, user?.email, 'decrypt', activeStrongKey);
-                        const toSave = processSensitiveFields(decrypted, user?.email, 'encrypt', activeStrongKey);
+                        const decrypted = await processSensitiveFields(parsed, user?.email, 'decrypt', activeStrongKey);
+                        const toSave = await processSensitiveFields(decrypted, user?.email, 'encrypt', activeStrongKey);
                         
                         await AsyncStorage.setItem(settingsKey, JSON.stringify(toSave));
                         setSettings(decrypted);
@@ -368,8 +366,8 @@ export const SettingsProvider = ({ children, user }) => {
                         if (dbSettings) {
                             const salt = await getDriveEncSalt();
                             const activeStrongKey = user?.email ? deriveEncryptionKey(user.email, salt) : null;
-                            const decryptedFromMongo = processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
-                            const toPersist = processSensitiveFields(decryptedFromMongo, user?.email, 'encrypt', activeStrongKey);
+                            const decryptedFromMongo = await processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
+                            const toPersist = await processSensitiveFields(decryptedFromMongo, user?.email, 'encrypt', activeStrongKey);
                             await AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
                             setSettings(decryptedFromMongo);
                             if (dbSettings.onboardingCompletedAt) setDbProfileComplete(true);
@@ -395,7 +393,7 @@ export const SettingsProvider = ({ children, user }) => {
                     // Key cache is already warm from the prewarmEncryptionKeys call above
                     const salt = await getDriveEncSalt();
                     const activeStrongKey = user?.email ? deriveEncryptionKey(user.email, salt) : null;
-                    const decrypted = processSensitiveFields(parsed, user?.email, 'decrypt', activeStrongKey);
+                    const decrypted = await processSensitiveFields(parsed, user?.email, 'decrypt', activeStrongKey);
 
                     // 🛡️ RECOVERY TRIGGER: If critical fields are still encrypted, trigger repair
                     const stringified = JSON.stringify(decrypted);
@@ -404,8 +402,10 @@ export const SettingsProvider = ({ children, user }) => {
                         repairSettingsFromDrive();
                     }
 
+                    if (parsed.onboardingCompletedAt) setDbProfileComplete(true);
                     setSettings(decrypted || {});
                     setIsDecryptionReady(true); // ✅ keys warm, data decrypted
+                    setIsTokenReady(true); // ✅ token exists
                     return;
                 }
             }
@@ -419,8 +419,8 @@ export const SettingsProvider = ({ children, user }) => {
                     if (dbSettings) {
                         const salt = await getDriveEncSalt();
                         const activeStrongKey = user?.email ? deriveEncryptionKey(user.email, salt) : null;
-                        const decryptedFromMongo = processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
-                        const toPersist = processSensitiveFields(decryptedFromMongo, user?.email, 'encrypt', activeStrongKey);
+                        const decryptedFromMongo = await processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
+                        const toPersist = await processSensitiveFields(decryptedFromMongo, user?.email, 'encrypt', activeStrongKey);
                         await AsyncStorage.setItem(settingsKey, JSON.stringify(toPersist));
                         setSettings(decryptedFromMongo);
                         if (dbSettings.onboardingCompletedAt) setDbProfileComplete(true);
@@ -514,6 +514,7 @@ export const SettingsProvider = ({ children, user }) => {
             timestamp: Date.now(),
         };
         await AsyncStorage.setItem(tokenKey, JSON.stringify(token));
+        setIsTokenReady(true);
         console.log('[Settings] Local Access Token generated.');
     }, [user?.email]);
 
@@ -522,6 +523,7 @@ export const SettingsProvider = ({ children, user }) => {
         if (!user?.email) return;
         const tokenKey = `local_access_token_${user.email.replace(/[@.]/g, '_')}`;
         await AsyncStorage.removeItem(tokenKey);
+        setIsTokenReady(false);
         console.log('[Settings] Local Access Token invalidated.');
     }, [user?.email]);
 
@@ -557,8 +559,11 @@ export const SettingsProvider = ({ children, user }) => {
 
                 // 4. Perform settings refinement in a separate step
                 setSettings(prev => {
-                    const refined = processSensitiveFields(prev, user?.email, 'decrypt', key);
-                    return refined;
+                    (async () => {
+                        const refined = await processSensitiveFields(prev, user?.email, 'decrypt', key);
+                        setSettings(refined);
+                    })();
+                    return prev;
                 });
                 
                 console.log('[Settings] Security refinement complete.');
@@ -611,7 +616,7 @@ export const SettingsProvider = ({ children, user }) => {
                     const salt = await getDriveEncSalt();
                     activeStrongKey = deriveEncryptionKey(user.email, salt);
                 }
-                const decrypted = processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
+                const decrypted = await processSensitiveFields(dbSettings, user?.email, 'decrypt', activeStrongKey);
 
                 setSettings(prev => {
                     const updated = { 
@@ -620,9 +625,11 @@ export const SettingsProvider = ({ children, user }) => {
                         store: { ...(prev.store || {}), ...(decrypted.store || {}) },
                         bankDetails: { ...(prev.bankDetails || {}), ...(decrypted.bankDetails || {}) }
                     };
-                    // Re-encrypt sensitive fields before persisting locally
-                    const toSave = processSensitiveFields(updated, user?.email, 'encrypt', activeStrongKey);
-                    AsyncStorage.setItem(settingsKey, JSON.stringify(toSave));
+                    // Re-encrypt sensitive fields before persisting locally in background
+                    (async () => {
+                        const toSave = await processSensitiveFields(updated, user?.email, 'encrypt', activeStrongKey);
+                        AsyncStorage.setItem(settingsKey, JSON.stringify(toSave));
+                    })();
                     return updated;
                 });
                 return true;
@@ -633,43 +640,31 @@ export const SettingsProvider = ({ children, user }) => {
         return false;
     }, [user, settingsKey, processSensitiveFields]);
 
-    const startBackgroundServices = React.useCallback(async (hasUnlockedUI) => {
+    const startBackgroundServices = React.useCallback(async (hasUnlockedUI, isFreshLogin = false) => {
         // Fix: allow email-login users (no user.id)
         if (!user || (!user.id && !user.email)) return;
 
         // RUN INTENSIVE CLOUD OPS IN BACKGROUND
         (async () => {
-            let isFreshLogin = false;
             try {
-                const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
-                if (justLoggedIn === 'true') {
-                    isFreshLogin = true;
-                    await AsyncStorage.removeItem('just_logged_in');
-                }
+                // Remove the login flag since Stage 3 logic already used it
+                await AsyncStorage.removeItem('just_logged_in');
 
-                const startSync = async () => {
-                    // Use InteractionManager instead of a raw setTimeout.
-                    // This waits until ALL pending JS animations and touch events are done
-                    // before starting heavy sync work — so navigation and tab switches
-                    // are NEVER blocked by the sync thread.
+                const verifyReady = async () => {
                     await new Promise(resolve =>
-                        InteractionManager.runAfterInteractions(resolve)
+                        require('react-native').InteractionManager.runAfterInteractions(resolve)
                     );
-                    // Extra safety buffer for slow devices after interactions clear
                     if (hasUnlockedUI) {
                         await new Promise(r => setTimeout(r, 1500));
                     }
-                    const syncSuccess = await syncAllData(isFreshLogin).catch(e => console.warn('[Sync] Background error:', e));
-                    if (syncSuccess) {
-                        await generateLocalAccessToken();
-                    }
+                    // Since Stage 3 already did a sync, we just ensure the token is ready
+                    // as a fallback if it wasn't done already.
+                    await generateLocalAccessToken();
                 };
-                startSync();
+                verifyReady();
             } catch (e) { }
 
-            // 🚀 DEFER ALL BACKGROUND METADATA SCRAPING
-            // These are pure background tasks. They must NOT call setLoading(false)
-            // or touch the loading state — navigation is already unlocked by this point.
+            // DEFER ALL BACKGROUND METADATA SCRAPING
             setTimeout(() => {
                 Promise.all([
                     SecurityService.getReceptionists(user).then(vaultRecep => {
@@ -679,10 +674,10 @@ export const SettingsProvider = ({ children, user }) => {
                     }).catch(() => { }),
 
                     syncSettingsWithCloud()
-                ]).catch(() => { }); // swallow errors silently — this is background-only
+                ]).catch(() => { }); // swallow errors silently
             }, hasUnlockedUI ? 3000 : 500);
         })();
-    }, [user, settingsKey, syncAllData, generateLocalAccessToken, syncSettingsWithCloud]);
+    }, [user, generateLocalAccessToken, syncSettingsWithCloud]);
 
     useEffect(() => {
         // 🚀 CRITICAL: When user is null (logout), ensure loading is false so navigation can redirect to login
@@ -720,6 +715,12 @@ export const SettingsProvider = ({ children, user }) => {
                     
                     setInitStage(3);
                     await Promise.all([loadSyncTime(), checkQueueStatus()]);
+                    
+                    // 🚀 FETCH INTEGRATION: Perform full sync during Stage 3 as requested.
+                    // This holds the user in the sleek DataSearchLoader until the cloud is aligned.
+                    const justLoggedIn = await AsyncStorage.getItem('just_logged_in');
+                    const isFreshLogin = justLoggedIn === 'true';
+                    await syncAllData(isFreshLogin).catch(e => console.warn('[Sync] Initial fetch failed:', e.message));
 
                     let hasUnlockedUI = false;
                     try {
@@ -731,10 +732,10 @@ export const SettingsProvider = ({ children, user }) => {
                         }
                     } catch (e) { }
 
-                    setInitStage(4);
+                    setInitStage(4); // 🟢 COMPULSORY move to Stage 4 after fetch
 
-                    // Fire background services — they run async and must NOT affect loading state
-                    startBackgroundServices(hasUnlockedUI);
+                    // Fire reduced background services — most sync work is now done
+                    startBackgroundServices(hasUnlockedUI, isFreshLogin);
                 } catch (err) {
                     console.error('[SettingsContext] Initialization Error:', err.message);
                 } finally {
@@ -1131,10 +1132,11 @@ export const SettingsProvider = ({ children, user }) => {
         isConnected,
         // Fix #3: expose decryption readiness so UI can gate on it
         isDecryptionReady,
+        isTokenReady,
         verifyManagerPin: async (pin) => await SecurityService.verifyPin(pin, user)
     }), [
         settings, loading, dbProfileComplete, isConnected, user?.id,
-        isDecryptionReady, initStage, finishLoading,
+        isDecryptionReady, isTokenReady, initStage, finishLoading,
         updateSettings, saveFullSettings, resetOnboarding, syncAllData,
         syncSettingsWithCloud, syncToCloud, backupDataToCloud, forceResync, 
         repairSync, deepRepair, addReceptionist, updateReceptionist, 

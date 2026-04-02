@@ -30,6 +30,7 @@ const checkSubscription = asyncHandler(async (req, res, next) => {
     // Fix #11: Throttle lastActive updates to once per 5 minutes
     // Prevents a DB write on literally every API call
     const FIVE_MINUTES = 5 * 60 * 1000;
+    const now = new Date();
     const lastActiveTime = user.lastActive ? new Date(user.lastActive).getTime() : 0;
     if (now.getTime() - lastActiveTime > FIVE_MINUTES) {
         user.lastActive = now;

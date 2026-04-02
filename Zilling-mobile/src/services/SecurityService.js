@@ -244,19 +244,20 @@ export const SecurityService = {
       // This solves the 'Wrong PIN' error for users who set their PIN during the 100k iterations peak.
       if (inputHash !== savedHash && iterations < 100000) {
         console.log('[SecurityService] 2k-check failed, attempting 100k migration check...');
+        await yieldToUI(); // 🚀 Prevent UI lockup before heavy migration check
         const migrationHash = CryptoJS.PBKDF2(inputPin, savedSalt, {
           keySize: PBKDF2_KEYSIZE,
-          iterations: 100000, 
+          iterations: 100000,
           hasher: CryptoJS.algo.SHA256
         }).toString(CryptoJS.enc.Hex);
-        
+
         if (migrationHash === savedHash) {
           console.log('[SecurityService] Legacy 100k Hash verified! Marking for performance upgrade...');
-          inputHash = migrationHash; 
+          inputHash = migrationHash;
           // Flag this session for rotation as if it came from the metadata
-          if (JSON.parse(metaStr || '{}').pinIterations !== 100000) { 
+          if (JSON.parse(metaStr || '{}').pinIterations !== 100000) {
             // Injects flag to trigger the 'if (iterations > 5000)' block below
-            iterations = 100000; 
+            iterations = 100000;
           }
         }
       }
@@ -374,20 +375,30 @@ export const SecurityService = {
     // 2. CROSS-PLATFORM FALLBACK: Try email-derived keys
     // Covers: new device restore, desktop-encrypted vault, older iteration counts
     if (user?.email) {
+      const { deriveEncryptionKey } = require('./googleDriveservices');
       const email = user.email.toLowerCase().trim();
       const salts = ['kwiq-bill-shared-salt-2024', 'kwiq_bill_secret_salt'];
-      // Include 5000 for vaults created before Fix #5 normalized iterations to 10000
-      const iterations = [10000, 20000, 5000, 1000];
+      // PERFORMANCE FIX: Restrict exhaustive fallback loop to the optimized prewarmed 10k iteration count 
+      // Prevents catastrophic 10-15 second UI freezes on failed masterKey matches.
+      const iterations = [10000];
 
       for (const salt of salts) {
         for (const iter of iterations) {
           await yieldToUI(); // 🚀 Yield to UI between heavy PBKDF2 ops to prevent freezing
           try {
-            const derivedKey = CryptoJS.PBKDF2(email, salt, {
-              keySize: PBKDF2_KEYSIZE,
-              iterations: iter,
-              hasher: CryptoJS.algo.SHA256
-            }).toString(CryptoJS.enc.Hex);
+            let derivedKey;
+
+            // 🚀 PERFORMANCE FIX: Use the instantly-available pre-warmed key for modern 10k hashes!
+            // This skips a 1.5-second blocking cryptographic operation on the JS thread.
+            if (iter === 10000) {
+              derivedKey = deriveEncryptionKey(email, salt);
+            } else {
+              derivedKey = CryptoJS.PBKDF2(email, salt, {
+                keySize: PBKDF2_KEYSIZE,
+                iterations: iter,
+                hasher: CryptoJS.algo.SHA256
+              }).toString(CryptoJS.enc.Hex);
+            }
 
             const bytes = CryptoJS.AES.decrypt(payload.data, derivedKey);
             const decrypted = bytes.toString(CryptoJS.enc.Utf8);
@@ -505,7 +516,8 @@ export const SecurityService = {
           try {
             // Match the derivation logic in _backupMasterKeyToMongo
             const anchorSalt = `kwiq.anchor.${accountId}`.split('').reverse().join('');
-            for (const iter of [10000, 20000, 250000]) {
+            for (const iter of [10000, 20000, 100000]) {
+              await yieldToUI(); // 🚀 Prevent UI lockup between heavy PBKDF2 attempts
               try {
                 const backupEncryptionKey = CryptoJS.PBKDF2(accountId, anchorSalt, {
                   keySize: PBKDF2_KEYSIZE,
@@ -519,12 +531,12 @@ export const SecurityService = {
                 if (decryptedPayload) {
                   const [mk, hk] = decryptedPayload.split('|');
                   if (mk) {
-                      await SecureStore.setItemAsync(SECURE_KEYS.MASTER_KEY, mk);
-                      if (hk) await SecureStore.setItemAsync(SECURE_KEYS.HMAC_KEY, hk);
-                      else await getOrCreateSecret(SECURE_KEYS.HMAC_KEY); 
-                      
-                      console.log(`[SecurityService] ✅ Root Master Key recovered (${iter} iters) and saved to SecureStore.`);
-                      return { success: true };
+                    await SecureStore.setItemAsync(SECURE_KEYS.MASTER_KEY, mk);
+                    if (hk) await SecureStore.setItemAsync(SECURE_KEYS.HMAC_KEY, hk);
+                    else await getOrCreateSecret(SECURE_KEYS.HMAC_KEY);
+
+                    console.log(`[SecurityService] ✅ Root Master Key recovered (${iter} iters) and saved to SecureStore.`);
+                    return { success: true };
                   }
                 }
               } catch (e) { }
@@ -558,7 +570,12 @@ export const SecurityService = {
 
       // Match the derivation logic in _backupMasterKeyToMongo
       const anchorSalt = `kwiq.anchor.${accountId}`.split('').reverse().join('');
-      for (const iter of [10000, 20000, 250000]) {
+      // 🚀 PERFORMANCE: prioritize modern 10k/20k iters. 
+      // AUTO-RESTORATION MUST BE FAST. If it's a legacy high-iter vault, they must use OTP recovery.
+      const iterations = [10000, 20000]; 
+      
+      for (const iter of iterations) {
+        await yieldToUI(); // 🚀 Yield to UI before every heavy PBKDF2 attempt
         try {
           const backupEncryptionKey = CryptoJS.PBKDF2(accountId, anchorSalt, {
             keySize: PBKDF2_KEYSIZE,
@@ -574,8 +591,8 @@ export const SecurityService = {
             if (mk) {
               await SecureStore.setItemAsync(SECURE_KEYS.MASTER_KEY, mk);
               if (hk) await SecureStore.setItemAsync(SECURE_KEYS.HMAC_KEY, hk);
-              else await getOrCreateSecret(SECURE_KEYS.HMAC_KEY); 
-              
+              else await getOrCreateSecret(SECURE_KEYS.HMAC_KEY);
+
               console.log(`[SecurityService] Root Master Key automatically restored from cloud backup (${iter} iters).`);
               return true;
             }

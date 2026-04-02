@@ -43,7 +43,7 @@ const AuthenticatedApp = () => {
   // This ensures no in-memory state (products, customers, etc.) leaks between sessions.
   return (
     <TrialGuard>
-      <SettingsProvider key={user?.id || 'guest'} user={user}>
+      <SettingsProvider key={user?.id || user?.email || 'guest'} user={user}>
         <CustomerProvider>
           <ProductProvider>
             <ExpenseProvider>

@@ -298,6 +298,14 @@ export const initializeDB = async (targetDb, logName = "passed_instance") => {
         updated_at TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS expense_categories (
+        id TEXT PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        color TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+
       CREATE TABLE IF NOT EXISTS settings (
         id TEXT PRIMARY KEY,
         data JSON,
@@ -405,13 +413,14 @@ export const fetchAllTableData = async () => {
     const settingsStr = await AsyncStorage.getItem(settingsKey);
     const settings = settingsStr ? JSON.parse(settingsStr) : {};
 
-    const [customers, products, invoices, expenses, receptionists, expense_adjustments] = await Promise.all([
+    const [customers, products, invoices, expenses, receptionists, expense_adjustments, expense_categories] = await Promise.all([
       currentDb.getAllAsync('SELECT * FROM customers'),
       currentDb.getAllAsync('SELECT * FROM products'),
       currentDb.getAllAsync('SELECT * FROM invoices'),
       currentDb.getAllAsync('SELECT * FROM expenses'),
       currentDb.getAllAsync('SELECT * FROM receptionists'),
-      currentDb.getAllAsync('SELECT * FROM expense_adjustments').catch(() => [])
+      currentDb.getAllAsync('SELECT * FROM expense_adjustments').catch(() => []),
+      currentDb.getAllAsync('SELECT * FROM expense_categories').catch(() => [])
     ]);
 
     return {
@@ -421,6 +430,7 @@ export const fetchAllTableData = async () => {
       expenses,
       receptionists,
       expense_adjustments,
+      expense_categories,
       settings: [settings],
     };
   } catch (error) {
