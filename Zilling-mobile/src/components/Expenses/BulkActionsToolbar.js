@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated } from 'react-native';
 import { Trash2, Download, X, Tag, RefreshCw } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export const BulkActionsToolbar = ({
     selectedCount,
@@ -11,10 +12,11 @@ export const BulkActionsToolbar = ({
     onDelete,
     categories = []
 }) => {
+    const insets = useSafeAreaInsets();
     if (selectedCount === 0) return null;
 
     return (
-        <Animated.View style={styles.container}>
+        <Animated.View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 24) }]}>
             <View style={styles.header}>
                 <View style={styles.selectionCount}>
                     <TouchableOpacity onPress={onClearSelection} style={styles.closeBtn}>
@@ -59,22 +61,21 @@ export const BulkActionsToolbar = ({
 const styles = StyleSheet.create({
     container: {
         position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: '#fff',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
+        bottom: 30,
+        left: 20,
+        right: 20,
+        backgroundColor: '#000',
+        borderRadius: 24,
         paddingTop: 16,
         paddingBottom: 24,
-        paddingHorizontal: 16,
-        elevation: 10,
+        paddingHorizontal: 20,
+        elevation: 12,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 12,
-        borderTopWidth: 1,
-        borderTopColor: '#e2e8f0',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
     },
     header: {
         flexDirection: 'row',
@@ -88,12 +89,18 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     closeBtn: {
-        padding: 4,
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     countText: {
-        color: '#0f172a',
+        color: '#fff',
         fontSize: 16,
-        fontWeight: '700',
+        fontWeight: '900',
+        letterSpacing: -0.5,
     },
     actionIcon: {
         padding: 8,
@@ -106,46 +113,48 @@ const styles = StyleSheet.create({
     actionBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f1f5f9',
-        paddingVertical: 8,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        paddingVertical: 10,
         paddingHorizontal: 16,
-        borderRadius: 12,
+        borderRadius: 14,
         gap: 8,
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: 'rgba(255,255,255,0.05)',
     },
     deleteBtn: {
-        backgroundColor: '#fef2f2',
-        borderColor: '#fecaca',
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        borderColor: 'rgba(255,255,255,0.1)',
     },
     actionText: {
-        color: '#0f172a',
+        color: '#fff',
         fontSize: 14,
-        fontWeight: '600',
+        fontWeight: '700',
     },
     divider: {
         width: 1,
         height: 24,
-        backgroundColor: '#e2e8f0',
+        backgroundColor: 'rgba(255,255,255,0.1)',
         marginHorizontal: 4,
     },
     label: {
-        color: '#64748b',
-        fontSize: 12,
-        fontWeight: '600',
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 1,
+        textTransform: 'uppercase',
     },
     catBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#0f172a',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 12,
-        gap: 6,
+        backgroundColor: '#fff',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 14,
+        gap: 8,
     },
     catText: {
-        color: '#fff',
+        color: '#000',
         fontSize: 13,
-        fontWeight: '600',
+        fontWeight: '900',
     },
 });

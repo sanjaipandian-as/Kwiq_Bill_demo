@@ -75,7 +75,7 @@ export const getDriveEncSalt = async (tier = 'standard') => {
    return 'kwiq-bill-shared-salt-2024';
 };
 
-export const deriveEncryptionKey = (email, salt) => {
+export const deriveEncryptionKey = (email, salt, iterations = KWIQ_ITERATIONS) => {
   if (!email) return null;
   const normalizedEmail = email.toLowerCase().trim();
   
@@ -95,8 +95,7 @@ export const deriveEncryptionKey = (email, salt) => {
   // Fix #5: All derivations now use the single normalized KWIQ_ITERATIONS count.
   // Legacy iteration variants (1000, 20000 etc.) are only used in fallback read paths,
   // never for new derivations via this function.
-  const iterations = KWIQ_ITERATIONS;
-
+  // Using the parameter 'iterations' value (defaulting to KWIQ_ITERATIONS)
   console.log(`[Crypto] Deriving ${cacheKey} key... (${iterations} iterations)`);
   const start = Date.now();
 
@@ -941,7 +940,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
             } catch (e) { /* Not plain JSON */ }
 
             // Attempt 2: Decryption (Cases for Mobile Backups — PBKDF2 & legacy Email)
-            if (cleanText.startsWith('U2FsdGVkX1')) {
+            if (cleanText.startsWith('U2FsdGVkX1') || cleanText.startsWith('KWIQV2:')) {
               try {
                 const salt = await getDriveEncSalt();
                 const decryptedData = await decryptContent(cleanText, user.email, salt);

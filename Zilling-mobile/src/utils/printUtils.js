@@ -4,7 +4,7 @@ import { Alert, Platform } from 'react-native';
 import { exportToDeviceFolders } from '../services/backupservices';
 import { fetchAllTableData } from '../services/database';
 import { BLEPrinter, COMMANDS, ColumnAlignment } from 'react-native-thermal-receipt-printer-image-qr';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { globalPrintRef } from './printGlobals';
 

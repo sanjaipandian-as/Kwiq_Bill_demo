@@ -42,8 +42,10 @@ import { useTransactions } from '../../context/TransactionContext';
 import { shareReceiptPDF, shareBulkReceiptsPDF } from '../../utils/printUtils';
 import { Input } from '../../components/ui/Input';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavBarColor } from '../../hooks/useNavBarColor';
 
-const { width, height } = Dimensions.get('window');
+const { width, height } = Dimensions.get('screen');
 
 const STATE_OPTIONS = [
     "Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chandigarh", "Chhattisgarh",
@@ -137,7 +139,11 @@ function CalendarPicker({ visible, onClose, onSelect, selectedDate, markedDates 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function CustomerModal({ isOpen, onClose, customer, onSave, onDelete, initialTab = 'details' }) {
+    const insets = useSafeAreaInsets();
     const { transactions } = useTransactions();
+    
+    // Manage system navigation bar color
+    useNavBarColor('#ffffff', 'dark', isOpen);
     const [activeTab, setActiveTab] = useState(initialTab);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showDatePicker, setShowDatePicker] = useState(false);
@@ -153,8 +159,9 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
 
     const history = useMemo(() => {
         if (!customer || !transactions) return [];
+        const cid = (customer.id || customer._id);
         return transactions
-            .filter(t => t.customerId == (customer.id || customer._id))
+            .filter(t => (t.customerId || t.customer_id) == cid)
             .sort((a, b) => new Date(b.date) - new Date(a.date));
     }, [customer, transactions]);
 
@@ -546,7 +553,13 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
     );
 
     return (
-        <RNModal visible={isOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+        <RNModal 
+            visible={isOpen} 
+            animationType="slide" 
+            presentationStyle="pageSheet" 
+            statusBarTranslucent={true}
+            onRequestClose={onClose}
+        >
             <View style={styles.container}>
                 <View style={styles.topHeader}>
                     <View style={styles.dragHandle} />
@@ -697,7 +710,7 @@ export default function CustomerModal({ isOpen, onClose, customer, onSave, onDel
                 </View>
 
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                    <View style={styles.modalFooter}>
+                    <View style={[styles.modalFooter, { paddingBottom: Math.max(insets.bottom, 24) }]}>
                         {activeTab === 'details' ? (
                             <View style={styles.footerActions}>
                                 {customer && (
@@ -1055,8 +1068,8 @@ const styles = StyleSheet.create({
     filterEmptyBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 8 },
     filterEmptyTitle: { fontSize: 15, fontWeight: '900', color: '#333' },
     filterEmptyText: { fontSize: 13, fontWeight: '600', color: '#bbb', textAlign: 'center' },
-
-    modalFooter: { padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#f1f5f9' },
+ 
+    modalFooter: { padding: 24, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#f1f5f9' },
     footerActions: { flexDirection: 'row', gap: 12 },
     binBtn: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#fff1f2', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ffe4e6' },
     saveBtn: { flex: 1, height: 56, borderRadius: 16, backgroundColor: '#000', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },

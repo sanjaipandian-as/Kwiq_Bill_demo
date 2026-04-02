@@ -203,7 +203,14 @@ const ToastItem = ({ toast, onRemove }) => {
                 accent: '#ef4444',
                 title: 'SECURITY'
             };
+            case 'minimal': return {
+                colors: ['#000', '#1a1a1a'],
+                icon: <AlertCircle size={20} color="#fff" strokeWidth={2.5} />,
+                accent: '#fff',
+                title: 'RULE VIOLATION'
+            };
             case 'receptionist': return {
+
                 colors: ['#065f46', '#059669'],
                 icon: <Contact size={20} color="#fff" strokeWidth={2.5} />,
                 accent: '#a7f3d0',

@@ -4,7 +4,7 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  SectionList,
   Pressable,
   ActivityIndicator,
   Alert,
@@ -17,7 +17,7 @@ import {
   TouchableOpacity,
   InteractionManager,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Search,
   Plus,
@@ -34,7 +34,13 @@ import {
   PieChart,
   Cloud,
   X,
+  CreditCard,
+  Smartphone,
+  Banknote,
+  ArrowRight,
+  TrendingUp,
 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useExpenses } from '../../context/ExpenseContext';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -48,25 +54,31 @@ import { exportToDeviceFolders } from '../../services/backupservices';
 
 const { width, height } = Dimensions.get('window');
 
-const SummaryCard = ({ title, amount, icon: Icon, color, trend }) => (
-  <View style={styles.summaryCard}>
-    <View style={[styles.summaryIconContainer, { backgroundColor: color + '15' }]}>
-      <Icon size={20} color={color} />
+// --- Premium Component: Modern KPI Card ---
+const KPICard = ({ label, value, subLabel, icon: Icon, isDark = false }) => (
+  <View style={[styles.kpiCard, isDark && styles.kpiCardDark]}>
+    <View style={[styles.kpiIconContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}>
+      <Icon size={18} color={isDark ? '#fff' : '#000'} />
     </View>
-    <View style={styles.summaryContent}>
-      <Text style={styles.summaryLabel}>{title}</Text>
-      <Text style={styles.summaryAmount}>₹{amount.toLocaleString()}</Text>
-      {trend && (
-        <View style={styles.trendRow}>
-          <Text style={styles.trendText}>{trend}</Text>
-        </View>
-      )}
+    <View style={styles.kpiInfo}>
+      <Text style={[styles.kpiLabel, isDark && styles.kpiLabelDark]}>{label}</Text>
+      <Text style={[styles.kpiValue, isDark && styles.kpiValueDark]}>₹{value.toLocaleString()}</Text>
+      <Text style={[styles.kpiSub, isDark && styles.kpiSubDark]}>{subLabel}</Text>
     </View>
   </View>
 );
 
+// --- Helper for Payment Icons ---
+const getPaymentIcon = (method) => {
+  const m = String(method || '').toLowerCase();
+  if (m.includes('card')) return { icon: CreditCard, color: '#000' };
+  if (m.includes('upi') || m.includes('online') || m.includes('digital')) return { icon: Smartphone, color: '#000' };
+  return { icon: Banknote, color: '#000' }; // Default is Cash
+};
+
 export default function ExpensesPage() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const {
     expenses,
     loading,
@@ -82,7 +94,7 @@ export default function ExpensesPage() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedExpenses, setSelectedExpenses] = useState([]);
   const [isExporting, setIsExporting] = useState(false);
-  const [receiptPreview, setReceiptPreview] = useState(null); // for full-screen receipt view
+  const [receiptPreview, setReceiptPreview] = useState(null);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -106,11 +118,11 @@ export default function ExpensesPage() {
       const allData = await fetchAllTableData();
       const result = await exportToDeviceFolders(allData);
       if (result.success) {
-        Alert.alert("Success", "Expenses and business data saved to your device files!");
+        Alert.alert("Success", "Expenses and business data saved to library!");
         setSelectedExpenses([]);
       }
     } catch (err) {
-      Alert.alert('Export Error', 'Failed to save data to device folders.');
+      Alert.alert('Export Error', 'Failed to save data.');
     } finally {
       setIsExporting(false);
     }
@@ -119,36 +131,46 @@ export default function ExpensesPage() {
   // Stats Logic
   const stats = useMemo(() => {
     const now = new Date();
-    const thisMonth = now.getMonth();
-    const thisYear = now.getFullYear();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const total = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-    const thisMonthTotal = expenses
-      .filter(e => {
-        const d = new Date(e.date);
-        return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
-      })
+    const totalSpent = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const monthSpent = expenses
+      .filter(e => new Date(e.date) >= startOfMonth)
+      .reduce((sum, e) => sum + (e.amount || 0), 0);
+    const todaySpent = expenses
+      .filter(e => new Date(e.date) >= startOfToday)
       .reduce((sum, e) => sum + (e.amount || 0), 0);
 
     const categories = {};
     expenses.forEach(e => {
-      categories[e.category] = (categories[e.category] || 0) + (e.amount || 0);
+        categories[e.category] = (categories[e.category] || 0) + (e.amount || 0);
     });
-    const highestCategory = Object.entries(categories).sort((a, b) => b[1] - a[1])[0] || ['None', 0];
+    const topCat = Object.entries(categories).sort((a,b) => b[1] - a[1])[0] || ['N/A', 0];
 
-    return { total, thisMonthTotal, highestCategory };
+    return { totalSpent, monthSpent, todaySpent, topCat };
   }, [expenses]);
 
-  // Filter Logic
-  const filteredExpenses = useMemo(() => {
-    return expenses.filter(e => {
+  // Grouping Logic
+  const groupedSections = useMemo(() => {
+    const filtered = expenses.filter(e => {
       const matchesSearch = (e.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (e.category || '').toLowerCase().includes(searchTerm.toLowerCase());
-
       const matchesCategory = !selectedCategory || e.category === selectedCategory;
-
       return matchesSearch && matchesCategory;
     });
+
+    const sorted = [...filtered].sort((a,b) => new Date(b.date) - new Date(a.date));
+    
+    const sections = {};
+    sorted.forEach(e => {
+      const d = new Date(e.date);
+      const title = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase();
+      if (!sections[title]) sections[title] = [];
+      sections[title].push(e);
+    });
+
+    return Object.entries(sections).map(([title, data]) => ({ title, data }));
   }, [expenses, searchTerm, selectedCategory]);
 
   const handleEdit = (expense) => {
@@ -161,100 +183,45 @@ export default function ExpensesPage() {
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id) => {
-    Alert.alert(
-      'Delete Expense',
-      'Are you sure you want to delete this expense?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteExpense(id);
-            } catch (err) {
-              Alert.alert('Error', 'Failed to delete expense');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handleMoreActions = (expense) => {
-    Alert.alert(
-      'Expense Actions',
-      expense.title,
-      [
-        { text: 'Edit', onPress: () => handleEdit(expense) },
-        ...(expense.receiptUrl ? [{ text: 'View Receipt', onPress: () => setReceiptPreview(expense.receiptUrl) }] : []),
-        { text: 'Delete', style: 'destructive', onPress: () => handleDelete(expense.id) },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
-
   const renderExpenseItem = ({ item }) => {
     const isSelected = selectedExpenses.includes(item.id);
     const hasSelection = selectedExpenses.length > 0;
-    const hasReceipt = item.receiptUrl && item.receiptUrl.length > 0;
+    const { icon: PayIcon } = getPaymentIcon(item.paymentMethod || item.payment_method);
 
     return (
       <Pressable
         onPress={() => hasSelection ? toggleSelectExpense(item.id) : handleEdit(item)}
         onLongPress={() => toggleSelectExpense(item.id)}
-        style={[styles.expenseCard, isSelected && styles.selectedCard]}
+        style={[styles.expenseListItem, isSelected && styles.selectedListItem]}
       >
-        {/* Receipt Thumbnail Row */}
-        {hasReceipt && (
-          <Pressable
-            onPress={() => setReceiptPreview(item.receiptUrl)}
-            style={styles.receiptRow}
-          >
-            <Image
-              source={{ uri: item.receiptUrl }}
-              style={styles.receiptThumbnail}
-              resizeMode="cover"
-            />
-            <View style={styles.receiptLabel}>
-              <FileText size={12} color="#888" />
-              <Text style={styles.receiptLabelText}>Receipt attached • Tap to view</Text>
+        <View style={styles.itemLeftRow}>
+            <View style={[styles.methodCircle, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
+                <PayIcon size={20} color="#000" />
             </View>
-          </Pressable>
-        )}
-
-        <View style={styles.cardTop}>
-          <View style={styles.cardTitleInfo}>
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryBadgeText}>{item.category}</Text>
+            <View style={styles.itemTitleCol}>
+                <Text style={styles.itemTitle} numberOfLines={1}>{item.title}</Text>
+                <View style={styles.itemBadgeRow}>
+                    <View style={styles.miniCategoryBadge}>
+                        <Text style={styles.miniBadgeText}>{item.category}</Text>
+                    </View>
+                    {item.receiptUrl && (
+                         <View style={styles.attachmentChip}>
+                            <Receipt size={10} color="#64748b" />
+                            <Text style={styles.attachmentText}>Receipt</Text>
+                        </View>
+                    )}
+                </View>
             </View>
-            <Text style={styles.expenseTitle} numberOfLines={1}>{item.title}</Text>
-          </View>
-          <View style={styles.amountContainer}>
-            <Text style={styles.expenseAmount}>₹{item.amount?.toLocaleString()}</Text>
-            <Pressable onPress={() => handleMoreActions(item)} style={styles.cardMoreBtn}>
-              <MoreVertical size={18} color="#94a3b8" />
-            </Pressable>
-          </View>
         </View>
 
-        <View style={styles.cardDivider} />
-
-        <View style={styles.cardBottom}>
-          <View style={styles.metaItem}>
-            <Calendar size={14} color="#64748b" />
-            <Text style={styles.metaText}>{new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</Text>
-          </View>
-          <View style={styles.metaItem}>
-            <Wallet size={14} color="#64748b" />
-            <Text style={styles.metaText}>{item.paymentMethod || item.payment_method}</Text>
-          </View>
+        <View style={styles.itemRightCol}>
+            <Text style={styles.itemAmount}>-₹{item.amount?.toLocaleString()}</Text>
+            <Text style={styles.itemTime}>{new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
         </View>
 
         {hasSelection && (
-          <View style={[styles.selectionOverlay, isSelected && styles.selectionOverlaySelected]}>
-            {isSelected && <Check size={16} color="#fff" />}
+          <View style={[styles.selectionDot, isSelected && styles.selectionDotActive]}>
+            {isSelected && <Check size={12} color="#fff" />}
           </View>
         )}
       </Pressable>
@@ -262,145 +229,144 @@ export default function ExpensesPage() {
   };
 
   return (
-    <SafeAreaView style={styles.mainContainer} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-
+    <View style={styles.root}>
+      <StatusBar barStyle="light-content" />
+      
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-            <ChevronLeft size={24} color="#0f172a" />
-          </Pressable>
-          <View>
-            <Text style={styles.headerTitle}>Expenses</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Cloud size={12} color="#10b981" />
-              <Text style={styles.headerSubtitle}>Cloud Synced</Text>
+      <View style={styles.headerWrapper}>
+        <View 
+            style={[styles.headerGradient, { paddingTop: Math.max(insets.top, 20) + 10, backgroundColor: '#000' }]}
+        >
+            <View style={styles.topNav}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
+                    <ChevronLeft size={24} color="#fff" />
+                </TouchableOpacity>
+                <View style={styles.headerTitleUnit}>
+                    <Text style={styles.headerDashboardTitle}>Finance Dashboard</Text>
+                    <View style={styles.syncRow}>
+                        <Cloud size={10} color="#64748b" />
+                        <Text style={styles.syncLabel}>Live Sync</Text>
+                    </View>
+                </View>
+                <View style={styles.topActions}>
+                    <TouchableOpacity onPress={() => shareExpensesPDF(expenses)} style={styles.iconBtn}>
+                        <Share2 size={20} color="#fff" />
+                    </TouchableOpacity>
+                </View>
             </View>
-          </View>
-        </View>
-        <View style={styles.headerRight}>
-          <Pressable onPress={() => shareExpensesPDF(filteredExpenses)} style={styles.headerActionBtn}>
-            <Share2 size={20} color="#64748b" />
-          </Pressable>
-          <Pressable onPress={handleBulkExport} style={styles.headerActionBtn}>
-            <Download size={20} color="#64748b" />
-          </Pressable>
+
+            <View style={styles.mainBalanceUnit}>
+                <Text style={styles.balanceLabel}>OPERATIONAL SPEND</Text>
+                <Text style={styles.mainBalanceValue}>₹{stats.monthSpent.toLocaleString()}</Text>
+                <View style={styles.monthTag}>
+                    <TrendingDown size={14} color="#fff" />
+                    <Text style={styles.monthTagText}>Month-to-date</Text>
+                </View>
+            </View>
+
+            <View style={styles.kpiGrid}>
+                <KPICard 
+                    label="DAILY AVG" 
+                    value={Math.round(stats.monthSpent / 30)} 
+                    subLabel="Status: Neutral" 
+                    icon={TrendingUp} 
+                    isDark
+                />
+                <KPICard 
+                    label="TOP AD-HOC" 
+                    value={stats.topCat[1]} 
+                    subLabel={stats.topCat[0]} 
+                    icon={PieChart} 
+                    isDark
+                />
+            </View>
         </View>
       </View>
 
-      <FlatList
-        data={filteredExpenses}
+      {/* Floating Search Bar */}
+      <View style={styles.searchFloatWrapper}>
+        <View style={styles.searchBox}>
+            <Search size={18} color="#94a3b8" />
+            <Input 
+                placeholder="Search ledger..."
+                value={searchTerm}
+                onChangeText={setSearchTerm}
+                style={styles.searchTextInput}
+            />
+        </View>
+      </View>
+
+      <SectionList
+        sections={groupedSections}
         keyExtractor={item => item.id}
         renderItem={renderExpenseItem}
+        renderSectionHeader={({ section: { title } }) => (
+            <View style={styles.stickyHeader}>
+                <Text style={styles.stickyHeaderText}>{title}</Text>
+            </View>
+        )}
+        stickySectionHeadersEnabled={true}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}
         refreshControl={
           <RefreshControl
             refreshing={loading}
             onRefresh={fetchExpenses}
             tintColor="#000"
-            colors={['#000']}
-            progressBackgroundColor="#fff"
           />
         }
         ListHeaderComponent={
-          <>
-            {/* Quick Summary Cards */}
-            <View style={styles.summaryGrid}>
-              <SummaryCard
-                title="This Month"
-                amount={stats.thisMonthTotal}
-                icon={TrendingDown}
-                color="#0f172a"
-                trend="+12%"
-              />
-              <SummaryCard
-                title="Top Category"
-                amount={stats.highestCategory[1]}
-                icon={PieChart}
-                color="#64748b"
-                trend={stats.highestCategory[0]}
-              />
-            </View>
-
-            {/* Filter & Search Section */}
-            <View style={styles.filterSection}>
-              <View style={styles.searchWrapper}>
-                <Search size={18} color="#94a3b8" />
-                <Input
-                  placeholder="Search title or category..."
-                  placeholderTextColor="#94a3b8"
-                  value={searchTerm}
-                  onChangeText={setSearchTerm}
-                  style={styles.premiumSearchInput}
-                />
-              </View>
-
-              <CategoryFilter
+          <View style={styles.filterBelt}>
+            <CategoryFilter
                 categories={SAMPLE_CATEGORIES}
                 selectedCategory={selectedCategory}
                 onCategoryChange={setSelectedCategory}
-              />
-            </View>
-
-            <View style={styles.listHeaderRow}>
-              <Text style={styles.listHeaderText}>All Transactions</Text>
-              <Text style={styles.listHeaderCount}>{filteredExpenses.length} records</Text>
-            </View>
-          </>
+            />
+          </View>
         }
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconBg}>
-              <Receipt size={48} color="#cbd5e1" />
+          <View style={styles.emptyUnit}>
+            <View style={styles.emptyIconCircle}>
+                <Banknote size={40} color="#cbd5e1" />
             </View>
-            <Text style={styles.emptyTitle}>No Expenses Found</Text>
-            <Text style={styles.emptySubtitle}>Start by adding your first business expense.</Text>
-            <Pressable onPress={handleAdd} style={styles.emptyActionBtn}>
-              <Plus size={20} color="#fff" />
-              <Text style={styles.emptyBtnText}>Add New Expense</Text>
-            </Pressable>
+            <Text style={styles.emptyHead}>Clear Ledger</Text>
+            <Text style={styles.emptySub}>No expenses found for this criteria.</Text>
+            <Button 
+                title="Add New Entry" 
+                icon={Plus} 
+                onPress={handleAdd}
+                style={styles.emptyBtn}
+            />
           </View>
         }
       />
 
-      {/* Floating Add Button */}
+      {/* FAB - Floating Action Button */}
       {!selectedExpenses.length && (
-        <Pressable onPress={handleAdd} style={styles.fabBtn}>
-          <Plus size={28} color="#fff" />
-        </Pressable>
+          <Pressable 
+            onPress={handleAdd}
+            style={[styles.premiumFab, { bottom: Math.max(30, insets.bottom + 10) }]}
+          >
+            <View style={styles.fabGradient}>
+                <Plus size={32} color="#fff" />
+            </View>
+          </Pressable>
       )}
 
-      {/* Bulk Actions */}
+      {/* Bulk Toolbar */}
       <BulkActionsToolbar
         selectedCount={selectedExpenses.length}
         onClearSelection={clearSelection}
-        onCategoryChange={async (cat) => {
-          try {
-            await bulkUpdateExpenses(selectedExpenses, { category: cat });
-            setSelectedExpenses([]);
-            Alert.alert('Success', 'Updated Categories');
-          } catch (e) {
-            Alert.alert('Error', 'Update failed');
-          }
-        }}
-        onMarkRecurring={() => { }}
-        onExportCSV={handleBulkExport}
         onDelete={() => {
-          Alert.alert('Delete', `Delete ${selectedExpenses.length} items?`, [
+          Alert.alert('Purge Ledger', `Delete ${selectedExpenses.length} entries?`, [
             { text: 'Cancel' },
-            {
-              text: 'Delete',
-              style: 'destructive',
-              onPress: async () => {
+            { text: 'Purge', style: 'destructive', onPress: async () => {
                 await bulkDeleteExpenses(selectedExpenses);
                 setSelectedExpenses([]);
-              }
-            }
+            }}
           ]);
         }}
-        categories={SAMPLE_CATEGORIES}
+        onExportCSV={handleBulkExport}
       />
 
       <ExpenseModal
@@ -408,320 +374,86 @@ export default function ExpensesPage() {
         onClose={() => {
           setIsModalOpen(false);
           setEditingExpense(null);
-          fetchExpenses(); // Refresh after modal close to show updated receipts
+          fetchExpenses();
         }}
         expense={editingExpense}
       />
 
-      {/* Full-Screen Receipt Preview Modal */}
+      {/* Preview Modal */}
       <RNModal
         visible={!!receiptPreview}
         transparent
         animationType="fade"
-        onRequestClose={() => setReceiptPreview(null)}
       >
-        <View style={styles.previewOverlay}>
-          <TouchableOpacity
-            style={styles.previewCloseBtn}
-            onPress={() => setReceiptPreview(null)}
-          >
-            <X size={28} color="#fff" />
-          </TouchableOpacity>
-          {receiptPreview && (
-            <Image
-              source={{ uri: receiptPreview }}
-              style={styles.previewImage}
-              resizeMode="contain"
-            />
-          )}
+        <View style={styles.previewCenter}>
+            <TouchableOpacity onPress={() => setReceiptPreview(null)} style={styles.previewClose}>
+                <X size={30} color="#fff" />
+            </TouchableOpacity>
+            <Image source={{ uri: receiptPreview }} style={styles.previewImg} resizeMode="contain" />
         </View>
       </RNModal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // ─── Base ───
-  mainContainer: { flex: 1, backgroundColor: '#fff' },
-
-  // ─── Header ───
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 14,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  headerBackBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
-  headerSubtitle: { fontSize: 12, color: '#10b981', fontWeight: '600', marginTop: 2, letterSpacing: 0.3 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerActionBtn: {
-    padding: 10,
-    backgroundColor: '#f8fafc',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-
-  listContent: { paddingBottom: 100 },
-
-  // ─── Summary Grid ───
-  summaryGrid: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 24,
-    marginVertical: 20,
-  },
-  summaryCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    alignItems: 'flex-start',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 1,
-  },
-  summaryIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  summaryContent: { flex: 1, width: '100%' },
-  summaryLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 6, letterSpacing: 0.5 },
-  summaryAmount: { fontSize: 22, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
-  trendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 6,
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-    alignSelf: 'flex-start'
-  },
-  trendText: { fontSize: 11, fontWeight: '700', color: '#475569' },
-
-  // ─── Filter Section ───
-  filterSection: { paddingBottom: 10 },
-  searchWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    marginHorizontal: 24,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    height: 52,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  premiumSearchInput: {
-    flex: 1,
-    fontSize: 15,
-    height: '100%',
-    marginLeft: 12,
-    fontWeight: '500',
-    color: '#0f172a',
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    paddingHorizontal: 0,
-  },
-
-  listHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    marginTop: 10,
-    marginBottom: 16,
-  },
-  listHeaderText: { fontSize: 18, fontWeight: '700', color: '#0f172a', letterSpacing: -0.5 },
-  listHeaderCount: { fontSize: 13, fontWeight: '500', color: '#64748b' },
-
-  // ─── Expense Card ───
-  expenseCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 24,
-    marginBottom: 14,
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  selectedCard: {
-    backgroundColor: '#f0f9ff',
-    borderWidth: 1,
-    borderColor: '#0f172a',
-  },
-
-  // ─── Receipt in Card ───
-  receiptRow: {
-    marginBottom: 14,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#f8fafc',
-  },
-  receiptThumbnail: {
-    width: '100%',
-    height: 120,
-    borderRadius: 12,
-  },
-  receiptLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  receiptLabelText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-    letterSpacing: 0.3,
-  },
-
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardTitleInfo: { flex: 1, gap: 6, paddingRight: 10 },
-  categoryBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
-  },
-  categoryBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#475569',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  expenseTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', lineHeight: 24 },
-  amountContainer: { alignItems: 'flex-end', gap: 4 },
-  expenseAmount: { fontSize: 18, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
-  cardMoreBtn: { padding: 4, marginTop: 4 },
-  cardDivider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 14 },
-  cardBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metaText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
-
-  selectionOverlay: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#e2e8f0',
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  selectionOverlaySelected: {
-    backgroundColor: '#0f172a',
-    borderColor: '#0f172a',
-  },
-
-  // ─── FAB ───
-  fabBtn: {
-    position: 'absolute',
-    bottom: 30,
-    right: 24,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#0f172a',
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 8,
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-  },
-
-  // ─── Empty State ───
-  emptyContainer: { alignItems: 'center', marginTop: 100, paddingHorizontal: 40 },
-  emptyIconBg: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  emptyTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 8 },
-  emptySubtitle: { fontSize: 15, color: '#64748b', textAlign: 'center', lineHeight: 24 },
-  emptyActionBtn: {
-    marginTop: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 32,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: '#0f172a',
-    width: '100%',
-  },
-  emptyBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-  },
-
-  // ─── Full Screen Preview ───
-  previewOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  previewCloseBtn: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 60 : 40,
-    right: 20,
-    zIndex: 10,
-    padding: 10,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 20,
-  },
-  previewImage: {
-    width: width - 40,
-    height: height * 0.7,
-  },
+  root: { flex: 1, backgroundColor: '#f8fafc' },
+  headerWrapper: { backgroundColor: '#000', borderBottomLeftRadius: 32, borderBottomRightRadius: 32, overflow: 'hidden' },
+  headerGradient: { paddingHorizontal: 24, paddingBottom: 30 },
+  topNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
+  headerTitleUnit: { alignItems: 'center' },
+  headerDashboardTitle: { fontSize: 12, fontWeight: '900', color: 'rgba(255,255,255,0.6)', letterSpacing: 1, textTransform: 'uppercase' },
+  syncRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  syncLabel: { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' },
+  iconBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+  topActions: { flexDirection: 'row', gap: 10 },
+  mainBalanceUnit: { alignItems: 'center', marginBottom: 24 },
+  balanceLabel: { fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.5)', letterSpacing: 2, marginBottom: 8 },
+  mainBalanceValue: { fontSize: 48, fontWeight: '900', color: '#fff', letterSpacing: -1 },
+  monthTag: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginTop: 12 },
+  monthTagText: { fontSize: 12, fontWeight: '800', color: '#fff' },
+  kpiGrid: { flexDirection: 'row', gap: 12 },
+  kpiCard: { flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  kpiCardDark: { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  kpiIconContainer: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  kpiInfo: { flex: 1 },
+  kpiLabel: { fontSize: 8, fontWeight: '900', color: '#64748b', letterSpacing: 0.5, marginBottom: 2 },
+  kpiLabelDark: { color: 'rgba(255,255,255,0.5)' },
+  kpiValue: { fontSize: 16, fontWeight: '900', color: '#000' },
+  kpiValueDark: { color: '#fff' },
+  kpiSub: { fontSize: 8, fontWeight: '700', color: '#94a3b8', marginTop: 2 },
+  kpiSubDark: { color: 'rgba(255,255,255,0.3)' },
+  searchFloatWrapper: { marginTop: -28, paddingHorizontal: 24, zIndex: 10 },
+  searchBox: { height: 56, backgroundColor: '#fff', borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 4, borderWidth: 1, borderColor: '#f1f5f9' },
+  searchTextInput: { flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: '#000', borderWidth: 0, backgroundColor: 'transparent' },
+  listContent: { paddingTop: 20 },
+  stickyHeader: { backgroundColor: '#f8fafc', paddingHorizontal: 24, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  stickyHeaderText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1.5 },
+  filterBelt: { paddingBottom: 16 },
+  expenseListItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: 16, marginHorizontal: 20, marginBottom: 8, borderRadius: 20, borderWidth: 1, borderColor: '#f1f5f9' },
+  selectedListItem: { backgroundColor: 'rgba(0,0,0,0.03)', borderColor: '#000' },
+  itemLeftRow: { flexDirection: 'row', alignItems: 'center', gap: 14, flex: 1 },
+  methodCircle: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  itemTitleCol: { flex: 1, gap: 4 },
+  itemTitle: { fontSize: 15, fontWeight: '800', color: '#000' },
+  itemBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  miniCategoryBadge: { backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  miniBadgeText: { fontSize: 9, fontWeight: '900', color: '#64748b', textTransform: 'uppercase' },
+  attachmentChip: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  attachmentText: { fontSize: 9, fontWeight: '700', color: '#94a3b8' },
+  itemRightCol: { alignItems: 'flex-end' },
+  itemAmount: { fontSize: 16, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+  itemTime: { fontSize: 10, fontWeight: '600', color: '#94a3b8', marginTop: 2 },
+  selectionDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#e2e8f0', marginLeft: 12, alignItems: 'center', justifyContent: 'center' },
+  selectionDotActive: { backgroundColor: '#000' },
+  emptyUnit: { alignItems: 'center', marginTop: 80, paddingHorizontal: 40 },
+  emptyIconCircle: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#cbd5e1', marginBottom: 24, borderStyle: 'dashed' },
+  emptyHead: { fontSize: 20, fontWeight: '900', color: '#000', marginBottom: 8 },
+  emptySub: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 22, marginBottom: 30 },
+  emptyBtn: { width: '100%', height: 56, borderRadius: 20, backgroundColor: '#000' },
+  premiumFab: { position: 'absolute', right: 24, width: 68, height: 68, borderRadius: 24, shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 8 }, shadowRadius: 16, elevation: 8 },
+  fabGradient: { flex: 1, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' },
+  previewCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  previewClose: { position: 'absolute', top: 50, right: 30, zIndex: 10 },
+  previewImg: { width: width - 40, height: height * 0.7 },
 });

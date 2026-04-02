@@ -12,8 +12,8 @@ import {
     KeyboardAvoidingView,
     Modal,
     StatusBar,
-    SafeAreaView
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
     FileText,
     X,
@@ -34,12 +34,15 @@ import { useExpenses } from '../../context/ExpenseContext';
 import {
     SAMPLE_CATEGORIES,
 } from '../../utils/expenseConstants';
+import { useNavBarColor } from '../../hooks/useNavBarColor';
 
 const { width, height } = Dimensions.get('window');
 
 const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
+    const insets = useSafeAreaInsets();
     const { addExpense, updateExpense, expenses, categories, addCategory } = useExpenses();
     const isEditMode = !!expense;
+    useNavBarColor('#ffffff', 'dark', isOpen);
 
     const [formData, setFormData] = useState({
         title: '',
@@ -143,266 +146,269 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
     return (
         <>
             <Modal
-            visible={isOpen}
-            animationType="slide"
-            onRequestClose={onClose}
-            presentationStyle="pageSheet"
-        >
-            <View style={styles.container}>
-                <StatusBar barStyle="dark-content" />
+                visible={isOpen}
+                animationType="slide"
+                onRequestClose={onClose}
+                presentationStyle="pageSheet"
+            >
+                <View style={styles.container}>
+                    <StatusBar barStyle="dark-content" />
 
-                {/* Header - Matching CustomerModal */}
-                <View style={styles.topHeader}>
-                    <View style={styles.dragHandle} />
-                    <View style={styles.headerTitleRow}>
-                        <View style={styles.titleContent}>
-                            <Text style={styles.mainTitle}>{isEditMode ? 'Edit Expense' : 'Register Expense'}</Text>
-                            <Text style={styles.subSubtitle}>{isEditMode ? 'Update transaction details' : 'Record a new business expenditure'}</Text>
+                    {/* Header - Matching CustomerModal */}
+                    <View style={styles.topHeader}>
+                        <View style={styles.dragHandle} />
+                        <View style={styles.headerTitleRow}>
+                            <View style={styles.titleContent}>
+                                <Text style={styles.mainTitle}>{isEditMode ? 'Edit Expense' : 'Register Expense'}</Text>
+                                <Text style={styles.subSubtitle}>{isEditMode ? 'Update transaction details' : 'Record a new business expenditure'}</Text>
+                            </View>
+                            <TouchableOpacity onPress={onClose} style={styles.headerX}>
+                                <X size={20} color="#000" />
+                            </TouchableOpacity>
                         </View>
-                        <TouchableOpacity onPress={onClose} style={styles.headerX}>
-                            <X size={20} color="#000" />
-                        </TouchableOpacity>
                     </View>
-                </View>
 
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={{ flex: 1 }}
-                >
-                    <ScrollView
-                        style={styles.content}
-                        showsVerticalScrollIndicator={false}
-                        contentContainerStyle={{ paddingBottom: 100 }}
-                    >
-                        {/* Hero Stats Section - Matching CustomerModal */}
-                        {isEditMode && (
-                            <View style={styles.formHero}>
-                                <View style={styles.heroStatItem}>
-                                    <Text style={styles.heroStatLabel}>CATEGORY TOTAL</Text>
-                                    <Text style={styles.heroStatValue}>₹{stats.total.toLocaleString()}</Text>
-                                </View>
-                                <View style={styles.heroStatDivider} />
-                                <View style={styles.heroStatItem}>
-                                    <Text style={styles.heroStatLabel}>RECORDS</Text>
-                                    <Text style={styles.heroStatValue}>{stats.count}</Text>
-                                </View>
-                            </View>
-                        )}
-
-                        <View style={styles.formContent}>
-                            {/* Amount Section */}
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.groupTitle}>Primary Information</Text>
-                                
-                                <View style={styles.fieldContainer}>
-                                    <Text style={styles.fieldLabel}>AMOUNT SPENT <Text style={styles.reqText}>*</Text></Text>
-                                    <View style={styles.inputWrapper}>
-                                        <IndianRupee size={18} color="#777" />
-                                        <TextInput
-                                            style={styles.fieldInput}
-                                            value={formData.amount}
-                                            onChangeText={(val) => handleChange('amount', val)}
-                                            placeholder="0.00"
-                                            placeholderTextColor="#bbb"
-                                            keyboardType="numeric"
-                                            autoFocus={!isEditMode}
-                                        />
-                                    </View>
-                                </View>
-
-                                <View style={styles.fieldContainer}>
-                                    <Text style={styles.fieldLabel}>EXPENSE TITLE <Text style={styles.reqText}>*</Text></Text>
-                                    <View style={styles.inputWrapper}>
-                                        <FileText size={18} color="#777" />
-                                        <TextInput
-                                            style={styles.fieldInput}
-                                            value={formData.title}
-                                            onChangeText={(val) => handleChange('title', val)}
-                                            placeholder="e.g. Office Supplies, Rent"
-                                            placeholderTextColor="#bbb"
-                                        />
-                                    </View>
-                                </View>
-
-                                 <View style={styles.fieldContainer}>
-                                    <Text style={styles.fieldLabel}>CATEGORY <Text style={styles.reqText}>*</Text></Text>
-                                    <TouchableOpacity style={styles.inputWrapper} onPress={() => setIsPickerVisible(true)}>
-                                        <Tag size={18} color="#777" />
-                                        <Text style={styles.dateDisplayValue}>
-                                            {formData.category || 'Select Category'}
-                                        </Text>
-                                        <ChevronDown size={18} color="#777" />
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.groupTitle}>Payment Details</Text>
-
-                                <View style={styles.fieldContainer}>
-                                    <Text style={styles.fieldLabel}>TRANSACTION DATE</Text>
-                                    <TouchableOpacity style={styles.inputWrapper} onPress={() => setShowDatePicker(true)}>
-                                        <CalendarIcon size={18} color="#777" />
-                                        <Text style={styles.dateDisplayValue}>
-                                            {formData.date.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
-                                        </Text>
-                                        <ChevronRight size={18} color="#777" />
-                                    </TouchableOpacity>
-                                    
-                                    {showDatePicker && (
-                                        <DateTimePicker
-                                            value={formData.date}
-                                            mode="date"
-                                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                            onChange={onDateChange}
-                                            maximumDate={new Date()}
-                                        />
-                                    )}
-                                </View>
-
-                                <View style={styles.fieldContainer}>
-                                    <Text style={styles.fieldLabel}>PAYMENT METHOD</Text>
-                                    <View style={styles.typeSelectorRow}>
-                                        {['Cash', 'Online', 'Card'].map(type => (
-                                            <TouchableOpacity
-                                                key={type}
-                                                onPress={() => handleChange('paymentMethod', type)}
-                                                style={[styles.typeOption, formData.paymentMethod === type && styles.typeOptionActive]}
-                                            >
-                                                <View style={[styles.typeRadio, formData.paymentMethod === type && styles.typeRadioActive]}>
-                                                    {formData.paymentMethod === type && <View style={styles.radioInner} />}
-                                                </View>
-                                                <Text style={[styles.typeOptionText, formData.paymentMethod === type && styles.typeOptionTextActive]}>
-                                                    {type}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                </View>
-                            </View>
-
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.groupTitle}>Internal Notes</Text>
-                                <TextInput
-                                    style={styles.textArea}
-                                    value={formData.description}
-                                    onChangeText={(text) => handleChange('description', text)}
-                                    placeholder="Add any additional details or remarks..."
-                                    placeholderTextColor="#bbb"
-                                    multiline
-                                    numberOfLines={4}
-                                />
-                            </View>
-                        </View>
-                    </ScrollView>
-
-                    <View style={styles.modalFooter}>
-                        <TouchableOpacity
-                            onPress={handleSubmit}
-                            style={[styles.saveBtn, isSubmitting && styles.loading]}
-                            disabled={isSubmitting}
-                        >
-                            <ArrowRight size={18} color="#fff" strokeWidth={3} />
-                            <Text style={styles.saveText}>{isSubmitting ? 'PROCESSING' : (isEditMode ? 'UPDATE TRANSACTION' : 'CONFIRM EXPENSE')}</Text>
-                        </TouchableOpacity>
-                    </View>
-                </KeyboardAvoidingView>
-            </View>
-        </Modal>
-
-                {/* Category Picker Sheet */}
-                <Modal visible={isPickerVisible} transparent animationType="slide">
-                    <TouchableOpacity 
-                        style={styles.pickerOverlay} 
-                        activeOpacity={1} 
-                        onPress={() => setIsPickerVisible(false)}
-                    >
-                        <View style={styles.pickerSheet}>
-                            <View style={styles.pickerHeader}>
-                                <Text style={styles.pickerTitle}>SELECT CATEGORY</Text>
-                                <TouchableOpacity onPress={() => setIsPickerVisible(false)}>
-                                    <X size={20} color="#000" />
-                                </TouchableOpacity>
-                            </View>
-                            <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
-                                <TouchableOpacity 
-                                    style={styles.addCategoryOption}
-                                    onPress={() => {
-                                        setIsPickerVisible(false);
-                                        setTimeout(() => setIsAddingCategory(true), 300);
-                                    }}
-                                >
-                                    <View style={styles.addIconBox}>
-                                        <Plus size={16} color="#000" />
-                                    </View>
-                                    <Text style={styles.addCategoryText}>Add New Category</Text>
-                                </TouchableOpacity>
-
-                                {(categories && categories.length > 0 ? categories : SAMPLE_CATEGORIES).map((cat, idx) => (
-                                    <TouchableOpacity 
-                                        key={idx} 
-                                        style={styles.pickerOption}
-                                        onPress={() => {
-                                            handleChange('category', cat);
-                                            setIsPickerVisible(false);
-                                        }}
-                                    >
-                                        <Text style={[
-                                            styles.optionLabel, 
-                                            formData.category === cat && styles.optionLabelSelected
-                                        ]}>{cat}</Text>
-                                        {formData.category === cat && <View style={styles.selectedDot} />}
-                                    </TouchableOpacity>
-                                ))}
-                            </ScrollView>
-                        </View>
-                    </TouchableOpacity>
-                </Modal>
-
-                {/* Individual Add Category Modal */}
-                <Modal visible={isAddingCategory} transparent animationType="fade">
-                    <KeyboardAvoidingView 
+                    <KeyboardAvoidingView
                         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                        style={styles.addCatOverlay}
+                        style={{ flex: 1 }}
                     >
-                        <View style={styles.addCatBox}>
-                            <Text style={styles.addCatTitle}>New Category</Text>
-                            <TextInput
-                                style={styles.addCatInput}
-                                value={newCategoryName}
-                                onChangeText={setNewCategoryName}
-                                placeholder="Category Name"
-                                autoFocus
-                                returnKeyType="done"
-                                onSubmitEditing={handleAddCategory}
-                            />
-                            <View style={styles.addCatActions}>
-                                <TouchableOpacity 
-                                    style={styles.addCatCancel} 
-                                    onPress={() => {
-                                        setIsAddingCategory(false);
-                                        setNewCategoryName('');
-                                    }}
-                                >
-                                    <Text style={styles.cancelText}>Cancel</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={styles.addCatConfirm}
-                                    onPress={handleAddCategory}
-                                >
-                                    <Text style={styles.confirmText}>Create</Text>
-                                </TouchableOpacity>
+                        <ScrollView
+                            style={styles.content}
+                            showsVerticalScrollIndicator={false}
+                            contentContainerStyle={{ paddingBottom: 100 }}
+                        >
+                            {/* Hero Stats Section - Matching CustomerModal */}
+                            {isEditMode && (
+                                <View style={styles.formHero}>
+                                    <View style={styles.heroStatItem}>
+                                        <Text style={styles.heroStatLabel}>CATEGORY TOTAL</Text>
+                                        <Text style={styles.heroStatValue}>₹{stats.total.toLocaleString()}</Text>
+                                    </View>
+                                    <View style={styles.heroStatDivider} />
+                                    <View style={styles.heroStatItem}>
+                                        <Text style={styles.heroStatLabel}>RECORDS</Text>
+                                        <Text style={styles.heroStatValue}>{stats.count}</Text>
+                                    </View>
+                                </View>
+                            )}
+
+                            <View style={styles.formContent}>
+                                {/* Amount Section */}
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.groupTitle}>Primary Information</Text>
+
+                                    <View style={styles.fieldContainer}>
+                                        <Text style={styles.fieldLabel}>AMOUNT SPENT <Text style={styles.reqText}>*</Text></Text>
+                                        <View style={styles.inputWrapper}>
+                                            <IndianRupee size={18} color="#777" />
+                                            <TextInput
+                                                style={styles.fieldInput}
+                                                value={formData.amount}
+                                                onChangeText={(val) => handleChange('amount', val)}
+                                                placeholder="0.00"
+                                                placeholderTextColor="#bbb"
+                                                keyboardType="numeric"
+                                                autoFocus={!isEditMode}
+                                            />
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.fieldContainer}>
+                                        <Text style={styles.fieldLabel}>EXPENSE TITLE <Text style={styles.reqText}>*</Text></Text>
+                                        <View style={styles.inputWrapper}>
+                                            <FileText size={18} color="#777" />
+                                            <TextInput
+                                                style={styles.fieldInput}
+                                                value={formData.title}
+                                                onChangeText={(val) => handleChange('title', val)}
+                                                placeholder="e.g. Office Supplies, Rent"
+                                                placeholderTextColor="#bbb"
+                                            />
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.fieldContainer}>
+                                        <Text style={styles.fieldLabel}>CATEGORY <Text style={styles.reqText}>*</Text></Text>
+                                        <TouchableOpacity style={styles.inputWrapper} onPress={() => setIsPickerVisible(true)}>
+                                            <Tag size={18} color="#777" />
+                                            <Text style={styles.dateDisplayValue}>
+                                                {formData.category || 'Select Category'}
+                                            </Text>
+                                            <ChevronDown size={18} color="#777" />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.groupTitle}>Payment Details</Text>
+
+                                    <View style={styles.fieldContainer}>
+                                        <Text style={styles.fieldLabel}>TRANSACTION DATE</Text>
+                                        <TouchableOpacity style={styles.inputWrapper} onPress={() => setShowDatePicker(true)}>
+                                            <CalendarIcon size={18} color="#777" />
+                                            <Text style={styles.dateDisplayValue}>
+                                                {formData.date.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                            </Text>
+                                            <ChevronRight size={18} color="#777" />
+                                        </TouchableOpacity>
+
+                                        {showDatePicker && (
+                                            <DateTimePicker
+                                                value={formData.date}
+                                                mode="date"
+                                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                                onChange={onDateChange}
+                                                maximumDate={new Date()}
+                                            />
+                                        )}
+                                    </View>
+
+                                    <View style={styles.fieldContainer}>
+                                        <Text style={styles.fieldLabel}>PAYMENT METHOD</Text>
+                                        <View style={styles.typeSelectorRow}>
+                                            {['Cash', 'Online', 'Card'].map(type => (
+                                                <TouchableOpacity
+                                                    key={type}
+                                                    onPress={() => handleChange('paymentMethod', type)}
+                                                    style={[styles.typeOption, formData.paymentMethod === type && styles.typeOptionActive]}
+                                                >
+                                                    <View style={[styles.typeRadio, formData.paymentMethod === type && styles.typeRadioActive]}>
+                                                        {formData.paymentMethod === type && <View style={styles.radioInner} />}
+                                                    </View>
+                                                    <Text style={[styles.typeOptionText, formData.paymentMethod === type && styles.typeOptionTextActive]}>
+                                                        {type}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                    </View>
+                                </View>
+
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.groupTitle}>Internal Notes</Text>
+                                    <TextInput
+                                        style={styles.textArea}
+                                        value={formData.description}
+                                        onChangeText={(text) => handleChange('description', text)}
+                                        placeholder="Add any additional details or remarks..."
+                                        placeholderTextColor="#bbb"
+                                        multiline
+                                        numberOfLines={4}
+                                    />
+                                </View>
                             </View>
+                        </ScrollView>
+
+                        <View style={[
+                            styles.modalFooter,
+                            { paddingBottom: Math.max(insets.bottom, 16) }
+                        ]}>
+                            <TouchableOpacity
+                                onPress={handleSubmit}
+                                style={[styles.saveBtn, isSubmitting && styles.loading]}
+                                disabled={isSubmitting}
+                            >
+                                <ArrowRight size={18} color="#fff" strokeWidth={3} />
+                                <Text style={styles.saveText}>{isSubmitting ? 'PROCESSING' : (isEditMode ? 'UPDATE TRANSACTION' : 'CONFIRM EXPENSE')}</Text>
+                            </TouchableOpacity>
                         </View>
                     </KeyboardAvoidingView>
-                </Modal>
-            </>
-        );
-    };
+                </View>
+            </Modal>
+
+            {/* Category Picker Sheet */}
+            <Modal visible={isPickerVisible} transparent animationType="slide">
+                <TouchableOpacity
+                    style={styles.pickerOverlay}
+                    activeOpacity={1}
+                    onPress={() => setIsPickerVisible(false)}
+                >
+                    <View style={styles.pickerSheet}>
+                        <View style={styles.pickerHeader}>
+                            <Text style={styles.pickerTitle}>SELECT CATEGORY</Text>
+                            <TouchableOpacity onPress={() => setIsPickerVisible(false)}>
+                                <X size={20} color="#000" />
+                            </TouchableOpacity>
+                        </View>
+                        <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
+                            <TouchableOpacity
+                                style={styles.addCategoryOption}
+                                onPress={() => {
+                                    setIsPickerVisible(false);
+                                    setTimeout(() => setIsAddingCategory(true), 300);
+                                }}
+                            >
+                                <View style={styles.addIconBox}>
+                                    <Plus size={16} color="#000" />
+                                </View>
+                                <Text style={styles.addCategoryText}>Add New Category</Text>
+                            </TouchableOpacity>
+
+                            {(categories && categories.length > 0 ? categories : SAMPLE_CATEGORIES).map((cat, idx) => (
+                                <TouchableOpacity
+                                    key={idx}
+                                    style={styles.pickerOption}
+                                    onPress={() => {
+                                        handleChange('category', cat);
+                                        setIsPickerVisible(false);
+                                    }}
+                                >
+                                    <Text style={[
+                                        styles.optionLabel,
+                                        formData.category === cat && styles.optionLabelSelected
+                                    ]}>{cat}</Text>
+                                    {formData.category === cat && <View style={styles.selectedDot} />}
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+
+            {/* Individual Add Category Modal */}
+            <Modal visible={isAddingCategory} transparent animationType="fade">
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={styles.addCatOverlay}
+                >
+                    <View style={styles.addCatBox}>
+                        <Text style={styles.addCatTitle}>New Category</Text>
+                        <TextInput
+                            style={styles.addCatInput}
+                            value={newCategoryName}
+                            onChangeText={setNewCategoryName}
+                            placeholder="Category Name"
+                            autoFocus
+                            returnKeyType="done"
+                            onSubmitEditing={handleAddCategory}
+                        />
+                        <View style={styles.addCatActions}>
+                            <TouchableOpacity
+                                style={styles.addCatCancel}
+                                onPress={() => {
+                                    setIsAddingCategory(false);
+                                    setNewCategoryName('');
+                                }}
+                            >
+                                <Text style={styles.cancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.addCatConfirm}
+                                onPress={handleAddCategory}
+                            >
+                                <Text style={styles.confirmText}>Create</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
+        </>
+    );
+};
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#fff' },
-    
+
     // Header - Matching CustomerModal
     topHeader: { backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#efefef' },
     dragHandle: { width: 36, height: 4, backgroundColor: '#e2e8f0', borderRadius: 2, alignSelf: 'center', marginTop: 10 },
@@ -434,11 +440,11 @@ const styles = StyleSheet.create({
     // Input Group Styles (Matching CustomerModal)
     inputGroup: { paddingBottom: 24, gap: 16 },
     groupTitle: { fontSize: 14, fontWeight: '900', color: '#000', letterSpacing: -0.2 },
-    
+
     fieldContainer: { gap: 8 },
     fieldLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', letterSpacing: 0.5 },
-    reqText: { color: '#ef4444' },
-    
+    reqText: { color: '#000' },
+
     inputWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -500,7 +506,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         paddingHorizontal: 20,
         paddingTop: 12,
-        paddingBottom: Platform.OS === 'ios' ? 34 : 16,
         borderTopWidth: 1,
         borderColor: '#efefef',
     },

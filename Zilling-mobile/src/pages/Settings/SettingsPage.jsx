@@ -257,6 +257,7 @@ const SettingsPage = ({ navigation, route }) => {
         bankDetails: { ...(settings?.bankDetails || {}) },
         tax: { taxGroups: [], ...(settings?.tax || {}) },
         invoice: { template: 'Classic', ...(settings?.invoice || {}) },
+        user: { ...(settings?.user || {}) },
         security: { managerPin: null, ...(settings?.security || {}) }
       };
       setLocalSettings(JSON.parse(JSON.stringify(robustSettings)));
@@ -951,45 +952,92 @@ const SettingsPage = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
 
-            <Card style={{ 
-                marginBottom: 24, 
-                backgroundColor: '#000', 
-                borderRadius: 24, 
-                padding: 24,
-                borderWidth: 1,
-                borderColor: '#222'
-            }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            {/* Premium License/Plan Hero Card */}
+            <LinearGradient
+                colors={['#000', '#1a1a1a', '#000']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{ 
+                    marginBottom: 26, 
+                    borderRadius: 30, 
+                    padding: 24,
+                    borderWidth: 1.5,
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    elevation: 10,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 10 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 20,
+                    overflow: 'hidden'
+                }}
+            >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>
-                            LICENSE TYPE
-                        </Text>
-                        <Text style={{ fontSize: 24, fontWeight: '900', color: '#fff', letterSpacing: -0.5 }}>
-                            Unlimited Enterprise
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                            <BadgeCheck size={14} color="#fff" />
+                            <Text style={{ fontSize: 10, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>
+                                OFFICIAL KWIQ LICENSE
+                            </Text>
+                        </View>
+                        
+                        <Text style={{ fontSize: 24, fontWeight: '900', color: '#fff' }}>
+                            {'PRO ENTERPRISE'}
                         </Text>
                         
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
-                            <View style={{ backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
-                                <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8' }}>LIFETIME ACCESS</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 }}>
+                            <View style={{ backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' }}>
+                                <Text style={{ fontSize: 10, fontWeight: '900', color: '#fff' }}>LIFETIME ACCESS</Text>
                             </View>
-                            <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
-                                <Text style={{ fontSize: 11, fontWeight: '800', color: '#22c55e' }}>VERIFIED</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' }} />
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: '#fff' }}>VERIFIED</Text>
                             </View>
                         </View>
                     </View>
 
-                    <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' }}>
-                        <Gem size={28} color="#000" />
+                    <View style={{ 
+                        width: 64, 
+                        height: 64, 
+                        borderRadius: 22, 
+                        backgroundColor: 'rgba(255,255,255,0.05)', 
+                        borderWidth: 1, 
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        justifyContent: 'center', 
+                        alignItems: 'center' 
+                    }}>
+                        <Crown size={32} color="#fff" strokeWidth={1.5} />
                     </View>
                 </View>
 
-                <View style={{ marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#111', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <ShieldCheck size={16} color="#38bdf8" />
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#475569' }}>
-                        Enterprise data security enabled
-                    </Text>
+                {/* Licensee Details Footer */}
+                <View style={{ 
+                    marginTop: 24, 
+                    paddingTop: 18, 
+                    borderTopWidth: 1, 
+                    borderTopColor: 'rgba(255,255,255,0.1)',
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    <View>
+                        <Text style={{ fontSize: 9, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>LICENSEE IDENTITY</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                             <Text style={{ fontSize: 13, fontWeight: '900', color: '#fff' }}>{(settings?.user?.fullName || 'STORE OWNER').toUpperCase()}</Text>
+                             <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.3)' }} />
+                             <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)' }}>{user?.email || 'ACTIVE OWNER'}</Text>
+                        </View>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontSize: 9, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>SECURITY BASE</Text>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)' }}>CLOUD VAULT (AES-256)</Text>
+                    </View>
                 </View>
-            </Card>
+
+                {/* Decorative Background Texture */}
+                <View style={{ position: 'absolute', bottom: -40, right: -20, opacity: 0.1 }}>
+                    <Shield size={140} color="#fff" />
+                </View>
+            </LinearGradient>
 
 
 
@@ -1098,6 +1146,41 @@ const SettingsPage = ({ navigation, route }) => {
                         </View>
                       </View>
                     </View>
+
+                    {/* Owner Identity Inputs */}
+                    <View style={{ marginTop: 8, padding: 16, backgroundColor: '#f8fafc', borderRadius: 20, borderWidth: 1, borderColor: '#cbd5e1' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                        <ShieldCheck size={14} color="#000" />
+                        <Text style={{ fontSize: 10, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 0.5 }}>ACCOUNT OWNER IDENTITY</Text>
+                      </View>
+
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Full Proper Name</Text>
+                        <View style={[styles.inputFieldContainer, { height: 48, borderRadius: 12, backgroundColor: '#fff' }]}>
+                          <User size={16} color="#94a3b8" style={{ marginRight: 10 }} />
+                          <Input
+                            value={localSettings?.user?.fullName || ''}
+                            onChangeText={(v) => handleChange('user', 'fullName', v)}
+                            placeholder="e.g. John Doe"
+                            style={{ borderWidth: 0, height: '100%', flex: 1, paddingHorizontal: 0, fontWeight: '800' }}
+                          />
+                        </View>
+                      </View>
+
+                      <View style={[styles.inputGroup, { marginTop: 12 }]}>
+                        <Text style={styles.label}>Primary Identity Mobile</Text>
+                        <View style={[styles.inputFieldContainer, { height: 48, borderRadius: 12, backgroundColor: '#fff' }]}>
+                          <Phone size={16} color="#94a3b8" style={{ marginRight: 10 }} />
+                          <Input
+                            value={localSettings?.user?.mobile || ''}
+                            onChangeText={(v) => handleChange('user', 'mobile', v)}
+                            keyboardType="phone-pad"
+                            placeholder="+91 00000 00000"
+                            style={{ borderWidth: 0, height: '100%', flex: 1, paddingHorizontal: 0, fontWeight: '800' }}
+                          />
+                        </View>
+                      </View>
+                    </View>
                   </View>
                 ) : (
                   <View style={{ gap: 4 }}>
@@ -1105,12 +1188,31 @@ const SettingsPage = ({ navigation, route }) => {
                     <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 8 }} />
                     <DetailRow {...detailRowProps} label="Legal Name" value={settings?.store?.legalName} icon={Building} />
                     <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 8 }} />
+                    <View style={{ height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 8 }} />
                     <View style={{ flexDirection: 'row', gap: 24 }}>
                       <View style={{ flex: 1 }}>
                         <DetailRow {...detailRowProps} label="Contact" value={settings?.store?.contact} icon={Phone} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <DetailRow {...detailRowProps} label="Email" value={settings?.store?.email} icon={Mail} />
+                      </View>
+                    </View>
+
+                    {/* Personal Account Sub-section */}
+                    <View style={{ marginTop: 12, padding: 16, backgroundColor: '#f8fafc', borderRadius: 20, borderWidth: 1, borderColor: '#e2e8f0', borderStyle: 'dashed' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <ShieldCheck size={14} color="#000" />
+                        <Text style={{ fontSize: 10, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 0.5 }}>ACCOUNT OWNER</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', borderTopWidth: 0 }}>
+                        <View style={{ flex: 1.2 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>Full Name</Text>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#000' }}>{settings?.user?.fullName || 'Not Set'}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>Primary Mobile</Text>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#000' }}>{settings?.user?.mobile || 'Not Set'}</Text>
+                        </View>
                       </View>
                     </View>
                   </View>
@@ -1361,51 +1463,91 @@ const SettingsPage = ({ navigation, route }) => {
               </View>
             </View>
 
-            {/* Bank Card Preview (View Mode) */}
+            {/* Premium Bank Card Preview (View Mode) */}
             {!isEditing && (
               <LinearGradient
-                colors={['#000000', '#1a1a1a', '#000000']}
+                colors={['#000', '#1a1a1a', '#000']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={styles.bankCard}
+                style={{
+                  borderRadius: 30,
+                  padding: 24,
+                  marginBottom: 26,
+                  borderWidth: 1.5,
+                  borderColor: 'rgba(255,255,255,0.1)',
+                  elevation: 10,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 10 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 20,
+                  overflow: 'hidden'
+                }}
               >
-                <View style={styles.bankCardHeader}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
                   <View>
-                    <Text style={[styles.bankCardLabel, { color: '#fff', fontSize: 13, opacity: 1, textTransform: 'uppercase' }]}>
-                      {bank.bankName || 'BANK NAME'}
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 }}>
+                      SETTLEMENT INSTITUTION
                     </Text>
-                    <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '800' }}>
-                      {bank.branch ? bank.branch.toUpperCase() : 'BRANCH NOT SET'}
+                    <Text style={{ color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>
+                      {(bank.bankName || 'NOT CONFIGURED').toUpperCase()}
                     </Text>
                   </View>
-                  <Building size={24} color="rgba(255,255,255,0.4)" />
+                  <View style={{ 
+                    width: 48, 
+                    height: 48, 
+                    borderRadius: 16, 
+                    backgroundColor: 'rgba(255,255,255,0.05)', 
+                    justifyContent: 'center', 
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.1)'
+                  }}>
+                    <Building size={24} color="#fff" />
+                  </View>
                 </View>
 
-                <View style={styles.bankCardChip}>
-                  <View style={{ position: 'absolute', top: 0, left: '33%', bottom: 0, width: 1, backgroundColor: 'rgba(0,0,0,0.15)' }} />
-                  <View style={{ position: 'absolute', top: 0, left: '66%', bottom: 0, width: 1, backgroundColor: 'rgba(0,0,0,0.15)' }} />
-                  <View style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1, backgroundColor: 'rgba(0,0,0,0.15)' }} />
+                {/* EMV Chip & Account Number */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <View style={{ 
+                    width: 42, 
+                    height: 32, 
+                    borderRadius: 6, 
+                    backgroundColor: '#ffd700', 
+                    opacity: 0.9,
+                    borderWidth: 1,
+                    borderColor: '#b8860b'
+                  }}>
+                    <View style={{ position: 'absolute', top: 0, left: '33%', bottom: 0, width: 1, backgroundColor: 'rgba(0,0,0,0.1)' }} />
+                    <View style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1, backgroundColor: 'rgba(0,0,0,0.1)' }} />
+                  </View>
+                  <Text style={{ 
+                    color: '#fff', 
+                    fontSize: 20, 
+                    fontWeight: '800', 
+                    letterSpacing: 2,
+                    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' 
+                  }}>
+                    {bank.accountNumber
+                      ? bank.accountNumber.replace(/(.{4})/g, '$1 ').trim()
+                      : '•••• •••• •••• ••••'}
+                  </Text>
                 </View>
 
-                <Text style={styles.bankCardNumber}>
-                  {bank.accountNumber
-                    ? bank.accountNumber.replace(/(.{4})/g, '$1 ').trim()
-                    : '•••• •••• •••• ••••'}
-                </Text>
-
-                <View style={styles.bankCardFooter}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 10 }}>
                   <View style={{ flex: 1.5 }}>
-                    <Text style={styles.bankCardLabel}>Account Holder</Text>
-                    <Text style={styles.bankCardValue} numberOfLines={1}>{bank.accountName || 'HOLDER NAME'}</Text>
+                    <Text style={{ fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 2 }}>ACCOUNT HOLDER</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }} numberOfLines={1}>
+                      {(bank.accountName || 'STORE OWNER').toUpperCase()}
+                    </Text>
                   </View>
                   <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                    <Text style={styles.bankCardLabel}>IFSC CODE</Text>
-                    <Text style={styles.bankCardValue}>{bank.ifsc || 'XXXX0000XXX'}</Text>
+                    <Text style={{ fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 2 }}>IFSC CODE</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>{(bank.ifsc || 'XXXX0000XXX').toUpperCase()}</Text>
                   </View>
                 </View>
 
-                {/* Decorative Pattern Overlay */}
-                <View style={{ position: 'absolute', bottom: -30, right: -20, opacity: 0.08 }}>
+                {/* Decoration */}
+                <View style={{ position: 'absolute', bottom: -40, right: -20, opacity: 0.1 }}>
                   <Landmark size={140} color="#fff" />
                 </View>
               </LinearGradient>
@@ -4227,7 +4369,7 @@ const SettingsPage = ({ navigation, route }) => {
         <ScrollView
           style={styles.scroller}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 60, flexGrow: 1 }}
+          contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
           removeClippedSubviews={false}
         >
           {renderTabContent()}
@@ -5242,8 +5384,6 @@ const InvoiceTemplatePreview = ({ variant, isActive }) => {
         <Text style={[styles.previewText, isActive && styles.previewTextActive]}>{variant}</Text>
         {isActive && <CheckCircle2 size={14} color="#000" style={{ marginTop: 4 }} />}
       </View>
-
-
     </View>
   );
 };

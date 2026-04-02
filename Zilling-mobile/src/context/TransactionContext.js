@@ -42,7 +42,9 @@ export const TransactionProvider = ({ children }) => {
                         ...tx,
                         status: (tx.status || 'PAID').toUpperCase(),
                         customerName: custName,
+                        customerId: tx.customer_id || tx.customerId || '',
                         items: typeof tx.items === 'string' ? JSON.parse(tx.items) : (tx.items || []),
+                        payments: typeof tx.payments === 'string' ? JSON.parse(tx.payments) : (tx.payments || [])
                     };
                 });
                 setTransactions(parsedData || []);

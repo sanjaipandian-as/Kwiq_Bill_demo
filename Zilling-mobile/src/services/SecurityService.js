@@ -603,5 +603,17 @@ export const SecurityService = {
       console.warn('[SecurityService] Background key restoration failed:', e.message);
     }
     return false;
+  },
+
+  /**
+   * Quick check if a manager PIN exists in SecureStore
+   */
+  hasManagerPin: async () => {
+    try {
+      const pinHash = await SecureStore.getItemAsync(SECURE_KEYS.PIN_HASH);
+      return !!pinHash;
+    } catch (e) {
+      return false;
+    }
   }
 };

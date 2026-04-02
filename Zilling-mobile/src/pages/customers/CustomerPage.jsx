@@ -634,7 +634,7 @@ const styles = StyleSheet.create({
   dirCountText: { fontSize: 12, fontWeight: '900', color: '#555' },
 
   // ── Party Row ───────────────────────────────────
-  listPadding: { paddingBottom: 90, paddingHorizontal: 14, paddingTop: 6 },
+  listPadding: { paddingBottom: 112, paddingHorizontal: 14, paddingTop: 6 },
   separator: { height: 12, backgroundColor: 'transparent' },
 
   partyRow: {

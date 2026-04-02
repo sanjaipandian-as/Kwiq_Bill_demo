@@ -19,6 +19,7 @@ import './src/utils/crypto'; // Ensure crypto polyfill is active
 import { useFonts } from 'expo-font';
 import IndianScriptRenderer from './src/components/IndianScriptRenderer';
 import { globalPrintRef } from './src/utils/printGlobals';
+import { useNavBarColor } from './src/hooks/useNavBarColor';
 
 // Allows the auth session to close correctly on Android
 WebBrowser.maybeCompleteAuthSession();
@@ -62,6 +63,8 @@ const AuthenticatedApp = () => {
 import { PermissionsAndroid } from 'react-native';
 import * as Device from 'expo-device';
 export default function App() {
+  useNavBarColor(); // Force Universal White Navigation Bar
+
   const [fontsLoaded] = useFonts({
     'NotoSansTamil': require('./assets/fonts/NotoSansTamil-VariableFont_wdth,wght.ttf'),
   });

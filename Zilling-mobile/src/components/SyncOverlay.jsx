@@ -18,8 +18,19 @@ const SyncOverlay = ({ isVisible }) => {
         'FINALIZING INTEGRITY CHECK...'
     ];
 
+    const [internalVisible, setInternalVisible] = useState(isVisible);
+
     useEffect(() => {
+        setInternalVisible(isVisible);
+
         if (isVisible) {
+            // 🚀 PERFORMANCE FIX: Auto-dismiss after 7.5 seconds
+            // This ensures the user isn't stuck if the network is slow or data is heavy.
+            // Documentation: Task will continue running in the background.
+            const autoDismiss = setTimeout(() => {
+                setInternalVisible(false);
+            }, 7500);
+
             // Animate In
             Animated.parallel([
                 Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
@@ -36,7 +47,10 @@ const SyncOverlay = ({ isVisible }) => {
                 setStatusIndex(prev => (prev + 1) % statuses.length);
             }, 1200);
             
-            return () => clearInterval(interval);
+            return () => {
+                clearInterval(interval);
+                clearTimeout(autoDismiss);
+            };
         }
     }, [isVisible]);
 
@@ -46,7 +60,7 @@ const SyncOverlay = ({ isVisible }) => {
     });
 
     return (
-        <Modal transparent visible={isVisible} animationType="none" statusBarTranslucent>
+        <Modal transparent visible={internalVisible} animationType="none" statusBarTranslucent>
             <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
                 <View style={styles.overlay} />
                 <Animated.View style={[styles.content, { transform: [{ scale: scaleAnim }] }]}>
