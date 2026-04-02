@@ -199,15 +199,18 @@ export default function BillingPage({ navigation, route }) {
           setLockedStaff(null);
           return null;
         }
-        setLockedStaff(session.staff);
-        return session.staff;
+
+        // Attach mode to staff for UI displays
+        const staffWithMode = { ...session.staff, mode: session.mode };
+        setLockedStaff(staffWithMode);
+        return staffWithMode;
       }
     } catch (e) {
       console.warn('Failed to load staff session', e);
     }
     return null;
   };
-
+ 
   const saveStaffSession = async (staff, mode) => {
     try {
       if (!staff) {
@@ -221,6 +224,11 @@ export default function BillingPage({ navigation, route }) {
         const midnight = new Date();
         midnight.setHours(23, 59, 59, 999);
         expiry = midnight.getTime();
+      } else if (mode === 'weekly') {
+        const nextWeek = new Date();
+        nextWeek.setDate(nextWeek.getDate() + 7);
+        nextWeek.setHours(23, 59, 59, 999);
+        expiry = nextWeek.getTime();
       } else if (mode === 'always') {
         expiry = null; // No expiry
       } else {
@@ -229,9 +237,10 @@ export default function BillingPage({ navigation, route }) {
         return;
       }
 
-      const session = { staff, expiry, mode };
+      const staffWithMode = { ...staff, mode };
+      const session = { staff: staffWithMode, expiry, mode };
       await require('@react-native-async-storage/async-storage').default.setItem('@persistent_staff_session', JSON.stringify(session));
-      setLockedStaff(staff);
+      setLockedStaff(staffWithMode);
     } catch (e) {
       console.warn('Failed to save staff session', e);
     }
@@ -840,7 +849,9 @@ export default function BillingPage({ navigation, route }) {
     }
 
     // Feature: Mandatory Receptionist Check
-    const activeReceptionists = (settings?.receptionists || []).filter(r => r.is_active === 1);
+    const activeReceptionists = (settings?.receptionists || []).filter(r => 
+      Number(r.is_active) === 1 || r.is_active === true
+    );
     if (activeReceptionists.length > 0 && !currentBill.receptionist) {
       setModals(m => ({ ...m, receptionistSelection: true }));
       showToast("Please identify the receptionist for this transaction.", 'receptionist', 3000, null, "Accountability");
@@ -940,7 +951,9 @@ export default function BillingPage({ navigation, route }) {
     }
 
     // Feature: Mandatory Receptionist Check
-    const activeReceptionists = (settings?.receptionists || []).filter(r => r.is_active === 1);
+    const activeReceptionists = (settings?.receptionists || []).filter(r => 
+      Number(r.is_active) === 1 || r.is_active === true
+    );
     if (activeReceptionists.length > 0 && !currentBill.receptionist) {
       setModals(m => ({ ...m, receptionistSelection: true }));
       showToast("Please identify the receptionist for this transaction.", 'receptionist', 3000, null, "Accountability");

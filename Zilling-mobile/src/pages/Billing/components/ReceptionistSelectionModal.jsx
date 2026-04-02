@@ -54,6 +54,7 @@ const ReceptionistSelectionModal = ({ visible, onClose, onSelect, selectedId }) 
                                     {[
                                         { id: 'none', label: 'ONCE', sub: 'Reset per bill' },
                                         { id: 'shift', label: 'SHIFT', sub: 'Lasts until midnight' },
+                                        { id: 'weekly', label: 'WEEKLY', sub: 'Lasts 7 days' },
                                         { id: 'always', label: 'STATION', sub: 'Saved on device' }
                                     ].map(opt => (
                                         <TouchableOpacity
