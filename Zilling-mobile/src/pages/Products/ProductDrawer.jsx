@@ -397,7 +397,10 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
     const costVal = resolveStringField(v, ['cost_price', 'costPrice']);
     const priceVal = parseFloat(v.price || 0) || 0;
     const costNum = parseFloat(costVal || 0) || 0;
-    const vMargin = priceVal > 0 ? (((priceVal - costNum) / priceVal) * 100).toFixed(1) : null;
+    const profitVal = priceVal - costNum;
+    const vMargin = priceVal > 0 ? ((profitVal / priceVal) * 100).toFixed(1) : null;
+    const isLowMargin = vMargin !== null && parseFloat(vMargin) < 10;
+    const isNegative = vMargin !== null && parseFloat(vMargin) < 0;
     const hasBarcode = !!(v.barcode || v.sku);
 
     return (
@@ -405,7 +408,10 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
         <View style={{ flex: 1 }}>
           {/* Variant header row */}
           <View style={styles.variantHeaderRow}>
-            <Text style={styles.variantName}>{displayName.toUpperCase()}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={[styles.variantDot, { backgroundColor: isNegative ? '#ef4444' : (isLowMargin ? '#f59e0b' : '#22c55e') }]} />
+              <Text style={styles.variantName}>{displayName.toUpperCase()}</Text>
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {!hasBarcode && (
                 <View style={styles.noBarcodeTag}>
@@ -414,8 +420,18 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                 </View>
               )}
               {vMargin !== null && (
-                <View style={styles.variantMarginBadge}>
-                  <Text style={styles.variantMarginBadgeText}>{vMargin}% margin</Text>
+                <View style={[
+                  styles.variantMarginBadge,
+                  isNegative && { backgroundColor: '#fef2f2' },
+                  !isNegative && isLowMargin && { backgroundColor: '#fffbeb' }
+                ]}>
+                  <TrendingUp size={10} color={isNegative ? '#ef4444' : (isLowMargin ? '#d97706' : '#16a34a')} strokeWidth={3} />
+                  <Text style={[
+                    styles.variantMarginBadgeText,
+                    isNegative && { color: '#ef4444' },
+                    !isNegative && isLowMargin && { color: '#d97706' },
+                    !isNegative && !isLowMargin && { color: '#16a34a' }
+                  ]}>{vMargin}%</Text>
                 </View>
               )}
             </View>
@@ -630,14 +646,24 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                   </View>
                 </View>
 
-                <View style={styles.marginBanner}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.marginLabel}>PROJECTED MARGIN</Text>
-                    <Text style={styles.marginDesc}>{margin > 0 ? 'Profitable margin' : 'Low or negative margin'}</Text>
+                <View style={[
+                  styles.marginBanner,
+                  margin < 0 && { backgroundColor: '#fef2f2', borderColor: '#fee2e2' }
+                ]}>
+                  <View style={[styles.marginIconBox, margin < 0 && { backgroundColor: '#ef4444' }]}>
+                    <TrendingUp size={18} color="#fff" strokeWidth={2.5} />
                   </View>
-                  <Text style={[styles.marginValue, { color: '#fff' }]}>
-                    {isNaN(margin) ? '0' : margin.toFixed(1)}%
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.marginLabel, margin < 0 && { color: '#ef4444' }]}>PROJECTED MARGIN</Text>
+                    <Text style={[styles.marginDesc, margin < 0 && { color: '#ef4444', opacity: 0.7 }]}>
+                      {margin > 15 ? 'Excellent profit margin' : (margin > 5 ? 'Healthy margin' : (margin > 0 ? 'Low profit margin' : 'Negative margin (Loss)'))}
+                    </Text>
+                  </View>
+                  <View style={styles.marginValueWrapper}>
+                    <Text style={[styles.marginValue, margin < 0 && { color: '#ef4444' }]}>
+                      {isNaN(margin) ? '0' : margin.toFixed(1)}%
+                    </Text>
+                  </View>
                 </View>
 
                 <View style={[styles.inputGroup, { marginBottom: 0 }]}>
@@ -783,6 +809,23 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                     />
                     <View style={{ width: 44 }} />
                   </View>
+
+                  {/* New Variant Margin Preview */}
+                  {(parseFloat(newVariantPrice) > 0 || parseFloat(newVariantCostPrice) > 0) && (() => {
+                    const p = parseFloat(newVariantPrice || 0);
+                    const c = parseFloat(newVariantCostPrice || 0);
+                    const prf = p - c;
+                    const m = p > 0 ? (prf / p) * 100 : 0;
+                    const isN = m < 0;
+                    return (
+                      <View style={[styles.newVariantMarginPreview, isN && { backgroundColor: '#fef2f2', borderColor: '#fee2e2' }]}>
+                        <TrendingUp size={12} color={isN ? '#ef4444' : '#16a34a'} strokeWidth={3} />
+                        <Text style={[styles.newVariantMarginText, isN && { color: '#ef4444' }]}>
+                          Margin: <Text style={{ fontWeight: '900' }}>{m.toFixed(1)}%</Text> (₹{prf.toFixed(2)} profit)
+                        </Text>
+                      </View>
+                    );
+                  })()}
 
                   <View style={[styles.variantLabelRow, { marginTop: 14 }]}>
                     <Text style={styles.microLabel}>VARIANT BARCODE / SKU</Text>
@@ -1019,11 +1062,17 @@ const styles = StyleSheet.create({
   variantFieldInputNoBorder: { height: 40, fontSize: 13, fontWeight: '700', color: '#000', flex: 1 },
   variantFieldInput: { height: 40, backgroundColor: '#f8fafc', borderRadius: 6, paddingHorizontal: 10, fontSize: 13, fontWeight: '700', color: '#000', borderWidth: 1, borderColor: '#f1f5f9' },
   variantBarcodeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  variantMarginBadge: { backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  variantMarginBadgeText: { fontSize: 9, fontWeight: '800', color: '#0f172a' },
+  variantMarginBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  variantMarginBadgeText: { fontSize: 10, fontWeight: '900', color: '#0f172a' },
+  variantDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#000' },
+  newVariantMarginPreview: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f0fdf4', padding: 10, borderRadius: 8, marginTop: 12, borderWidth: 1, borderColor: '#dcfce7' },
+  newVariantMarginText: { fontSize: 11, fontWeight: '700', color: '#16a34a' },
   noBarcodeTag: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#fffbeb', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   noBarcodeTagText: { fontSize: 8, fontWeight: '800', color: '#92400e' },
-  deleteVarBtn: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginLeft: 8 },
+  deleteVarBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#fff1f1', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#fee2e2', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2, alignSelf: 'center', marginLeft: 10 },
+
+  marginIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  marginValueWrapper: { backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
 
   // Footer
   footer: { flexDirection: 'row', paddingHorizontal: 24, paddingTop: 12, borderTopWidth: 1, borderColor: '#f1f5f9', gap: 10, backgroundColor: '#fff' },

@@ -24,12 +24,14 @@ import { useSettings } from '../context/SettingsContext';
 import { APP_VERSION } from '../config/version';
 import { useSmartSync } from '../hooks/useSmartSync';
 import { InteractionManager } from 'react-native';
+import BankBanner from '../components/BankBanner';
 
 // Optimized Sub-components
 import DashboardHeader from '../components/dashboard/DashboardHeader';
 import ActionGrid from '../components/dashboard/ActionGrid';
 import FinancialSummary from '../components/dashboard/FinancialSummary';
 import PerformanceList from '../components/dashboard/PerformanceList';
+import DashboardFAB from '../components/dashboard/DashboardFAB';
 
 
 const { width } = Dimensions.get('window');
@@ -90,7 +92,7 @@ export default function Dashboard() {
 
   // Smart Sync Integration
   const { isSyncing } = useSmartSync(user);
-  
+
   // 🚀 UX IMPROVEMENT: Force the sync handshake to show on every app launch
   // to provide a premium 'Modern Noir' security feeling.
   const [launchSync, setLaunchSync] = useState(true);
@@ -122,25 +124,25 @@ export default function Dashboard() {
 
   const metrics = useMemo(() => {
     if (!isReady || !Array.isArray(transactions) || !Array.isArray(products) || !Array.isArray(expenses)) {
-        return { totalSales: 0, totalExpenses: 0, netProfit: 0, pendingCount: 0, pendingAmount: 0, paidCount: 0, lowStock: [], topCust: [], topProd: [], featuredProduct: null, totalInvoices: 0 };
+      return { totalSales: 0, totalExpenses: 0, netProfit: 0, pendingCount: 0, pendingAmount: 0, paidCount: 0, lowStock: [], topCust: [], topProd: [], featuredProduct: null, totalInvoices: 0 };
     }
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     const isGlobalFilter = dateFilter === 'All';
-    
+
     const isDateInRange = (dateStr) => {
       if (isGlobalFilter) return true;
       if (!dateStr) return false;
-      
+
       // Handle various date formats (ISO string, timestamp, etc.)
       const d = new Date(dateStr);
       if (isNaN(d.getTime())) return false;
-      
+
       // Important: Use local day boundaries for comparison with todayStart
       const checkDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      
+
       switch (dateFilter) {
         case 'Today':
           return checkDate.getTime() === todayStart.getTime();
@@ -167,14 +169,14 @@ export default function Dashboard() {
     const totalSales = isGlobalFilter && dashboardMetrics ? dashboardMetrics.totalSales : filteredTx.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0);
     const totalExpenses = filteredExp.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
     const netProfit = totalSales - totalExpenses;
-    
+
     const pendingCount = isGlobalFilter && dashboardMetrics ? dashboardMetrics.pendingCount : filteredTx.filter(t => (t.status || '').toUpperCase() !== 'PAID').length;
     // FIX: pendingAmount was hardcoded to 0 for filtered views
     const pendingAmount = isGlobalFilter && dashboardMetrics ? dashboardMetrics.pendingAmount : filteredTx.reduce((sum, t) => {
-        if ((t.status || '').toUpperCase() !== 'PAID') {
-            return sum + (parseFloat(t.total) - (parseFloat(t.amountReceived) || 0));
-        }
-        return sum;
+      if ((t.status || '').toUpperCase() !== 'PAID') {
+        return sum + (parseFloat(t.total) - (parseFloat(t.amountReceived) || 0));
+      }
+      return sum;
     }, 0);
 
     const totalInvoices = isGlobalFilter && dashboardMetrics ? dashboardMetrics.totalCount : filteredTx.length;
@@ -218,7 +220,7 @@ export default function Dashboard() {
       totalExpenses,
       netProfit,
       pendingCount,
-      pendingAmount, 
+      pendingAmount,
       paidCount,
       lowStock,
       topCust,
@@ -236,12 +238,12 @@ export default function Dashboard() {
   return (
     <View style={styles.mainContainer}>
       <BroadcastOverlay />
-      
+
       <SyncOverlay isVisible={isSyncing || launchSync} />
       <SideMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
 
       {/* 1. Enhanced Mesh Gradient Header */}
-      <DashboardHeader 
+      <DashboardHeader
         user={user}
         storeLogo={storeLogo}
         isSyncing={isSyncing || launchSync}
@@ -253,6 +255,8 @@ export default function Dashboard() {
         pendingCount={metrics.pendingCount}
       />
 
+      <BankBanner />
+
       <ScrollView style={styles.contentScroll} showsVerticalScrollIndicator={false}>
         {!isReady ? (
           <View style={{ height: 400, justifyContent: 'center', alignItems: 'center' }}>
@@ -262,7 +266,7 @@ export default function Dashboard() {
           <View style={styles.bodyWrapper}>
             <ActionGrid onAction={handleAction} />
 
-            <FinancialSummary 
+            <FinancialSummary
               totalSales={metrics.totalSales}
               totalExpenses={metrics.totalExpenses}
               netProfit={metrics.netProfit}
@@ -315,7 +319,7 @@ export default function Dashboard() {
               </View>
             </View>
 
-            <PerformanceList 
+            <PerformanceList
               title="Top 10 Selling Items"
               data={metrics.topProd}
               type="product"
@@ -325,7 +329,7 @@ export default function Dashboard() {
               icon={Package}
             />
 
-            <PerformanceList 
+            <PerformanceList
               title="Top Customers"
               data={metrics.topCust}
               type="customer"
@@ -333,86 +337,94 @@ export default function Dashboard() {
               icon={Users}
             />
 
-          {/* Recent Expenses Card */}
-          <View style={styles.contentCard}>
-            <View style={styles.cardHeaderRow}>
-              <IndianRupee size={18} color="#ef4444" />
-              <Text style={styles.cardHeaderTitle}>Recent Expenses</Text>
-            </View>
-            {expenses.length > 0 ? (
-              <View style={styles.expenseCardList}>
-                {expenses.slice(0, 5).map((exp, idx) => (
-                  <View key={exp.id || `exp-${idx}`} style={styles.expenseCard}>
-                    <View style={styles.expenseIconWrapper}>
-                      <IndianRupee size={18} color="#ef4444" />
-                    </View>
-                    <View style={styles.expenseCardInfo}>
-                      <Text style={styles.expenseTitle}>{exp.title}</Text>
-                      <View style={styles.expenseMetaRow}>
-                        <Text style={styles.expenseCategory}>{exp.category}</Text>
-                        <Text style={styles.expenseDot}>•</Text>
-                        <Text style={styles.expenseDate}>
-                          {new Date(exp.date || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} | {new Date(exp.date || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </Text>
+            {/* Recent Expenses Card */}
+            <View style={styles.contentCard}>
+              <View style={styles.cardHeaderRow}>
+                <IndianRupee size={18} color="#ef4444" />
+                <Text style={styles.cardHeaderTitle}>Recent Expenses</Text>
+              </View>
+              {expenses.length > 0 ? (
+                <View style={styles.expenseCardList}>
+                  {expenses.slice(0, 5).map((exp, idx) => (
+                    <View key={exp.id || `exp-${idx}`} style={styles.expenseCard}>
+                      <View style={styles.expenseIconWrapper}>
+                        <IndianRupee size={18} color="#ef4444" />
                       </View>
+                      <View style={styles.expenseCardInfo}>
+                        <Text style={styles.expenseTitle}>{exp.title}</Text>
+                        <View style={styles.expenseMetaRow}>
+                          <Text style={styles.expenseCategory}>{exp.category}</Text>
+                          <Text style={styles.expenseDot}>•</Text>
+                          <Text style={styles.expenseDate}>
+                            {new Date(exp.date || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} | {new Date(exp.date || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.expenseAmount}>-₹{(exp.amount || 0).toLocaleString()}</Text>
                     </View>
-                    <Text style={styles.expenseAmount}>-₹{(exp.amount || 0).toLocaleString()}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <IndianRupee size={32} color="#cbd5e1" />
-                <Text style={styles.emptyStateText}>No expenses yet</Text>
-              </View>
-            )}
-          </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <IndianRupee size={32} color="#cbd5e1" />
+                  <Text style={styles.emptyStateText}>No expenses yet</Text>
+                </View>
+              )}
+            </View>
 
-          {/* Recent Transactions Card */}
-          <View style={[styles.contentCard, { marginBottom: 100, paddingVertical: 24 }]}>
-            <View style={styles.cardHeaderRow}>
-              <Clock size={18} color="#000" />
-              <Text style={styles.cardHeaderTitle}>Recent Transactions</Text>
-            </View>
-            <View style={styles.txnCardList}>
-              {transactions.slice(0, 5).map((tx, idx) => {
-                const isPaid = (tx.status || 'PAID').toUpperCase() === 'PAID';
-                return (
-                  <View key={tx.id ? tx.id.toString() : `tx-${idx}`} style={styles.txnCard}>
-                    <View style={[styles.txnIconWrapper, { backgroundColor: isPaid ? '#000' : '#f1f5f9' }]}>
-                      <IndianRupee size={20} color={isPaid ? '#fff' : '#000'} />
-                    </View>
-                    <View style={styles.txnCardInfo}>
-                      <Text style={styles.txnCardCustomer}>{tx.customerName || 'Guest'}</Text>
-                      <View style={styles.txnCardMetaRow}>
-                        <Text style={styles.txnCardInvoice}>INV-{tx.invoiceNumber || '001'}</Text>
-                        <Text style={styles.txnCardDot}>•</Text>
-                        <Text style={styles.txnCardDate}>
-                          {new Date(tx.date || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} | {new Date(tx.date || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </Text>
+            {/* Recent Transactions Card */}
+            <View style={[styles.contentCard, { marginBottom: 100, paddingVertical: 24 }]}>
+              <View style={styles.cardHeaderRow}>
+                <Clock size={18} color="#000" />
+                <Text style={styles.cardHeaderTitle}>Recent Transactions</Text>
+              </View>
+              <View style={styles.txnCardList}>
+                {transactions.slice(0, 5).map((tx, idx) => {
+                  const isPaid = (tx.status || 'PAID').toUpperCase() === 'PAID';
+                  return (
+                    <View key={tx.id ? tx.id.toString() : `tx-${idx}`} style={styles.txnCard}>
+                      <View style={[styles.txnIconWrapper, { backgroundColor: isPaid ? '#000' : '#f1f5f9' }]}>
+                        <IndianRupee size={20} color={isPaid ? '#fff' : '#000'} />
+                      </View>
+                      <View style={styles.txnCardInfo}>
+                        <Text style={styles.txnCardCustomer} numberOfLines={1}>{tx.customerName || 'Guest'}</Text>
+                        <View style={styles.txnCardMetaRow}>
+                          <Text style={styles.txnCardInvoice}>INV-{tx.invoiceNumber || '001'}</Text>
+                          <Text style={styles.txnCardDot}>•</Text>
+                          <View style={styles.timeTag}>
+                             <Clock size={10} color="#94a3b8" />
+                             <Text style={styles.txnCardDate} numberOfLines={1}>
+                               {new Date(tx.date || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                             </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <View style={styles.txnCardRight}>
+                        <Text style={styles.txnCardAmount}>₹{(tx.total || 0).toLocaleString()}</Text>
+                        <View style={[styles.txnStatusBadge, { 
+                          backgroundColor: isPaid ? '#000' : '#fff1f1', 
+                          borderColor: isPaid ? '#000' : '#fee2e2' 
+                        }]}>
+                          <View style={[styles.statusDot, { backgroundColor: isPaid ? '#fff' : '#ef4444' }]} />
+                          <Text style={[styles.txnStatusText, { color: isPaid ? '#fff' : '#ef4444' }]}>
+                            {isPaid ? 'PAID' : 'DUE'}
+                          </Text>
+                        </View>
                       </View>
                     </View>
-                    <View style={styles.txnCardRight}>
-                      <Text style={styles.txnCardAmount}>₹{(tx.total || 0).toLocaleString()}</Text>
-                      <View style={[styles.txnStatusBadge, { backgroundColor: isPaid ? '#000' : '#f1f5f9', borderColor: isPaid ? '#000' : '#e2e8f0' }]}>
-                        <View style={[styles.statusDot, { backgroundColor: isPaid ? '#fff' : '#000' }]} />
-                        <Text style={[styles.txnStatusText, { color: isPaid ? '#fff' : '#000' }]}>
-                          {isPaid ? 'PAID' : 'DUE'}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                );
-              })}
+                  );
+                })}
+              </View>
             </View>
-          </View>
-          <View style={{ padding: 40, alignItems: 'center', opacity: 0.5 }}>
-            <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', letterSpacing: 1.5 }}>KWIQ BILL • {APP_VERSION}</Text>
-            <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', marginTop: 4 }}>POWERED BY ZIPPY</Text>
-          </View>
+            <View style={{ padding: 40, alignItems: 'center', opacity: 0.5 }}>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', letterSpacing: 1.5 }}>KWIQ BILL • {APP_VERSION}</Text>
+              <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', marginTop: 4 }}>POWERED BY ZIPPY</Text>
+            </View>
           </View>
         )}
       </ScrollView>
+
+      <DashboardFAB onPress={() => handleAction('Billing')} />
 
 
 
@@ -951,38 +963,51 @@ const styles = StyleSheet.create({
     color: '#cbd5e1',
   },
   txnCardDate: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 11,
+    fontWeight: '700',
     color: '#94a3b8',
+  },
+  timeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#fff',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#f1f5f9'
   },
   txnCardRight: {
     alignItems: 'flex-end',
-    gap: 6,
+    gap: 4,
+    minWidth: 80,
+    marginLeft: 8,
   },
   txnCardAmount: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '900',
     color: '#1e293b',
   },
   txnStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 50,
-    gap: 6,
+    gap: 5,
     borderWidth: 1,
   },
   statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   txnStatusText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
     textTransform: 'uppercase',
-    letterSpacing: 0.5
+    letterSpacing: 0.8
   },
 
   // Old List Styles (kept for other sections)

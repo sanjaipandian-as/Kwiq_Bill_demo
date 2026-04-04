@@ -210,7 +210,7 @@ export default function BillingPage({ navigation, route }) {
     }
     return null;
   };
- 
+
   const saveStaffSession = async (staff, mode) => {
     try {
       if (!staff) {
@@ -294,8 +294,8 @@ export default function BillingPage({ navigation, route }) {
           const variantPrice = resolvedVariant &&
             resolvedVariant.price !== null &&
             resolvedVariant.price !== undefined
-              ? parseFloat(resolvedVariant.price)
-              : parseFloat(queuedItem.price || queuedItem.sellingPrice || 0);
+            ? parseFloat(resolvedVariant.price)
+            : parseFloat(queuedItem.price || queuedItem.sellingPrice || 0);
 
           // Cart item ID: include variant name to allow separate line items per variant
           const cartItemId = variantName
@@ -321,16 +321,16 @@ export default function BillingPage({ navigation, route }) {
             // New cart line
             newCart.push({
               ...queuedItem,
-              id:          cartItemId,
-              _dbId:       queuedItem._dbProductId || queuedItem.id,
-              name:        displayName,
+              id: cartItemId,
+              _dbId: queuedItem._dbProductId || queuedItem.id,
+              name: displayName,
               variantName: variantName,
-              price:       variantPrice,
-              quantity:    1,
-              total:       variantPrice,
-              discount:    0,
-              taxRate:     parseFloat(queuedItem.tax_rate || queuedItem.taxRate || 0),
-              unit:        queuedItem.unit || 'pcs',
+              price: variantPrice,
+              quantity: 1,
+              total: variantPrice,
+              discount: 0,
+              taxRate: parseFloat(queuedItem.tax_rate || queuedItem.taxRate || 0),
+              unit: queuedItem.unit || 'pcs',
             });
           }
         });
@@ -629,12 +629,12 @@ export default function BillingPage({ navigation, route }) {
       barcode: variant.barcode || variant.barcode || product.barcode,
     } : null;
 
-    const variantName = variantObj 
-      ? (variantObj.name || (variantObj.options && variantObj.options[0])) 
+    const variantName = variantObj
+      ? (variantObj.name || (variantObj.options && variantObj.options[0]))
       : (typeof variant === 'string' ? variant : null);
 
-    const variantPrice = variantObj && variantObj.price !== null && variantObj.price !== undefined 
-      ? parseFloat(variantObj.price) 
+    const variantPrice = variantObj && variantObj.price !== null && variantObj.price !== undefined
+      ? parseFloat(variantObj.price)
       : parseFloat(product.price || product.sellingPrice || 0);
 
     const variantSuffix = variantName ? ` - ${variantName}` : '';
@@ -849,7 +849,7 @@ export default function BillingPage({ navigation, route }) {
     }
 
     // Feature: Mandatory Receptionist Check
-    const activeReceptionists = (settings?.receptionists || []).filter(r => 
+    const activeReceptionists = (settings?.receptionists || []).filter(r =>
       Number(r.is_active) === 1 || r.is_active === true
     );
     if (activeReceptionists.length > 0 && !currentBill.receptionist) {
@@ -951,7 +951,7 @@ export default function BillingPage({ navigation, route }) {
     }
 
     // Feature: Mandatory Receptionist Check
-    const activeReceptionists = (settings?.receptionists || []).filter(r => 
+    const activeReceptionists = (settings?.receptionists || []).filter(r =>
       Number(r.is_active) === 1 || r.is_active === true
     );
     if (activeReceptionists.length > 0 && !currentBill.receptionist) {
@@ -1030,7 +1030,7 @@ export default function BillingPage({ navigation, route }) {
 
       const billDataToPrint = {
         ...savedBill,
-        customer: currentBill.customer 
+        customer: currentBill.customer
       };
 
       const thermalFormat = settings?.invoice?.billPaperSize || '80mm';

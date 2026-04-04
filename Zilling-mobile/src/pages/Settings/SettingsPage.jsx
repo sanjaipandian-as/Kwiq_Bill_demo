@@ -87,6 +87,7 @@ import { Card } from '../../components/ui/Card';
 import services from '../../services/api';
 import { testPrinter, resetPrinterConnection } from '../../utils/printUtils';
 import { APP_VERSION } from '../../config/version';
+import BankBanner from '../../components/BankBanner';
 
 // ── DetailRow ──────────────────────────────────────────────────────────────
 // Defined OUTSIDE SettingsPage so its own useState hook lives in a separate
@@ -4372,6 +4373,7 @@ const SettingsPage = ({ navigation, route }) => {
           contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
           removeClippedSubviews={false}
         >
+          <BankBanner />
           {renderTabContent()}
           {activeTab !== 'contact' && (
             <View style={styles.footer}>

@@ -15,13 +15,13 @@ try {
   LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP;
 }
 if (!LOCAL_IP) {
-  LOCAL_IP = '10.68.134.96';
+  LOCAL_IP = '10.60.148.96';
 }
 
 // Emulators use 10.0.2.2, but physical phones over USB/WiFi must use the actual IPv4 Address of your PC.
 // Since we detected 10.146.104.244 from your ipconfig, let's force that so physical phones work.
 let androidIp = LOCAL_IP === '127.0.0.1' || LOCAL_IP === 'localhost' || LOCAL_IP === '10.0.2.2'
-  ? '10.68.134.96'
+  ? '10.60.148.96'
   : LOCAL_IP;
 
 const LOCAL_URL = Platform.OS === 'android'
@@ -29,7 +29,7 @@ const LOCAL_URL = Platform.OS === 'android'
   : `http://localhost:5001`;
 
 // Toggle this to true when deploying the APK
-const IS_PRODUCTION = false;
+const IS_PRODUCTION = true;
 
 const BASE_URL = IS_PRODUCTION ? PRODUCTION_URL : LOCAL_URL;
 

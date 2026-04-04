@@ -35,8 +35,8 @@ const MarginInsightModal = ({ visible, onClose, product }) => {
           <View style={styles.insightHandle} />
           <View style={styles.insightHeader}>
             <View>
-              <Text style={styles.insightTitle}>Margin Analysis</Text>
-              <Text style={styles.insightSubTitle}>Profit breakdown</Text>
+              <Text style={styles.insightTitle}>PREMIUM ANALYSIS</Text>
+              <Text style={styles.insightSubTitle}>{product.name}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.insightCloseBtn}>
               <X size={22} color="#000" strokeWidth={2.5} />
@@ -44,60 +44,65 @@ const MarginInsightModal = ({ visible, onClose, product }) => {
           </View>
 
           <View style={styles.insightContent}>
-            <View style={styles.insightProductRow}>
-              <Package size={20} color="#666" />
-              <Text style={styles.insightProductName} numberOfLines={1}>{product.name}</Text>
-            </View>
+            <View style={styles.analysisContainer}>
+              <View style={styles.chartSection}>
+                <View style={styles.svgWrap}>
+                  <Svg height={radius * 2} width={radius * 2}>
+                    <Circle stroke="#f1f5f9" fill="transparent" strokeWidth={stroke / 2} r={normalizedRadius} cx={radius} cy={radius} />
+                    <Circle
+                      stroke={marginPercent > 0 ? "#000" : "#ef4444"}
+                      fill="transparent"
+                      strokeWidth={stroke}
+                      strokeDasharray={circumference + ' ' + circumference}
+                      strokeDashoffset={strokeDashoffset}
+                      strokeLinecap="round"
+                      r={normalizedRadius}
+                      cx={radius}
+                      cy={radius}
+                      transform={`rotate(-90 ${radius} ${radius})`}
+                    />
+                  </Svg>
+                  <View style={styles.chartCenter}>
+                    <Text style={[styles.chartPercent, marginPercent < 0 && { color: '#ef4444' }]}>{marginPercent.toFixed(1)}%</Text>
+                    <Text style={styles.chartLabel}>MARGIN</Text>
+                  </View>
+                </View>
+              </View>
 
-            <View style={styles.chartWrapper}>
-              <View style={styles.svgContainer}>
-                <Svg height={radius * 2} width={radius * 2}>
-                  <Circle stroke="#e5e5e5" fill="transparent" strokeWidth={stroke} r={normalizedRadius} cx={radius} cy={radius} />
-                  <Circle
-                    stroke={marginPercent > 0 ? "#000" : "#999"}
-                    fill="transparent"
-                    strokeWidth={stroke}
-                    strokeDasharray={circumference + ' ' + circumference}
-                    strokeDashoffset={strokeDashoffset}
-                    strokeLinecap="round"
-                    r={normalizedRadius}
-                    cx={radius}
-                    cy={radius}
-                    transform={`rotate(-90 ${radius} ${radius})`}
-                  />
-                </Svg>
-                <View style={styles.chartCenter}>
-                  <Text style={styles.chartPercent}>{marginPercent.toFixed(1)}%</Text>
-                  <Text style={styles.chartLabel}>MARGIN</Text>
+              <View style={styles.pricingSummary}>
+                <View style={styles.priceItem}>
+                   <Text style={styles.priceLabel}>COST PRICE</Text>
+                   <Text style={styles.priceValue}>₹{cost.toLocaleString()}</Text>
+                </View>
+                <View style={styles.priceDivider} />
+                <View style={styles.priceItem}>
+                   <Text style={styles.priceLabel}>SELL PRICE</Text>
+                   <Text style={styles.priceValue}>₹{price.toLocaleString()}</Text>
                 </View>
               </View>
             </View>
 
-            <View style={styles.insightMetrics}>
-              <View style={styles.metricRow}>
-                <View style={styles.metricBox}>
-                  <Text style={styles.insMetricLabel}>COST PRICE</Text>
-                  <Text style={styles.insMetricValue}>₹{cost.toLocaleString()}</Text>
-                </View>
-                <View style={styles.metricBox}>
-                  <Text style={styles.insMetricLabel}>SELLING PRICE</Text>
-                  <Text style={styles.insMetricValue}>₹{price.toLocaleString()}</Text>
-                </View>
+            {/* Main Profit Insight */}
+            <View style={[styles.heroProfitCard, marginPercent < 0 && { backgroundColor: '#fef2f2', borderColor: '#fee2e2' }]}>
+              <View style={styles.heroProfitContent}>
+                 <Text style={[styles.heroProfitLabel, marginPercent < 0 && { color: '#ef4444' }]}>NET PROFIT / UNIT</Text>
+                 <Text style={[styles.heroProfitValue, marginPercent < 0 && { color: '#ef4444' }]}>
+                    ₹{margin.toLocaleString()}
+                 </Text>
+                 <View style={styles.stockBadge}>
+                    <Box size={12} color={marginPercent < 0 ? '#ef4444' : '#64748b'} />
+                    <Text style={[styles.stockBadgeText, marginPercent < 0 && { color: '#ef4444' }]}>
+                       {product.stock || 0} UNITS IN STOCK
+                    </Text>
+                 </View>
               </View>
-
-              <View style={styles.profitBanner}>
-                <View>
-                  <Text style={styles.profitLabel}>NET PROFIT PER UNIT</Text>
-                  <Text style={styles.profitAmount}>₹{margin.toLocaleString()}</Text>
-                </View>
-                <View style={styles.profitIcon}>
-                  <TrendingUp size={22} color="#fff" />
-                </View>
+              <View style={[styles.trendIconBox, marginPercent < 0 && { backgroundColor: '#ef4444' }]}>
+                 <TrendingUp size={28} color="#fff" strokeWidth={2.5} />
               </View>
             </View>
 
             <TouchableOpacity style={styles.insightDoneBtn} onPress={onClose}>
-              <Text style={styles.insightDoneText}>CLOSE</Text>
+              <Text style={styles.insightDoneText}>DISMISS INSIGHTS</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -306,14 +311,23 @@ const VariantsModal = ({ visible, onClose, product, onSave }) => {
                 </View>
               </View>
               {/* Margin preview */}
-              {(parseFloat(form.price) > 0 || parseFloat(form.cost_price) > 0) && (
-                <View style={vstyles.marginPreview}>
-                  <Text style={vstyles.marginPreviewText}>
-                    Margin: ₹{(parseFloat(form.price || 0) - parseFloat(form.cost_price || 0)).toFixed(2)}
-                    {'  '}({parseFloat(form.price) > 0 ? (((parseFloat(form.price || 0) - parseFloat(form.cost_price || 0)) / parseFloat(form.price)) * 100).toFixed(1) : '0'}%)
-                  </Text>
-                </View>
-              )}
+              {(parseFloat(form.price) > 0 || parseFloat(form.cost_price) > 0) && (() => {
+                const p = parseFloat(form.price || 0);
+                const c = parseFloat(form.cost_price || 0);
+                const prf = p - c;
+                const m = p > 0 ? (prf / p) * 100 : 0;
+                const isN = m < 0;
+                return (
+                  <View style={[vstyles.marginPreview, isN && { backgroundColor: '#fef2f2', borderColor: '#fee2e2', borderWidth: 1 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TrendingUp size={16} color={isN ? '#ef4444' : '#fff'} />
+                      <Text style={[vstyles.marginPreviewText, isN && { color: '#ef4444' }]}>
+                        Profit: ₹{prf.toFixed(2)} ({m.toFixed(1)}%)
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })()}
               {/* Stock row */}
               <View style={vstyles.formRow}>
                 <View style={[vstyles.inputWrap, { flex: 1 }]}>
@@ -350,25 +364,68 @@ const VariantsModal = ({ visible, onClose, product, onSave }) => {
             </Text>
             {variants.map((v, i) => (
               <View key={i} style={vstyles.variantRow}>
-                <View style={vstyles.variantIcon}>
-                  <Layers size={18} color="#000" strokeWidth={1.8} />
-                </View>
                 <View style={vstyles.variantInfo}>
-                  <Text style={vstyles.variantName}>{v.name}</Text>
+                  <View style={vstyles.variantTitleRow}>
+                    <Layers size={14} color="#000" strokeWidth={2} />
+                    <Text style={vstyles.variantName}>{v.name}</Text>
+                  </View>
+                  
                   <View style={vstyles.variantMeta}>
-                    {v.sku ? <View style={vstyles.variantTag}><Barcode size={10} color="#888" /><Text style={vstyles.variantTagText}>{v.sku}</Text></View> : null}
-                    {(v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') || (v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? <View style={vstyles.variantTagCost}><Text style={vstyles.variantTagCostText}>Cost ₹{v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '' ? v.cost_price : v.costPrice}</Text></View> : null}
-                    <View style={vstyles.variantTag}><Text style={vstyles.variantTagText}>Sell ₹{v.price || 0}</Text></View>
-                    {v.price > 0 && <View style={vstyles.variantTagMargin}><Text style={vstyles.variantTagMarginText}>{v.price > 0 ? (((v.price - (v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '' ? v.cost_price : (v.costPrice || 0))) / v.price) * 100).toFixed(0) : 0}% margin</Text></View>}
-                    <View style={vstyles.variantTag}><Text style={vstyles.variantTagText}>{v.stock || 0} pcs</Text></View>
+                    {v.sku ? (
+                      <View style={vstyles.variantTag}>
+                        <Barcode size={10} color="#64748b" />
+                        <Text style={vstyles.variantTagText}>{v.sku}</Text>
+                      </View>
+                    ) : null}
+                    
+                    {(v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') || (v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? (
+                      <View style={vstyles.variantTagCost}>
+                        <Text style={vstyles.variantTagCostText}>
+                          Cost ₹{v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '' ? v.cost_price : v.costPrice}
+                        </Text>
+                      </View>
+                    ) : null}
+                    
+                    <View style={vstyles.variantTag}>
+                      <Text style={vstyles.variantTagText}>Sell ₹{v.price || 0}</Text>
+                    </View>
+                    
+                    {(() => {
+                      const costVal = v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '' ? v.cost_price : (v.costPrice || 0);
+                      const prf = (v.price || 0) - (parseFloat(costVal) || 0);
+                      const m = v.price > 0 ? (prf / v.price) * 100 : 0;
+                      const isN = m < 0;
+                      const isL = m < 10 && !isN;
+                      if (!(v.price > 0)) return null;
+                      return (
+                        <View style={[
+                          vstyles.variantTagMargin, 
+                          isN && { backgroundColor: '#fef2f2' },
+                          isL && { backgroundColor: '#fffbeb' }
+                        ]}>
+                          <TrendingUp size={10} color={isN ? '#ef4444' : (isL ? '#d97706' : '#fff')} strokeWidth={3} />
+                          <Text style={[
+                            vstyles.variantTagMarginText,
+                            isN && { color: '#ef4444' },
+                            isL && { color: '#d97706' }
+                          ]}>{m.toFixed(0)}% margin</Text>
+                        </View>
+                      );
+                    })()}
+                    <View style={vstyles.variantTag}>
+                      <Text style={vstyles.variantTagText}>{v.stock || 0} pcs</Text>
+                    </View>
                   </View>
                 </View>
-                <TouchableOpacity style={vstyles.variantEditBtn} onPress={() => openEdit(i)}>
-                  <Edit size={16} color="#000" strokeWidth={2} />
-                </TouchableOpacity>
-                <TouchableOpacity style={vstyles.variantDelBtn} onPress={() => handleDelete(i)}>
-                  <Trash2 size={16} color="#000" strokeWidth={2} />
-                </TouchableOpacity>
+
+                <View style={vstyles.variantActionStack}>
+                  <TouchableOpacity style={vstyles.actionBtnSmall} onPress={() => openEdit(i)}>
+                    <Edit size={14} color="#000" strokeWidth={2.5} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[vstyles.actionBtnSmall, { backgroundColor: '#fff1f1', borderColor: '#fee2e2' }]} onPress={() => handleDelete(i)}>
+                    <Trash2 size={14} color="#ef4444" strokeWidth={2.5} />
+                  </TouchableOpacity>
+                </View>
               </View>
             ))}
             <View style={{ height: 30 }} />
@@ -403,21 +460,21 @@ const vstyles = StyleSheet.create({
   saveFormText: { fontSize: 14, fontWeight: '700', color: '#fff' },
 
   listHeader: { fontSize: 13, fontWeight: '800', color: '#888', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 12 },
-  variantRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, borderWidth: 1.5, borderColor: '#eee', padding: 14, marginBottom: 10, gap: 10 },
-  variantIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center' },
+  variantRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 18, borderWidth: 1.5, borderColor: '#f1f5f9', padding: 16, marginBottom: 10, gap: 12 },
+  variantTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   variantInfo: { flex: 1 },
-  variantName: { fontSize: 16, fontWeight: '700', color: '#000', marginBottom: 4 },
+  variantName: { fontSize: 16, fontWeight: '900', color: '#000' },
   variantMeta: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  variantTag: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#f5f5f5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  variantTagText: { fontSize: 12, fontWeight: '600', color: '#555' },
-  variantTagCost: { backgroundColor: '#f5f5f5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  variantTagCostText: { fontSize: 12, fontWeight: '600', color: '#888' },
-  variantTagMargin: { backgroundColor: '#000', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  variantTagMarginText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  variantTag: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#f1f5f9' },
+  variantTagText: { fontSize: 11, fontWeight: '700', color: '#64748b' },
+  variantTagCost: { backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#f1f5f9' },
+  variantTagCostText: { fontSize: 11, fontWeight: '700', color: '#94a3b8' },
+  variantTagMargin: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#000', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
+  variantTagMarginText: { fontSize: 10, fontWeight: '900', color: '#fff' },
   marginPreview: { backgroundColor: '#000', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 10, alignItems: 'center' },
   marginPreviewText: { fontSize: 14, fontWeight: '700', color: '#fff' },
-  variantEditBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center' },
-  variantDelBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#f5f5f5', alignItems: 'center', justifyContent: 'center' },
+  variantActionStack: { gap: 6 },
+  actionBtnSmall: { width: 34, height: 34, borderRadius: 10, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -461,7 +518,7 @@ const MultiVariantMarginModal = ({ visible, onClose, product }) => {
 
           <View style={vmStyles.cardHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={vmStyles.variantLabel}>Detailed Analysis</Text>
+              <Text style={vmStyles.variantLabel}>PREMIUM ANALYSIS</Text>
               <Text style={vmStyles.variantName} numberOfLines={1}>{product.name}</Text>
             </View>
             <TouchableOpacity style={vmStyles.closeBtn} onPress={onClose}>
@@ -490,59 +547,73 @@ const MultiVariantMarginModal = ({ visible, onClose, product }) => {
 
           <ScrollView showsVerticalScrollIndicator={false}>
             {/* Chart Section */}
-            <View style={vmStyles.chartContainer}>
-              <View style={vmStyles.svgWrap}>
-                <Svg height={radius * 2} width={radius * 2}>
-                  <Circle stroke="#f1f5f9" fill="transparent" strokeWidth={stroke} r={normalizedRadius} cx={radius} cy={radius} />
-                  <Circle
-                    stroke="#000"
-                    fill="transparent"
-                    strokeWidth={stroke}
-                    strokeDasharray={`${circumference} ${circumference}`}
-                    strokeDashoffset={strokeDashoffset}
-                    strokeLinecap="round"
-                    r={normalizedRadius} cx={radius} cy={radius}
-                    transform={`rotate(-90 ${radius} ${radius})`}
-                  />
-                </Svg>
-                <View style={vmStyles.chartCenter}>
-                  <Text style={vmStyles.chartPct}>{marginPct.toFixed(1)}%</Text>
-                  <Text style={vmStyles.chartSub}>MARGIN</Text>
+            <View style={vmStyles.analysisContainer}>
+              <View style={vmStyles.chartSection}>
+                <View style={vmStyles.svgWrap}>
+                  <Svg height={radius * 2} width={radius * 2}>
+                    <Circle stroke="#f1f5f9" fill="transparent" strokeWidth={stroke / 2} r={normalizedRadius} cx={radius} cy={radius} />
+                    <Circle
+                      stroke={marginPct < 0 ? "#ef4444" : "#000"}
+                      fill="transparent"
+                      strokeWidth={stroke}
+                      strokeDasharray={`${circumference} ${circumference}`}
+                      strokeDashoffset={strokeDashoffset}
+                      strokeLinecap="round"
+                      r={normalizedRadius} cx={radius} cy={radius}
+                      transform={`rotate(-90 ${radius} ${radius})`}
+                    />
+                  </Svg>
+                  <View style={vmStyles.chartCenter}>
+                    <Text style={[vmStyles.chartPct, marginPct < 0 && { color: '#ef4444' }]}>
+                      {marginPct.toFixed(1)}%
+                    </Text>
+                    <Text style={vmStyles.chartSub}>MARGIN</Text>
+                  </View>
                 </View>
               </View>
 
-              <View style={vmStyles.metricsGrid}>
-                <View style={vmStyles.metricItem}>
-                  <Text style={vmStyles.metricLabel}>COST PRICE</Text>
-                  <Text style={vmStyles.metricValue}>₹{cost.toLocaleString()}</Text>
+              <View style={vmStyles.pricingSummary}>
+                <View style={vmStyles.priceItem}>
+                   <Text style={vmStyles.priceLabel}>COST PRICE</Text>
+                   <Text style={vmStyles.priceValue}>₹{cost.toLocaleString()}</Text>
                 </View>
-                <View style={[vmStyles.metricItem, { borderTopWidth: 1, borderColor: '#f1f5f9' }]}>
-                  <Text style={vmStyles.metricLabel}>SELL PRICE</Text>
-                  <Text style={vmStyles.metricValue}>₹{price.toLocaleString()}</Text>
+                <View style={vmStyles.priceDivider} />
+                <View style={vmStyles.priceItem}>
+                   <Text style={vmStyles.priceLabel}>SELL PRICE</Text>
+                   <Text style={vmStyles.priceValue}>₹{price.toLocaleString()}</Text>
                 </View>
               </View>
             </View>
 
-            {/* Profit Potential */}
-            <View style={vmStyles.profitCard}>
-              <View style={{ flex: 1 }}>
-                <Text style={vmStyles.profitLabel}>PROFIT PER UNIT</Text>
-                <Text style={vmStyles.profitValue}>₹{margin.toLocaleString()}</Text>
-                <Text style={vmStyles.profitSub}>Current stock: {currentVar.stock || 0} units</Text>
+            {/* Main Profit Insight */}
+            <View style={[vmStyles.heroProfitCard, marginPct < 0 && { backgroundColor: '#fef2f2', borderColor: '#fee2e2' }]}>
+              <View style={vmStyles.heroProfitContent}>
+                 <Text style={[vmStyles.heroProfitLabel, marginPct < 0 && { color: '#ef4444' }]}>NET PROFIT / UNIT</Text>
+                 <Text style={[vmStyles.heroProfitValue, marginPct < 0 && { color: '#ef4444' }]}>
+                    ₹{margin.toLocaleString()}
+                 </Text>
+                 <View style={vmStyles.stockBadge}>
+                    <Box size={12} color={marginPct < 0 ? '#ef4444' : '#64748b'} />
+                    <Text style={[vmStyles.stockBadgeText, marginPct < 0 && { color: '#ef4444' }]}>
+                       {currentVar.stock || 0} UNITS IN STOCK
+                    </Text>
+                 </View>
               </View>
-              <View style={vmStyles.profitBadge}>
-                <TrendingUp size={24} color="#fff" strokeWidth={2.5} />
+              <View style={[vmStyles.trendIconBox, marginPct < 0 && { backgroundColor: '#ef4444' }]}>
+                 <TrendingUp size={28} color="#fff" strokeWidth={2.5} />
               </View>
             </View>
 
-            {/* Total Potential */}
-            <View style={vmStyles.totalStrip}>
-              <Text style={vmStyles.totalStripLabel}>MAX PROFIT POTENTIAL</Text>
-              <Text style={vmStyles.totalStripValue}>₹{(margin * (currentVar.stock || 0)).toLocaleString()}</Text>
+            {/* Bottom Insights */}
+            <View style={vmStyles.insightGrid}>
+               <View style={vmStyles.insightBox}>
+                  <Text style={vmStyles.insightLabel}>MAX POTENTIAL PROFIT</Text>
+                  <Text style={vmStyles.insightValue}>₹{(margin * (currentVar.stock || 0)).toLocaleString()}</Text>
+               </View>
             </View>
 
-            <TouchableOpacity style={vmStyles.doneBtn} onPress={onClose}>
-              <Text style={vmStyles.doneBtnText}>CLOSE ANALYSIS</Text>
+            <TouchableOpacity style={vmStyles.closeAnalysisBtn} onPress={onClose}>
+              <Text style={vmStyles.closeAnalysisText}>DISMISS ANALYSIS</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -563,34 +634,39 @@ const vmStyles = StyleSheet.create({
 
   selectorWrapper: { marginBottom: 24, marginHorizontal: -24 },
   selectorInner: { paddingHorizontal: 24, gap: 10 },
-  selectorPill: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#f1f5f9' },
-  selectorPillActive: { backgroundColor: '#000', borderColor: '#000' },
-  selectorText: { fontSize: 14, fontWeight: '700', color: '#64748b' },
+  selectorPill: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 16, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#f1f5f9' },
+  selectorPillActive: { backgroundColor: '#000', borderColor: '#000', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
+  selectorText: { fontSize: 13, fontWeight: '800', color: '#64748b', letterSpacing: 0.3 },
   selectorTextActive: { color: '#fff' },
 
-  chartContainer: { flexDirection: 'row', alignItems: 'center', gap: 24, padding: 20, backgroundColor: '#f8fafc', borderRadius: 24, marginBottom: 20, borderWidth: 1.5, borderColor: '#f1f5f9' },
+  analysisContainer: { backgroundColor: '#fff', borderRadius: 24, padding: 20, marginBottom: 20, borderWidth: 1.5, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 20 },
+  chartSection: { flex: 1, alignItems: 'center' },
   svgWrap: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
   chartCenter: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  chartPct: { fontSize: 24, fontWeight: '900', color: '#000' },
-  chartSub: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+  chartPct: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -1 },
+  chartSub: { fontSize: 8, fontWeight: '900', color: '#94a3b8', letterSpacing: 1, marginTop: -2 },
 
-  metricsGrid: { flex: 1 },
-  metricItem: { paddingVertical: 10 },
-  metricLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.8, marginBottom: 4 },
-  metricValue: { fontSize: 18, fontWeight: '900', color: '#000' },
+  pricingSummary: { flex: 1.2, gap: 14 },
+  priceItem: { gap: 2 },
+  priceLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.8 },
+  priceValue: { fontSize: 18, fontWeight: '900', color: '#000' },
+  priceDivider: { height: 1, backgroundColor: '#f1f5f9', width: '100%' },
 
-  profitCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#000', padding: 24, borderRadius: 24, marginBottom: 12 },
-  profitLabel: { fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.45)', letterSpacing: 1, marginBottom: 6 },
-  profitValue: { fontSize: 28, fontWeight: '900', color: '#fff' },
-  profitSub: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.4)', marginTop: 4 },
-  profitBadge: { width: 56, height: 56, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  heroProfitCard: { backgroundColor: '#000', borderRadius: 24, padding: 24, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#000' },
+  heroProfitContent: { flex: 1 },
+  heroProfitLabel: { fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.5)', letterSpacing: 1.2, marginBottom: 4 },
+  heroProfitValue: { fontSize: 32, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
+  stockBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, alignSelf: 'flex-start' },
+  stockBadgeText: { fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.6)', letterSpacing: 0.5 },
+  trendIconBox: { width: 56, height: 56, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
 
-  totalStrip: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: 18, borderRadius: 18, borderWidth: 1.5, borderColor: '#f1f5f9', marginBottom: 24 },
-  totalStripLabel: { fontSize: 11, fontWeight: '900', color: '#64748b', letterSpacing: 0.5 },
-  totalStripValue: { fontSize: 16, fontWeight: '900', color: '#000' },
+  insightGrid: { marginBottom: 24 },
+  insightBox: { backgroundColor: '#f8fafc', borderRadius: 20, padding: 20, borderWidth: 1.5, borderColor: '#f1f5f9', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  insightLabel: { fontSize: 11, fontWeight: '900', color: '#64748b', letterSpacing: 0.5 },
+  insightValue: { fontSize: 18, fontWeight: '900', color: '#000' },
 
-  doneBtn: { height: 60, backgroundColor: '#ffffff', borderRadius: 20, borderWidth: 2, borderColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  doneBtnText: { fontSize: 14, fontWeight: '900', color: '#000', letterSpacing: 1 }
+  closeAnalysisBtn: { height: 60, borderRadius: 20, backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', alignItems: 'center', justifyContent: 'center' },
+  closeAnalysisText: { fontSize: 14, fontWeight: '900', color: '#000', letterSpacing: 1.5 }
 });
 
 // ─────────────────────────────────────────────────────────────────
@@ -642,7 +718,7 @@ const BarcodeViewModal = ({ isOpen, onClose, barcode, name, onCopy, isCopied }) 
     );
 };
 
-const ProductsListScreen = ({ navigation }) => {
+const ProductsListScreen = ({ navigation, route }) => {
   const { products, loading, deleteProduct, bulkDeleteProducts, addProduct, updateProduct, fetchProducts, importProducts, restoreProduct } = useProducts();
   const { settings } = useSettings();
   const { showToast } = useToast();
@@ -686,9 +762,15 @@ const ProductsListScreen = ({ navigation }) => {
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
       fetchProducts();
+      // Handle incoming search parameter from navigation
+      if (route.params?.searchTerm) {
+        setSearchTerm(route.params.searchTerm);
+        // Clear params to avoid sticky search
+        navigation.setParams({ searchTerm: undefined });
+      }
     });
     return () => task.cancel();
-  }, []);
+  }, [route.params?.searchTerm]);
 
   const categories = useMemo(() => {
     const cats = new Set(products.map(p => p.category).filter(c => c && c.trim() !== ''));
@@ -1560,8 +1642,29 @@ const styles = StyleSheet.create({
   profitLabel: { fontSize: 11, fontWeight: '800', color: '#999', letterSpacing: 0.5, marginBottom: 3 },
   profitAmount: { fontSize: 24, fontWeight: '800', color: '#000' },
   profitIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  insightDoneBtn: { height: 54, backgroundColor: '#000', borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  insightDoneText: { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.5 },
+  insightDoneBtn: { height: 60, backgroundColor: '#fff', borderRadius: 20, borderWidth: 2, borderColor: '#000', alignItems: 'center', justifyContent: 'center', marginTop: 24 },
+  insightDoneText: { color: '#000', fontWeight: '900', fontSize: 14, letterSpacing: 1.5 },
+
+  analysisContainer: { backgroundColor: '#fff', borderRadius: 24, padding: 20, marginBottom: 20, borderWidth: 1.5, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 20 },
+  chartSection: { flex: 1, alignItems: 'center' },
+  svgWrap: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  chartCenter: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
+  chartPercent: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -1 },
+  chartLabel: { fontSize: 8, fontWeight: '900', color: '#94a3b8', letterSpacing: 1, marginTop: -2 },
+
+  pricingSummary: { flex: 1.2, gap: 14 },
+  priceItem: { gap: 2 },
+  priceLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.8 },
+  priceValue: { fontSize: 18, fontWeight: '900', color: '#000' },
+  priceDivider: { height: 1, backgroundColor: '#f1f5f9', width: '100%' },
+
+  heroProfitCard: { backgroundColor: '#000', borderRadius: 24, padding: 24, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#000' },
+  heroProfitContent: { flex: 1 },
+  heroProfitLabel: { fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.5)', letterSpacing: 1.2, marginBottom: 4 },
+  heroProfitValue: { fontSize: 32, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
+  stockBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, alignSelf: 'flex-start' },
+  stockBadgeText: { fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.6)', letterSpacing: 0.5 },
+  trendIconBox: { width: 44, height: 44, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
 
   // ─── BARCODE SELECTION MODAL ─────────────
   barcodeOptionCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fafafa', borderWidth: 1.5, borderColor: '#eee', borderRadius: 16, padding: 14, marginBottom: 10, gap: 14 },
