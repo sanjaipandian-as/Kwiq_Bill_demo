@@ -921,7 +921,6 @@ export const SettingsProvider = ({ children, user }) => {
     const uploadLogoToCloud = async (logoData) => {
         if (!logoData || logoData.startsWith('http')) return logoData;
         try {
-            const { services } = require('../services/api');
             let fileObject;
             if (logoData.startsWith('data:image')) {
                 const parts = logoData.split(',');
@@ -990,14 +989,20 @@ export const SettingsProvider = ({ children, user }) => {
 
                     // MongoDB/Drive Cloud Sync
                     const portable = await ensurePortableSettings(newSettings);
-                    const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = portable;
-
+                    
                     try {
-                        const { services } = require('../services/api');
+                        // 🚀 SYNC PARITY: Send ENCRYPTED data to MongoDB as well.
+                        // This ensures that when the user logs in on a new device, 
+                        // the initial fetch from MongoDB is secure and can be decrypted locally.
+                        const activeStrongKey = strongKey || (user?.email ? deriveEncryptionKey(user.email, await getDriveEncSalt()) : null);
+                        const encryptedToCloud = await processSensitiveFields(portable, user?.email, 'encrypt', activeStrongKey);
+                        const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = encryptedToCloud;
+
                         await services.settings.updateSettings(cleanToCloud);
                         AsyncStorage.setItem('settings_dirty', 'false');
                         setIsSettingsDirty(false);
                     } catch (err) {
+                        console.warn('[SettingsContext] Cloud sync failed, marking dirty:', err.message);
                         AsyncStorage.setItem('settings_dirty', 'true');
                         setIsSettingsDirty(true);
                     }
@@ -1048,9 +1053,10 @@ export const SettingsProvider = ({ children, user }) => {
 
             if (user && (user.id || user.email)) {
                 const portable = await ensurePortableSettings(finalToSync);
-                // 🚀 FIX: For MongoDB, send DECRYPTED data (plain text)
-                // Only encrypt for Google Drive storage
-                const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = portable;
+                
+                // 🚀 SYNC PARITY: Encrypt for BOTH MongoDB and Google Drive storage
+                const encryptedData = await processSensitiveFields(portable, user?.email, 'encrypt', activeStrongKey);
+                const { _id, __v, createdAt, updatedAt, ...cleanToCloud } = encryptedData;
 
                 try {
                     await services.settings.updateSettings(cleanToCloud);
@@ -1058,14 +1064,14 @@ export const SettingsProvider = ({ children, user }) => {
                     await AsyncStorage.setItem('settings_dirty', 'false');
                     setIsSettingsDirty(false);
                 } catch (err) {
+                    console.warn('[SettingsContext] Full save cloud update failed:', err.message);
                     await AsyncStorage.setItem('settings_dirty', 'true');
                     setIsSettingsDirty(true);
                 }
 
                 try {
                     const { syncSettingsToDrive } = require('../services/googleDriveservices');
-                    const encryptedForDrive = await processSensitiveFields(portable, user?.email, 'encrypt');
-                    await syncSettingsToDrive(user, encryptedForDrive);
+                    await syncSettingsToDrive(user, encryptedData);
                 } catch (e) { }
             }
 

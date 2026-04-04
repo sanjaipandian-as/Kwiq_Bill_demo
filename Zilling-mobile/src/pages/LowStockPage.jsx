@@ -18,11 +18,12 @@ import {
   Package, 
   AlertTriangle, 
   Search, 
-  Filter, 
   TrendingDown, 
   AlertCircle,
   ChevronRight,
-  Info
+  Info,
+  Clock,
+  Layers
 } from 'lucide-react-native';
 
 const LowStockPage = ({ navigation }) => {
@@ -52,87 +53,98 @@ const LowStockPage = ({ navigation }) => {
     const minStock = parseFloat(item.min_stock) || parseFloat(item.minStock) || 1;
     const ratio = stock / minStock;
     
-    // Determine status
-    let statusColor = '#f59e0b'; // Low (Orange)
-    let statusLabel = 'Low Stock';
-    let statusBg = '#fffbeb';
+    // Determine status - Boutique Noir style
+    let statusLabel = 'LOW STOCK';
+    let isCritical = false;
+    let isOut = false;
     
     if (stock === 0) {
-      statusColor = '#ef4444'; // Out (Red)
-      statusLabel = 'Out of Stock';
-      statusBg = '#fef2f2';
+      statusLabel = 'OUT OF STOCK';
+      isOut = true;
     } else if (ratio <= 0.3) {
-      statusColor = '#dc2626'; // Critical (Dark Red)
-      statusLabel = 'Critical';
-      statusBg = '#fef2f2';
+      statusLabel = 'CRITICAL LEVEL';
+      isCritical = true;
     }
 
     return (
       <TouchableOpacity 
         style={styles.card}
-        onPress={() => navigation.navigate('ProductDetails', { product: item })}
-        activeOpacity={0.7}
+        onPress={() => navigation.navigate('Main', { 
+          screen: 'Products', 
+          params: { searchTerm: item.name } 
+        })}
+        activeOpacity={0.8}
       >
         <View style={styles.cardHeader}>
           <View style={styles.headerLeft}>
-            <View style={[styles.iconBox, { backgroundColor: statusBg }]}>
-              {stock === 0 ? (
-                <AlertCircle size={20} color={statusColor} strokeWidth={2.5} />
+            <View style={[styles.iconBox, (isCritical || isOut) && styles.iconBoxCritical]}>
+              {isOut ? (
+                <AlertCircle size={22} color={isOut ? "#fff" : "#000"} strokeWidth={2.5} />
+              ) : isCritical ? (
+                <AlertTriangle size={22} color="#fff" strokeWidth={2.5} />
               ) : (
-                <AlertTriangle size={20} color={statusColor} strokeWidth={2.5} />
+                <Clock size={22} color="#000" strokeWidth={2} />
               )}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-              <Text style={styles.category}>{item.category || 'Standard Product'}</Text>
+              <View style={styles.categoryBadge}>
+                <Layers size={10} color="#64748b" />
+                <Text style={styles.category}>{item.category?.toUpperCase() || 'STANDARD PRODUCT'}</Text>
+              </View>
             </View>
           </View>
-          <View style={[styles.statusPill, { backgroundColor: statusBg, borderColor: statusColor + '20' }]}>
-            <Text style={[styles.statusText, { color: statusColor }]}>{statusLabel}</Text>
+          <View style={[styles.statusPill, (isCritical || isOut) && styles.statusPillDark]}>
+            <Text style={[styles.statusText, (isCritical || isOut) && styles.statusTextWhite]}>{statusLabel}</Text>
           </View>
         </View>
 
         <View style={styles.cardBody}>
           <View style={styles.stockInfoRow}>
             <View>
-              <Text style={styles.stockLabel}>CURRENT STOCK</Text>
-              <Text style={[styles.stockValue, { color: statusColor }]}>
-                {stock} <Text style={styles.unitText}>units</Text>
-              </Text>
+              <Text style={styles.stockLabel}>REMAINING UNITS</Text>
+              <View style={styles.valueRow}>
+                <Text style={[styles.stockValue, (isCritical || isOut) && styles.stockValueAlert]}>
+                  {stock}
+                </Text>
+                <Text style={styles.unitText}>PCS</Text>
+              </View>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.stockLabel}>MIN. THRESHOLD</Text>
-              <Text style={styles.thresholdValue}>{minStock} units</Text>
+            <View style={styles.divider} />
+            <View style={{ alignItems: 'flex-end', flex: 1 }}>
+              <Text style={styles.stockLabel}>MIN. LIMIT</Text>
+              <Text style={styles.thresholdValue}>{minStock} PCS</Text>
             </View>
           </View>
 
-          {/* Progress Bar */}
+          {/* Progress Bar - Noir Style */}
           <View style={styles.progressContainer}>
             <View style={styles.progressBarBg}>
               <View 
                 style={[
                   styles.progressBarFill, 
-                  { 
-                    width: `${Math.min(ratio * 100, 100)}%`, 
-                    backgroundColor: statusColor 
-                  }
+                  { width: `${Math.min(ratio * 100, 100)}%` },
+                  (isCritical || isOut) && { backgroundColor: '#000' }
                 ]} 
               />
             </View>
             <Text style={styles.progressText}>
-              {Math.round(ratio * 100)}% of threshold
+              {Math.round(ratio * 100)}% CAPACITY
             </Text>
           </View>
         </View>
 
         <View style={styles.cardFooter}>
-          <TouchableOpacity 
-            style={styles.actionBtn}
-            onPress={() => navigation.navigate('Billing')} // Assuming they might want to sell or adjust
-          >
-            <Text style={styles.actionBtnText}>Restock Inventory</Text>
-            <ChevronRight size={14} color="#64748b" />
-          </TouchableOpacity>
+          <View style={styles.footerAction}>
+            <Text style={styles.actionPrompt}>ACTION REQUIRED</Text>
+            <TouchableOpacity 
+              style={styles.actionBtn}
+              onPress={() => navigation.navigate('Billing')}
+            >
+              <Text style={styles.actionBtnText}>RESTOCK NOW</Text>
+              <ChevronRight size={16} color="#000" />
+            </TouchableOpacity>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -142,55 +154,57 @@ const LowStockPage = ({ navigation }) => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       
-      {/* Header Gradient */}
-      <LinearGradient
-        colors={['#000', '#111']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={styles.headerGradient}
-      >
-        <SafeAreaView edges={['top']} style={styles.safeHeader}>
-          <View style={styles.headerTop}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-              <ArrowLeft size={22} color="#fff" />
-            </TouchableOpacity>
-            <View style={styles.headerTitleBox}>
-              <Text style={styles.headerTitle}>Inventory Alerts</Text>
-              <Text style={styles.headerSubtitle}>{lowStockItems.length} items need attention</Text>
+      {/* Premium Noir Header */}
+      <View style={styles.headerContainer}>
+        <LinearGradient
+          colors={['#000', '#1a1a1a']}
+          style={styles.headerGradient}
+        >
+          <SafeAreaView edges={['top']} style={styles.safeHeader}>
+            <View style={styles.headerTop}>
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                <ArrowLeft size={20} color="#fff" />
+              </TouchableOpacity>
+              <View style={styles.headerTitleBox}>
+                <Text style={styles.headerTitle}>INVENTORY ALERTS</Text>
+                <Text style={styles.headerSubtitle}>STOCK MANAGEMENT PROTOCOL</Text>
+              </View>
+              <View style={styles.headerCounter}>
+                <Text style={styles.counterValue}>{lowStockItems.length}</Text>
+                <Text style={styles.counterLabel}>ACTIVE</Text>
+              </View>
             </View>
-            <TouchableOpacity style={styles.filterBtn}>
-              <Filter size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
 
-          {/* Search Bar */}
-          <View style={styles.searchContainer}>
-            <View style={styles.searchBox}>
-              <Search size={18} color="rgba(255,255,255,0.4)" />
-              <TextInput 
-                placeholder="Search products..."
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                style={styles.searchInput}
-                value={searchTerm}
-                onChangeText={setSearchTerm}
-              />
+            {/* Search Bar */}
+            <View style={styles.searchContainer}>
+              <View style={styles.searchBox}>
+                <Search size={18} color="rgba(255,255,255,0.3)" />
+                <TextInput 
+                  placeholder="SEARCH PRODUCTS..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  style={styles.searchInput}
+                  value={searchTerm}
+                  onChangeText={setSearchTerm}
+                  autoCapitalize="characters"
+                />
+              </View>
             </View>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
+          </SafeAreaView>
+        </LinearGradient>
+      </View>
 
-      {/* Quick Stats Strip */}
+      {/* Modern Stats Strip */}
       <View style={styles.statsStrip}>
         <View style={styles.statItem}>
-            <TrendingDown size={14} color="#ef4444" />
+            <View style={styles.statDotOut} />
             <Text style={styles.statValue}>{lowStockItems.filter(i => (parseFloat(i.stock) || 0) === 0).length}</Text>
-            <Text style={styles.statLabel}>Out of Stock</Text>
+            <Text style={styles.statLabel}>VACANT</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
-            <AlertTriangle size={14} color="#f59e0b" />
+            <View style={styles.statDotLow} />
             <Text style={styles.statValue}>{lowStockItems.filter(i => (parseFloat(i.stock) || 0) > 0).length}</Text>
-            <Text style={styles.statLabel}>Running Low</Text>
+            <Text style={styles.statLabel}>DEPLETING</Text>
         </View>
       </View>
 
@@ -204,21 +218,21 @@ const LowStockPage = ({ navigation }) => {
         ListEmptyComponent={
           loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#000" />
-              <Text style={styles.loadingText}>Analyzing inventory...</Text>
+              <ActivityIndicator size="small" color="#000" />
+              <Text style={styles.loadingText}>SYNCHRONIZING INVENTORY...</Text>
             </View>
           ) : (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconCircle}>
-                <Package size={48} color="#94a3b8" strokeWidth={1.5} />
+                <Package size={40} color="#000" strokeWidth={1.5} />
               </View>
-              <Text style={styles.emptyText}>Stock levels are healthy!</Text>
-              <Text style={styles.emptySub}>All items are currently above their minimum threshold level.</Text>
+              <Text style={styles.emptyText}>OPTIMUM LEVELS</Text>
+              <Text style={styles.emptySub}>ALL INVENTORY ASSETS ARE CURRENTLY ABOVE THEIR DEFINED THRESHOLDS.</Text>
               <TouchableOpacity 
                 style={styles.refreshBtn}
                 onPress={() => fetchProducts()}
               >
-                <Text style={styles.refreshText}>Check Again</Text>
+                <Text style={styles.refreshText}>REFRESH CACHE</Text>
               </TouchableOpacity>
             </View>
           )
@@ -226,9 +240,9 @@ const LowStockPage = ({ navigation }) => {
       />
       
       <View style={styles.infoBanner}>
-        <Info size={14} color="#475569" />
+        <Info size={14} color="#000" />
         <Text style={styles.infoBannerText}>
-          Thresholds can be adjusted in the Product Settings.
+          THRESHOLDS CAN BE CONFIGURED IN PRODUCT CONFIGURATION SETTINGS.
         </Text>
       </View>
     </View>
@@ -238,155 +252,179 @@ const LowStockPage = ({ navigation }) => {
 export default LowStockPage;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  headerGradient: { 
-    paddingBottom: 20, 
-    borderBottomLeftRadius: 32, 
-    borderBottomRightRadius: 32,
+  container: { flex: 1, backgroundColor: '#fff' },
+  headerContainer: {
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 8
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+  },
+  headerGradient: { 
+    paddingBottom: 35, 
   },
   safeHeader: { paddingTop: Platform.OS === 'ios' ? 0 : 10 },
   headerTop: { 
     flexDirection: 'row', 
     alignItems: 'center', 
-    paddingHorizontal: 22,
-    marginBottom: 20
+    paddingHorizontal: 24,
+    marginBottom: 24
   },
   backBtn: { 
     width: 44, 
     height: 44, 
     alignItems: 'center', 
     justifyContent: 'center', 
-    backgroundColor: 'rgba(255,255,255,0.08)', 
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)'
+    backgroundColor: 'rgba(255,255,255,0.1)', 
+    borderRadius: 12,
   },
   headerTitleBox: { flex: 1, marginLeft: 16 },
-  headerTitle: { fontSize: 22, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
-  headerSubtitle: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontWeight: '600', marginTop: 2 },
-  filterBtn: {
-    width: 44, 
-    height: 44, 
-    alignItems: 'center', 
+  headerTitle: { fontSize: 18, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
+  headerSubtitle: { fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: '700', marginTop: 1, letterSpacing: 0.5 },
+  headerCounter: {
+    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 14,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
+  counterValue: { fontSize: 16, fontWeight: '900', color: '#000' },
+  counterLabel: { fontSize: 7, fontWeight: '800', color: '#000', letterSpacing: 0.5 },
+  
   searchContainer: {
-    paddingHorizontal: 22,
+    paddingHorizontal: 24,
     marginBottom: 5,
   },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
     paddingHorizontal: 16,
-    height: 52,
+    height: 46,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
   searchInput: {
     flex: 1,
     marginLeft: 12,
-    fontSize: 15,
+    fontSize: 13,
     color: '#fff',
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 
   statsStrip: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    marginHorizontal: 22,
-    marginTop: -20,
-    borderRadius: 20,
-    paddingVertical: 15,
+    marginHorizontal: 24,
+    marginTop: -22,
+    borderRadius: 15,
+    paddingVertical: 14,
     paddingHorizontal: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 15,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 8,
     alignItems: 'center',
-    zIndex: 10,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
   },
   statItem: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
-  statValue: { fontSize: 18, fontWeight: '900', color: '#0f172a' },
-  statLabel: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 },
-  statDivider: { width: 1, height: 20, backgroundColor: '#f1f5f9', mx: 15 },
+  statDotOut: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#000' },
+  statDotLow: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#cbd5e1' },
+  statValue: { fontSize: 18, fontWeight: '900', color: '#000' },
+  statLabel: { fontSize: 8, fontWeight: '800', color: '#64748b', letterSpacing: 0.5 },
+  statDivider: { width: 1, height: 20, backgroundColor: '#f1f5f9' },
 
-  listContent: { paddingHorizontal: 22, paddingTop: 24, paddingBottom: 100 },
+  listContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 100 },
 
   card: { 
     backgroundColor: '#fff', 
-    borderRadius: 24, 
-    marginBottom: 16, 
-    padding: 20, 
-    borderWidth: 1.5,
+    borderRadius: 16, 
+    marginBottom: 12, 
+    padding: 16, 
+    borderWidth: 1,
     borderColor: '#f1f5f9',
-    shadowColor: '#94a3b8', 
-    shadowOpacity: 0.08, 
-    shadowRadius: 12, 
-    elevation: 4 
+    shadowColor: '#000', 
+    shadowOpacity: 0.03, 
+    shadowRadius: 10, 
+    elevation: 2 
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  iconBox: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  name: { fontSize: 17, fontWeight: '800', color: '#0f172a', letterSpacing: -0.3 },
-  category: { fontSize: 12, color: '#64748b', marginTop: 2, fontWeight: '600' },
-  statusPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1 },
-  statusText: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+  iconBox: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9' },
+  iconBoxCritical: { backgroundColor: '#000', borderColor: '#000' },
+  name: { fontSize: 15, fontWeight: '900', color: '#000', letterSpacing: -0.3 },
+  categoryBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  category: { fontSize: 9, color: '#64748b', fontWeight: '800', letterSpacing: 0.3 },
+  statusPill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: '#000' },
+  statusPillDark: { backgroundColor: '#000' },
+  statusText: { fontSize: 8, fontWeight: '900', color: '#000', letterSpacing: 0.3 },
+  statusTextWhite: { color: '#fff' },
 
-  cardBody: { marginBottom: 18 },
-  stockInfoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12 },
-  stockLabel: { fontSize: 10, fontWeight: '800', color: '#94a3b8', letterSpacing: 1, marginBottom: 4 },
-  stockValue: { fontSize: 24, fontWeight: '900' },
-  unitText: { fontSize: 14, color: '#94a3b8', fontWeight: '700' },
-  thresholdValue: { fontSize: 16, fontWeight: '800', color: '#475569' },
+  cardBody: { marginBottom: 14 },
+  stockInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  divider: { width: 1, height: 24, backgroundColor: '#f1f5f9' },
+  stockLabel: { fontSize: 7, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 2 },
+  valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
+  stockValue: { fontSize: 20, fontWeight: '900', color: '#000' },
+  stockValueAlert: { color: '#000' },
+  unitText: { fontSize: 9, color: '#94a3b8', fontWeight: '800' },
+  thresholdValue: { fontSize: 14, fontWeight: '900', color: '#000' },
 
   progressContainer: { gap: 6 },
-  progressBarBg: { height: 8, backgroundColor: '#f1f5f9', borderRadius: 4, overflow: 'hidden' },
-  progressBarFill: { height: '100%', borderRadius: 4 },
-  progressText: { fontSize: 11, color: '#94a3b8', fontWeight: '700', alignSelf: 'flex-end' },
+  progressBarBg: { height: 4, backgroundColor: '#f1f5f9', borderRadius: 2, overflow: 'hidden' },
+  progressBarFill: { height: '100%', borderRadius: 2, backgroundColor: '#cbd5e1' },
+  progressText: { fontSize: 7, color: '#94a3b8', fontWeight: '800', letterSpacing: 0.5, alignSelf: 'flex-end' },
 
-  cardFooter: { borderTopWidth: 1, borderTopColor: '#f8fafc', paddingTop: 15 },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-end' },
-  actionBtnText: { fontSize: 13, fontWeight: '700', color: '#64748b' },
+  cardFooter: { borderTopWidth: 1, borderTopColor: '#f8fafc', paddingTop: 12 },
+  footerAction: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  actionPrompt: { fontSize: 8, fontWeight: '800', color: '#cbd5e1', letterSpacing: 0.5 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  actionBtnText: { fontSize: 10, fontWeight: '900', color: '#000', letterSpacing: 0.3 },
 
-  loadingContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 80 },
-  loadingText: { marginTop: 16, fontSize: 15, color: '#64748b', fontWeight: '600' },
+  loadingContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 100 },
+  loadingText: { marginTop: 16, fontSize: 12, color: '#64748b', fontWeight: '800', letterSpacing: 1 },
 
-  emptyState: { alignItems: 'center', marginTop: 60, paddingHorizontal: 30 },
-  emptyIconCircle: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  emptyText: { fontSize: 20, color: '#0f172a', fontWeight: '900', textAlign: 'center' },
-  emptySub: { fontSize: 14, color: '#64748b', marginTop: 10, textAlign: 'center', lineHeight: 22, fontWeight: '500' },
-  refreshBtn: { marginTop: 30, backgroundColor: '#000', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 16 },
-  refreshText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  emptyState: { alignItems: 'center', marginTop: 80, paddingHorizontal: 40 },
+  emptyIconCircle: { width: 80, height: 80, borderRadius: 20, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', marginBottom: 24, borderWidth: 1, borderColor: '#f1f5f9' },
+  emptyText: { fontSize: 18, color: '#000', fontWeight: '900', letterSpacing: 1, textAlign: 'center' },
+  emptySub: { fontSize: 11, color: '#64748b', marginTop: 12, textAlign: 'center', lineHeight: 18, fontWeight: '700', letterSpacing: 0.5 },
+  refreshBtn: { marginTop: 32, backgroundColor: '#000', paddingHorizontal: 40, paddingVertical: 16, borderRadius: 12 },
+  refreshText: { color: '#fff', fontWeight: '900', fontSize: 13, letterSpacing: 1 },
 
   infoBanner: { 
     position: 'absolute', 
     bottom: 24, 
-    left: 22, 
-    right: 22, 
-    backgroundColor: '#f1f5f9', 
+    left: 24, 
+    right: 24, 
+    backgroundColor: '#fff', 
     flexDirection: 'row', 
     alignItems: 'center', 
-    padding: 14, 
-    borderRadius: 16, 
-    gap: 10,
+    padding: 16, 
+    borderRadius: 12, 
+    gap: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0'
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5
   },
-  infoBannerText: { fontSize: 12, color: '#475569', fontWeight: '600', flex: 1 }
+  infoBannerText: { fontSize: 10, color: '#000', fontWeight: '800', flex: 1, letterSpacing: 0.5 }
 });
+
 
