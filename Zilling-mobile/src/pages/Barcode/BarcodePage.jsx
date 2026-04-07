@@ -12,7 +12,10 @@ import {
   Alert,
   Vibration,
   Dimensions,
-  Platform
+  Platform,
+  StatusBar,
+  TouchableOpacity,
+  TextInput
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,7 +30,12 @@ import {
   Scan,
   Package,
   Type,
-  Maximize2
+  Maximize2,
+  Sparkles,
+  Zap,
+  Info,
+  Layers,
+  ChevronRight
 } from 'lucide-react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useProducts } from '../../context/ProductContext';
@@ -37,12 +45,12 @@ import { addToBillingQueue } from '../../services/billingQueue';
 import { useToast } from '../../context/ToastContext';
 import { resolveBarcode, buildCartPayload, sanitizeBarcode } from '../../utils/barcodeUtils';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const FORMATS = [
-  { label: 'CODE-128', value: 'CODE128' },
-  { label: 'EAN-13', value: 'EAN13' },
-  { label: 'UPC-A', value: 'UPC' },
+  { label: 'CODE-128 (Standard)', value: 'CODE128' },
+  { label: 'EAN-13 (Retail)', value: 'EAN13' },
+  { label: 'UPC-A (Universal)', value: 'UPC' },
 ];
 
 export default function BarcodePage() {
@@ -60,30 +68,6 @@ export default function BarcodePage() {
   const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
-  const [sound, setSound] = useState();
-
-  useEffect(() => {
-    async function loadSound() {
-      try {
-        if (!Audio) return;
-        // Reverting to remote URL (Preloaded for performance) as Base64 was unreliable
-        const { sound: s } = await Audio.Sound.createAsync(
-          { uri: 'https://www.soundjay.com/buttons/beep-01a.mp3' }
-        );
-        setSound(s);
-      } catch (e) {
-        console.log('Failed to preload sound (ignore if offline)', e.message);
-      }
-    }
-    loadSound();
-    return () => {
-      if (sound) sound.unloadAsync();
-    };
-  }, []);
-
-  useEffect(() => {
-    console.log('[DEBUG] BarcodePage mounted successfully');
-  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -93,19 +77,25 @@ export default function BarcodePage() {
 
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.barcode && p.barcode.toLowerCase().includes(searchQuery.toLowerCase()))
+    (p.barcode && p.barcode.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (Array.isArray(p.variants) && p.variants.some(v => 
+      v.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (v.barcode && v.barcode.toLowerCase().includes(searchQuery.toLowerCase()))
+    ))
   );
 
   const generateBarcode = () => {
     if (!inputValue.trim()) {
-      showToast('Please enter a value to generate barcode', 'error');
+      showToast('Enter code for generation', 'error');
       return;
     }
     setBarcodeValue(inputValue);
   };
 
-  const handleProductSelect = (prod) => {
-    const value = prod.barcode || prod.id;
+  const isUpdateDisabled = inputValue === barcodeValue;
+
+  const handleProductSelect = (prod, variant = null) => {
+    const value = variant ? (variant.barcode || variant.id) : (prod.barcode || prod.id);
     setInputValue(value);
     setBarcodeValue(value);
     setBarcodeFormat('CODE128');
@@ -113,25 +103,18 @@ export default function BarcodePage() {
   };
 
   const handleCopy = () => {
-    showToast('Barcode value copied to clipboard!', 'success');
+    showToast('Value copied to clipboard', 'success');
   };
 
   const handlePrint = () => {
-    showToast('Printing functionality will be integrated with mobile printer support.', 'info');
+    showToast('Initialize Printer to continue', 'info');
   };
 
-  // --- Camera Logic ---
-  // --- Camera Logic ---
   const handleStartScan = async () => {
-    if (!permission) {
-      // Permission is loading
-      return;
-    }
-
-    if (!permission.granted) {
+    if (!permission?.granted) {
       const result = await requestPermission();
       if (!result.granted) {
-        showToast('Camera permission is required to scan barcodes', 'error');
+        showToast('Camera permission required', 'error');
         return;
       }
     }
@@ -141,810 +124,399 @@ export default function BarcodePage() {
 
   const playScanSound = async () => {
     try {
-      if (sound) {
-        await sound.replayAsync();
-      }
+      if (sound) await sound.replayAsync();
     } catch (error) {
-      console.log('Sound playback failed', error);
+      console.log('Sound error', error);
     }
   };
 
-  const handleBarCodeScanned = ({ type, data }) => {
+  const handleBarCodeScanned = ({ data }) => {
     if (scanned) return;
     setScanned(true);
 
-    // SECURITY: Sanitize scanned data before any use (caps length, trims whitespace).
-    // A malformed/oversized QR code payload should not crash or flood the UI.
     const safeData = sanitizeBarcode(data);
     if (!safeData) {
-      showToast('Invalid barcode data received.', 'error');
+      showToast('Invalid barcode', 'error');
       setTimeout(() => { setScanned(false); }, 2000);
       return;
     }
 
-    // Feedback: Sound + Vibration
     Vibration.vibrate();
     playScanSound();
 
-    // Update visual display
     setInputValue(safeData);
     setBarcodeValue(safeData);
 
-    // ── Variant-aware lookup (Priority: variant.barcode → variant.sku → product.sku → …) ──
-    const { product: matchedProduct, variant: matchedVariant, source } = resolveBarcode(safeData, products);
+    const { product: matchedProduct, variant: matchedVariant } = resolveBarcode(safeData, products);
 
     if (matchedProduct) {
-      // Build a cart-ready payload that carries variant context
       const cartPayload = buildCartPayload(matchedProduct, matchedVariant);
-
       addToBillingQueue(cartPayload);
-
-      const displayName = matchedVariant
-        ? `${matchedProduct.name} (${matchedVariant.name || 'Variant'})`
-        : matchedProduct.name;
-
-      showToast(`Added "${displayName}" to Billing Queue`, 'success');
-
-      // Auto-resume scanning
+      const displayName = matchedVariant ? `${matchedProduct.name} (${matchedVariant.name})` : matchedProduct.name;
+      showToast(`Logged: ${displayName}`, 'success');
       setTimeout(() => { setScanned(false); }, 1500);
     } else {
-      // Barcode not found in any product or variant
-      showToast(`No product found for barcode: ${safeData}`, 'error');
-
-      // Auto-resume scanning
+      showToast(`Unrecognized: ${safeData}`, 'error');
       setTimeout(() => { setScanned(false); }, 2000);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.mainContainer}>
-        {/* Header Section */}
-        <View style={styles.header}>
-          <LinearGradient
-            colors={['#ffffff', '#f8fafc']}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-          />
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ChevronLeft size={24} color="#0f172a" />
-          </Pressable>
-          <View style={styles.headerTextContainer}>
-            <Text style={styles.title}>Barcode Studio</Text>
-            <Text style={styles.subtitle}>Generate, scan & print labels</Text>
-          </View>
-        </View>
-
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Main Card */}
-          <View style={styles.cardContainer}>
-
-            {/* Configuration Section */}
-            <View style={styles.configSection}>
-              <Text style={styles.sectionTitle}>Configuration</Text>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Product Source</Text>
-                <Pressable
-                  style={styles.pickerTrigger}
-                  onPress={() => setShowProductModal(true)}
-                >
-                  <View style={styles.pickerIcon}>
-                    <Package size={18} color="#64748b" />
-                  </View>
-                  <Text style={styles.pickerValue} numberOfLines={1}>
-                    {products.find(p => p.barcode === inputValue || p.id === inputValue)?.name || 'Select from inventory...'}
-                  </Text>
-                  <ChevronDown size={20} color="#cbd5e1" />
-                </Pressable>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Format Type</Text>
-                <Pressable
-                  style={styles.pickerTrigger}
-                  onPress={() => setShowFormatModal(true)}
-                >
-                  <View style={styles.pickerIcon}>
-                    <Type size={18} color="#64748b" />
-                  </View>
-                  <Text style={styles.pickerValue}>
-                    {FORMATS.find(f => f.value === barcodeFormat)?.label || 'CODE-128'}
-                  </Text>
-                  <ChevronDown size={20} color="#cbd5e1" />
-                </Pressable>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>SKU / Code Content</Text>
-                <View style={styles.actionInputRow}>
-                  <Input
-                    value={inputValue}
-                    onChangeText={setInputValue}
-                    placeholder="E.g., PROD-1234"
-                    autoCapitalize="characters"
-                    style={styles.skuInput}
-                  />
-                  <Pressable
-                    onPress={handleStartScan}
-                    style={styles.scanActionBtn}
-                  >
-                    <LinearGradient
-                      colors={['#1e293b', '#334155']}
-                      style={StyleSheet.absoluteFill}
-                    />
-                    <Scan size={20} color="#fff" />
-                  </Pressable>
-                </View>
-              </View>
-
-              <Pressable
-                onPress={generateBarcode}
-                style={styles.gradientBtnContainer}
-              >
-                <LinearGradient
-                  colors={['#2563eb', '#3b82f6']}
-                  style={styles.gradientBtn}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                >
-                  <Text style={styles.gradientBtnText}>Generate Preview</Text>
-                </LinearGradient>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <View style={styles.headerWrapper}>
+        <LinearGradient colors={['#000', '#1a1a1a']} style={styles.header}>
+          <SafeAreaView edges={['top']}>
+            <View style={styles.navBar}>
+              <Pressable onPress={() => navigation.goBack()} style={styles.navBtn}>
+                <ChevronLeft size={24} color="#fff" />
               </Pressable>
-
-            </View>
-
-            <View style={styles.divider} />
-
-            {/* Preview Section */}
-            <View style={styles.previewSection}>
-              <Text style={styles.sectionTitle}>Label Preview</Text>
-
-              <View style={styles.ticketContainer}>
-                <LinearGradient
-                  colors={['#ffffff', '#fcfcfc']}
-                  style={StyleSheet.absoluteFill}
-                />
-                <View style={styles.ticketContent}>
-                  {barcodeValue ? (
-                    <>
-                      <BarcodeIcon size={80} color="#1e293b" />
-                      <Text style={styles.barcodeCode}>{barcodeValue}</Text>
-                      <View style={styles.barcodeMetaTag}>
-                        <Text style={styles.barcodeMetaText}>{barcodeFormat}</Text>
-                      </View>
-                    </>
-                  ) : (
-                    <View style={styles.emptyState}>
-                      <LinearGradient
-                        colors={['#f1f5f9', '#e2e8f0']}
-                        style={styles.emptyStateIconBg}
-                      >
-                        <BarcodeIcon size={32} color="#94a3b8" />
-                      </LinearGradient>
-                      <Text style={styles.emptyText}>Enter code to preview</Text>
-                    </View>
-                  )}
-                </View>
-                {/* Visual "rip" effect for ticket */}
-                <View style={styles.ripDecorTop} />
-                <View style={styles.ripDecorBottom} />
+              <View style={styles.headerInfo}>
+                <Text style={styles.brand}>KWIQ STUDIO</Text>
+                <Text style={styles.title}>Barcode Lab</Text>
               </View>
-
-              <View style={styles.actionGrid}>
-                <Button
-                  title="Copy"
-                  onPress={handleCopy}
-                  variant="outline"
-                  icon={<Copy size={18} color="#475569" />}
-                  style={styles.gridBtn}
-                />
-                <Button
-                  title="Print Label"
-                  onPress={handlePrint}
-                  variant="primary"
-                  icon={<Printer size={18} color="white" />}
-                  style={styles.gridBtn}
-                />
-              </View>
+              <Pressable style={styles.navBtn} onPress={handleStartScan}>
+                 <Maximize2 size={22} color="#fff" strokeWidth={1.5} />
+              </Pressable>
             </View>
-
-          </View>
-          <View style={{ height: 100 }} />
-        </ScrollView>
+          </SafeAreaView>
+        </LinearGradient>
       </View>
 
-      {/* Product Selection Modal */}
-      <Modal
-        visible={showProductModal}
-        animationType="slide"
-        transparent={true}
-        statusBarTranslucent
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Product</Text>
-              <Pressable onPress={() => setShowProductModal(false)} style={styles.closeBtn}>
-                <X size={24} color="#64748b" />
-              </Pressable>
-            </View>
-
-            <View style={styles.searchContainer}>
-              <Search size={20} color="#94a3b8" />
-              <Input
-                placeholder="Search..."
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                style={styles.searchInput}
-              />
-            </View>
-
-            <FlatList
-              data={filteredProducts}
-              keyExtractor={item => item.id}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.productItem}
-                  onPress={() => handleProductSelect(item)}
-                >
-                  <View style={styles.productInitial}>
-                    <Text style={styles.initialText}>
-                      {item.name.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={styles.productInfo}>
-                    <Text style={styles.productName}>{item.name}</Text>
-                    <Text style={styles.productSku}>SKU: {item.barcode || item.id}</Text>
-                  </View>
-                  <ChevronDown size={20} color="#e2e8f0" style={{ transform: [{ rotate: '-90deg' }] }} />
-                </Pressable>
-              )}
-              ListEmptyComponent={
-                <View style={styles.emptyList}>
-                  <Search size={48} color="#f1f5f9" />
-                  <Text style={styles.emptyListText}>No products found</Text>
-                </View>
-              }
-            />
+      <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Zap size={16} color="#000" />
+            <Text style={styles.sectionLabel}>IDENTITY & SOURCE</Text>
           </View>
+          
+          <View style={styles.card}>
+            <Text style={styles.label}>Select Product</Text>
+            <Pressable style={styles.selector} onPress={() => setShowProductModal(true)}>
+              <Package size={20} color="#000" style={styles.selIcon} />
+              <Text style={styles.selValue} numberOfLines={1}>
+                {products.find(p => p.barcode === inputValue || p.id === inputValue)?.name || 'Search Inventory...'}
+              </Text>
+              <ChevronDown size={20} color="#cbd5e1" />
+            </Pressable>
+
+            <View style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>Label Content</Text>
+                <Input
+                  value={inputValue}
+                  onChangeText={setInputValue}
+                  placeholder="CODE"
+                  autoCapitalize="characters"
+                  style={styles.inputStyle}
+                />
+              </View>
+              <View style={{ marginLeft: 15 }}>
+                <Text style={styles.label}>Format</Text>
+                <Pressable style={styles.formatSel} onPress={() => setShowFormatModal(true)}>
+                  <Text style={styles.formatValue}>
+                    {barcodeFormat === 'CODE128' ? 'C-128' : barcodeFormat}
+                  </Text>
+                  <ChevronDown size={16} color="#000" />
+                </Pressable>
+              </View>
+            </View>
+
+            <TouchableOpacity 
+              style={[styles.actionBtn, isUpdateDisabled && styles.actionBtnDisabled]} 
+              onPress={generateBarcode} 
+              activeOpacity={0.9}
+              disabled={isUpdateDisabled}
+            >
+              <Text style={[styles.actionBtnText, isUpdateDisabled && styles.actionBtnTextDisabled]}>Update Lab Preview</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Sparkles size={16} color="#000" />
+            <Text style={styles.sectionLabel}>LAB PREVIEW</Text>
+          </View>
+
+          <View style={styles.previewContainer}>
+             <View style={styles.ticket}>
+                <View style={[styles.punch, { top: -11 }]} />
+                <View style={[styles.punch, { bottom: -11 }]} />
+                
+                <View style={styles.ticketContent}>
+                   {barcodeValue ? (
+                     <>
+                       <BarcodeIcon size={100} color="#000" />
+                       <Text style={styles.barcodeText}>{barcodeValue}</Text>
+                       <View style={styles.metaRow}>
+                          <Text style={styles.metaLabel}>FORMAT</Text>
+                          <Text style={styles.metaVal}>{barcodeFormat}</Text>
+                       </View>
+                     </>
+                   ) : (
+                     <View style={styles.emptyState}>
+                        <Info size={40} color="#e2e8f0" />
+                        <Text style={styles.emptyPrompt}>Ready for Identity</Text>
+                     </View>
+                   )}
+                </View>
+             </View>
+
+             <View style={styles.footerActions}>
+                <TouchableOpacity style={[styles.footerBtn, styles.btnOutline]} onPress={handleCopy}>
+                  <Copy size={20} color="#000" />
+                  <Text style={[styles.footerBtnText, { color: '#000' }]}>Copy Text</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.footerBtn, styles.btnBlack]} onPress={handlePrint}>
+                  <Printer size={20} color="#fff" />
+                  <Text style={[styles.footerBtnText, { color: '#fff' }]}>Print Label</Text>
+                </TouchableOpacity>
+             </View>
+          </View>
+        </View>
+
+        <View style={styles.tipBox}>
+           <Text style={styles.tipText}>Tip: Use standard retail formats like EAN-13 for better scanner compatibility across mobile devices.</Text>
+        </View>
+        
+        <View style={{ height: 50 }} />
+      </ScrollView>
+
+      {/* Modern Product Modal */}
+      <Modal visible={showProductModal} animationType="slide" transparent statusBarTranslucent>
+        <View style={styles.modalBackdrop}>
+           <View style={styles.modalSheet}>
+              <View style={styles.sheetHandle} />
+              <View style={styles.sheetHeader}>
+                 <Text style={styles.sheetTitle}>Link Product</Text>
+                 <Pressable onPress={() => setShowProductModal(false)} style={styles.sheetClose}>
+                   <X size={20} color="#000" />
+                 </Pressable>
+              </View>
+              
+              <View style={styles.searchBarOuter}>
+                 <View style={styles.searchBarInner}>
+                    <Search size={18} color="#94a3b8" />
+                    <TextInput
+                      placeholder="Search inventory..."
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      style={styles.searchBarInput}
+                      placeholderTextColor="#94a3b8"
+                    />
+                 </View>
+              </View>
+
+              <FlatList
+                data={filteredProducts}
+                keyExtractor={item => item.id}
+                contentContainerStyle={{ paddingBottom: 40 }}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <View style={styles.productNode}>
+                    <Pressable style={styles.productRow} onPress={() => handleProductSelect(item)}>
+                      <View style={styles.rowDot} />
+                      <View style={styles.rowInfo}>
+                        <Text style={styles.rowName}>{item.name}</Text>
+                        <Text style={styles.rowSku}>{item.barcode || 'Generic Code'}</Text>
+                      </View>
+                      <ChevronRight size={18} color="#e2e8f0" />
+                    </Pressable>
+                    
+                    {Array.isArray(item.variants) && item.variants.length > 0 && (
+                      <View style={styles.variantContainer}>
+                        {item.variants.map((v, idx) => (
+                           <Pressable 
+                             key={v.id || idx} 
+                             style={styles.variantChip}
+                             onPress={() => handleProductSelect(item, v)}
+                           >
+                             <Layers size={14} color="#64748b" style={{ marginRight: 8 }} />
+                             <Text style={styles.vName}>{v.name}</Text>
+                             <Text style={styles.vCode}>{v.barcode || '---'}</Text>
+                           </Pressable>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+              />
+           </View>
         </View>
       </Modal>
 
-      {/* Format Selection Modal */}
-      <Modal
-        visible={showFormatModal}
-        animationType="fade"
-        transparent={true}
-        statusBarTranslucent
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setShowFormatModal(false)}
-        >
-          <View style={styles.centerModal}>
-            <Text style={styles.centerModalTitle}>Barcode Format</Text>
-            {FORMATS.map((format, index) => (
-              <Pressable
-                key={format.value}
-                style={[
-                  styles.formatOption,
-                  index !== FORMATS.length - 1 && styles.borderBottom
-                ]}
-                onPress={() => {
-                  setBarcodeFormat(format.value);
-                  setShowFormatModal(false);
-                }}
-              >
-                <Text style={[
-                  styles.formatOptionText,
-                  barcodeFormat === format.value && styles.formatActive
-                ]}>
-                  {format.label}
-                </Text>
-                {barcodeFormat === format.value && (
-                  <View style={styles.activeDot} />
-                )}
-              </Pressable>
-            ))}
-          </View>
-        </Pressable>
+      {/* Format Modal */}
+      <Modal visible={showFormatModal} animationType="fade" transparent>
+         <View style={styles.centerOverlay}>
+            <View style={styles.centerSheet}>
+               <Text style={styles.centerTitle}>Select Format</Text>
+               {FORMATS.map(f => (
+                 <Pressable
+                   key={f.value}
+                   style={styles.formatItem}
+                   onPress={() => { setBarcodeFormat(f.value); setShowFormatModal(false); }}
+                 >
+                   <Text style={[styles.formatLabel, barcodeFormat === f.value && { fontWeight: '900' }]}>{f.label}</Text>
+                   {barcodeFormat === f.value && <Zap size={14} color="#000" fill="#000" />}
+                 </Pressable>
+               ))}
+            </View>
+         </View>
       </Modal>
 
-      {/* Camera Scanning Modal */}
-      <Modal
-        visible={isScanning}
-        animationType="fade"
-        presentationStyle="fullScreen"
-        statusBarTranslucent
-      >
-        <View style={styles.cameraContainer}>
+      {/* Scanner Modal */}
+      <Modal visible={isScanning} animationType="fade" transparent presentationStyle="fullScreen">
+        <View style={styles.camLayer}>
           <CameraView
-            key={isScanning ? 'active-scan' : 'inactive-scan'}
-            style={styles.camera}
+            style={StyleSheet.absoluteFill}
             facing="back"
             onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-            barcodeScannerSettings={{
-              barcodeTypes: ["qr", "ean13", "ean8", "code128", "code39"],
-            }}
-            onMountError={(error) => {
-              console.error('[BarcodePage] Camera Mount Error:', error);
-              showToast('Camera failed to start', 'error');
-            }}
+            barcodeScannerSettings={{ barcodeTypes: ["qr", "ean13", "code128"] }}
           >
-            <SafeAreaView style={styles.cameraUi}>
-              <View style={styles.camHeader}>
-                <Pressable onPress={() => setIsScanning(false)} style={styles.camCloseBtn}>
-                  <X size={24} color="white" />
-                </Pressable>
-                <Text style={styles.camTitle}>Scan Product</Text>
-                <View style={{ width: 44 }} />
-              </View>
-
-              <View style={styles.camFocusArea}>
-                <View style={styles.laserLine} />
-                <Maximize2 size={240} color="rgba(255,255,255,0.4)" strokeWidth={1} style={styles.focusCorners} />
-              </View>
-
-              <View style={styles.camFooter}>
-                <Text style={styles.camInstruction}>Point camera at the barcode</Text>
-              </View>
+            <SafeAreaView style={styles.camUi}>
+               <View style={styles.camHeader}>
+                  <Pressable onPress={() => setIsScanning(false)} style={styles.camBack}>
+                    <X size={24} color="#fff" />
+                  </Pressable>
+                  <Text style={styles.camHeaderTitle}>LAB SCANNER</Text>
+                  <View style={{ width: 44 }} />
+               </View>
+               <View style={styles.camCenter}>
+                  <View style={styles.camBox}>
+                    <View style={styles.scanLine} />
+                  </View>
+               </View>
+               <View style={styles.camBottom}>
+                  <Text style={styles.camHint}>Position code within the frame</Text>
+               </View>
             </SafeAreaView>
           </CameraView>
         </View>
       </Modal>
-
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f8fafc'
-  },
-  mainContainer: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#64748b',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  headerTextContainer: {
-    marginLeft: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0f172a',
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#64748b',
-    marginTop: 2,
-    fontWeight: '500',
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-  },
-  cardContainer: {
-    backgroundColor: 'white',
-    borderRadius: 24,
-    shadowColor: '#94a3b8',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
-    overflow: 'hidden',
-    marginTop: 10,
-  },
-  configSection: {
-    padding: 24,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 16,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#334155',
-    marginBottom: 8,
-  },
-  pickerTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    height: 52,
-    paddingHorizontal: 16,
-  },
-  pickerIcon: {
-    marginRight: 10,
-  },
-  pickerValue: {
-    flex: 1,
-    fontSize: 15,
-    color: '#0f172a',
-    fontWeight: '500',
-  },
-  actionInputRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  skuInput: {
-    flex: 1,
-    height: 52,
-    backgroundColor: '#f8fafc',
-    fontSize: 16,
-    fontFamily: Platform.select({ ios: 'Courier', android: 'monospace' }),
-    fontWeight: '600',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  scanActionBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  gradientBtnContainer: {
-    marginTop: 8,
-    borderRadius: 14,
-    shadowColor: '#2563eb',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  gradientBtn: {
-    height: 52,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  gradientBtnText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#f1f5f9',
+  container: { flex: 1, backgroundColor: '#ffffff' },
+  headerWrapper: { backgroundColor: '#ffffff' },
+  header: { 
+    height: 130, 
     width: '100%',
+    paddingHorizontal: 25, 
+    justifyContent: 'flex-end', 
+    paddingBottom: 30,
+    borderBottomLeftRadius: 50,
+    borderBottomRightRadius: 50,
+    overflow: 'hidden'
   },
-  previewSection: {
-    padding: 24,
-    backgroundColor: '#fafbfc',
+  navBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  navBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 15 },
+  headerInfo: { alignItems: 'center' },
+  brand: { color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: '900', letterSpacing: 4 },
+  title: { color: '#ffffff', fontSize: 22, fontWeight: '900', marginTop: 2 },
+  
+  scrollBody: { padding: 25 },
+  section: { marginBottom: 35 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, gap: 10 },
+  sectionLabel: { fontSize: 11, fontWeight: '900', color: '#000', letterSpacing: 1.5 },
+  
+  card: { backgroundColor: '#ffffff', borderRadius: 30, padding: 25, borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 4 },
+  label: { fontSize: 10, fontWeight: '800', color: '#94a3b8', marginBottom: 10, letterSpacing: 1 },
+  selector: { height: 60, backgroundColor: '#f8fafc', borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 20, borderWidth: 1, borderColor: '#e2e8f0' },
+  selIcon: { marginRight: 12 },
+  selValue: { flex: 1, fontSize: 15, fontWeight: '700', color: '#000' },
+  
+  row: { flexDirection: 'row', marginBottom: 25 },
+  inputStyle: { flex: 1, height: 60, backgroundColor: '#f8fafc', borderRadius: 18, fontSize: 16, fontWeight: '900', paddingHorizontal: 15, color: '#000', borderWidth: 1, borderColor: '#e2e8f0' },
+  formatSel: { height: 60, width: 105, backgroundColor: '#f8fafc', borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: '#e2e8f0' },
+  formatValue: { fontSize: 15, fontWeight: '900', color: '#000' },
+  
+  actionBtn: { height: 60, backgroundColor: '#000', borderRadius: 20, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 },
+  actionBtnDisabled: { backgroundColor: '#f1f5f9', shadowOpacity: 0, elevation: 0, borderWidth: 1, borderColor: '#e2e8f0' },
+  actionBtnText: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1 },
+  actionBtnTextDisabled: { color: '#94a3b8' },
+  
+  previewContainer: { alignItems: 'center' },
+  ticket: { width: '100%', backgroundColor: '#fff', borderRadius: 35, borderWidth: 2, borderColor: '#000', position: 'relative', overflow: 'hidden' },
+  punch: { position: 'absolute', left: '50%', marginLeft: -45, width: 90, height: 22, backgroundColor: '#fff', borderRadius: 11, borderWidth: 2, borderColor: '#000' },
+  ticketContent: { paddingHorizontal: 40, paddingVertical: 50, alignItems: 'center', gap: 20 },
+  barcodeText: { fontSize: 28, fontWeight: '900', letterSpacing: 6, color: '#000', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
+  metaRow: { flexDirection: 'row', gap: 10, alignItems: 'center', backgroundColor: '#f1f5f9', paddingHorizontal: 15, paddingVertical: 6, borderRadius: 100 },
+  metaLabel: { fontSize: 9, fontWeight: '900', color: '#64748b' },
+  metaVal: { fontSize: 11, fontWeight: '800', color: '#000' },
+  emptyState: { padding: 40, alignItems: 'center', gap: 15 },
+  emptyPrompt: { color: '#cbd5e1', fontWeight: '900', fontSize: 16 },
+  
+  footerActions: { flexDirection: 'row', gap: 15, marginTop: 30, width: '100%' },
+  footerBtn: { flex: 1, height: 60, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  footerBtnText: { fontSize: 15, fontWeight: '900' },
+  btnOutline: { borderWidth: 2, borderColor: '#000' },
+  btnBlack: { backgroundColor: '#000' },
+  
+  tipBox: { backgroundColor: '#f8fafc', padding: 20, borderRadius: 20, marginTop: 10 },
+  tipText: { color: '#64748b', fontSize: 13, lineHeight: 18, fontWeight: '500', textAlign: 'center' },
+  
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 40, borderTopRightRadius: 40, height: '85%', padding: 25 },
+  sheetHandle: { width: 50, height: 5, backgroundColor: '#f1f5f9', borderRadius: 10, alignSelf: 'center', marginBottom: 25 },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  sheetTitle: { fontSize: 24, fontWeight: '900', color: '#000' },
+  sheetClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc', borderRadius: 22 },
+  
+  searchBarOuter: { 
+    height: 64, 
+    backgroundColor: '#f1f5f9', 
+    borderRadius: 22, 
+    padding: 6, 
+    marginBottom: 20 
   },
-  ticketContainer: {
-    backgroundColor: 'white',
-    borderRadius: 16,
+  searchBarInner: { 
+    flex: 1, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#fff', 
+    borderRadius: 18, 
+    paddingHorizontal: 15,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    minHeight: 180,
-    marginBottom: 24,
-    position: 'relative',
-    shadowColor: '#64748b',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-    overflow: 'hidden',
+    borderColor: '#e2e8f0'
   },
-  ticketContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 30,
-    gap: 16,
+  searchBarInput: { 
+    flex: 1, 
+    height: '100%', 
+    fontSize: 16, 
+    fontWeight: '700', 
+    marginLeft: 12, 
+    color: '#000',
   },
-  barcodeCode: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#0f172a',
-    fontFamily: Platform.select({ ios: 'Courier', android: 'monospace' }),
-    letterSpacing: 2,
-  },
-  barcodeMetaTag: {
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 100,
-  },
-  barcodeMetaText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  emptyState: {
-    alignItems: 'center',
-    gap: 12,
-  },
-  emptyStateIconBg: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: {
-    color: '#94a3b8',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  ripDecorTop: {
-    position: 'absolute',
-    top: -6,
-    left: '50%',
-    marginLeft: -40,
-    width: 80,
-    height: 12,
-    backgroundColor: '#fafbfc',
-    borderRadius: 6,
-  },
-  ripDecorBottom: {
-    position: 'absolute',
-    bottom: -6,
-    left: '50%',
-    marginLeft: -40,
-    width: 80,
-    height: 12,
-    backgroundColor: '#fafbfc',
-    borderRadius: 6,
-  },
-  actionGrid: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  gridBtn: {
-    flex: 1,
-  },
+  
+  productNode: { borderBottomWidth: 1, borderBottomColor: '#f8fafc', paddingVertical: 5 },
+  productRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 18 },
+  rowDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#000', marginRight: 15 },
+  rowInfo: { flex: 1 },
+  rowName: { fontSize: 17, fontWeight: '900', color: '#000' },
+  rowSku: { fontSize: 13, fontWeight: '700', color: '#94a3b8', marginTop: 3 },
+  
+  variantContainer: { paddingLeft: 25, paddingBottom: 15, gap: 10 },
+  variantChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', padding: 12, borderRadius: 15, borderWidth: 1, borderColor: '#f1f5f9' },
+  vName: { flex: 1, fontSize: 14, fontWeight: '800', color: '#475569' },
+  vCode: { fontSize: 12, fontWeight: '700', color: '#94a3b8', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
 
-  // Modals
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    height: '85%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  closeBtn: {
-    padding: 4,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 20,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    backgroundColor: '#f8fafc',
-    margin: 16,
-    marginTop: 16,
-    borderRadius: 14,
-    height: 52,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  searchInput: {
-    flex: 1,
-    height: 50,
-    fontSize: 16,
-    borderWidth: 0,
-    backgroundColor: 'transparent',
-    marginLeft: 8,
-  },
-  productItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  productInitial: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#e0e7ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-  },
-  initialText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#4f46e5',
-  },
-  productInfo: {
-    flex: 1,
-  },
-  productName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0f172a',
-    marginBottom: 2,
-  },
-  productSku: {
-    fontSize: 13,
-    color: '#64748b',
-  },
-  emptyList: {
-    padding: 40,
-    alignItems: 'center',
-    gap: 16,
-  },
-  emptyListText: {
-    color: '#94a3b8',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-
-  // Center Modal
-  centerModal: {
-    backgroundColor: 'white',
-    margin: 24,
-    marginTop: 'auto',
-    marginBottom: 'auto',
-    borderRadius: 24,
-    padding: 24,
-    width: width - 48,
-  },
-  centerModalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  formatOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 18,
-    paddingHorizontal: 12,
-  },
-  borderBottom: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  formatOptionText: {
-    fontSize: 17,
-    color: '#475569',
-    fontWeight: '500',
-  },
-  formatActive: {
-    color: '#2563eb',
-    fontWeight: '700',
-  },
-  activeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#2563eb',
-  },
-
-  // Camera Styles
-  cameraContainer: {
-    flex: 1,
-    backgroundColor: 'black',
-  },
-  camera: {
-    flex: 1,
-  },
-  cameraUi: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  camHeader: {
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  camCloseBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  camTitle: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '600',
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  camFocusArea: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  focusCorners: {
-    position: 'absolute',
-  },
-  laserLine: {
-    width: '70%',
-    height: 2,
-    backgroundColor: '#ef4444',
-    shadowColor: '#ef4444',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 10,
-  },
-  camFooter: {
-    padding: 40,
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  camInstruction: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 15,
-    textAlign: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 100,
-    overflow: 'hidden',
-  },
+  centerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 30 },
+  centerSheet: { backgroundColor: '#fff', borderRadius: 30, padding: 30 },
+  centerTitle: { fontSize: 20, fontWeight: '900', color: '#000', marginBottom: 25, textAlign: 'center', letterSpacing: 1 },
+  formatItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  formatLabel: { fontSize: 16, color: '#000', fontWeight: '500' },
+  
+  camLayer: { flex: 1, backgroundColor: '#000' },
+  camUi: { flex: 1, justifyContent: 'space-between' },
+  camHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 25 },
+  camBack: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
+  camHeaderTitle: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 4 },
+  camCenter: { alignItems: 'center', justifyContent: 'center' },
+  camBox: { width: 280, height: 280, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', borderRadius: 50, alignItems: 'center', justifyContent: 'center' },
+  scanLine: { width: '80%', height: 2, backgroundColor: '#fff', position: 'absolute', top: '50%', shadowColor: '#fff', shadowOpacity: 0.8, shadowRadius: 10 },
+  camBottom: { padding: 40, alignItems: 'center' },
+  camHint: { color: '#fff', fontSize: 12, fontWeight: '600', opacity: 0.8, letterSpacing: 1 }
 });

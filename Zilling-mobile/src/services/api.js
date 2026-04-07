@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-const PRODUCTION_URL = 'https://kwiq-bill.onrender.com';
+const PRODUCTION_URL = 'https://kwiq-bill-demo-1.onrender.com';
 let LOCAL_IP;
 try {
   // Optional local-env config; if present, it can override the default LOCAL_IP
@@ -35,7 +35,7 @@ const BASE_URL = IS_PRODUCTION ? PRODUCTION_URL : LOCAL_URL;
 
 const API = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000, // Increased to 10s for Render "cold starts"
+  timeout: 30000, // Increased to 30s for Render "cold starts"
 });
 
 // For debugging: verify which URL is being used
@@ -49,10 +49,11 @@ console.log(`[API] Initialized with baseURL: ${BASE_URL} (Mode: ${IS_PRODUCTION 
  */
 import { initializeSslPinning } from 'react-native-ssl-public-key-pinning';
 
+/* 
 // We initialize SSL pinning immediately to protect the production node
 if (IS_PRODUCTION) {
   initializeSslPinning({
-    'kwiq-bill.onrender.com': {
+    'kwiq-bill-demo-1.onrender.com': {
       includeSubdomains: true,
       publicKeyHashes: [
         'sha256/WoiWRyIOVNa9ihaBciRSC7XHjliYS9VwUGOIud4PB18=', // Primary Let's Encrypt / Render Hash
@@ -61,6 +62,7 @@ if (IS_PRODUCTION) {
     }
   }).catch(err => console.error('[SSL_PINNING] Failed to initialize', err));
 }
+*/
 
 // Attach token automatically
 API.interceptors.request.use(async (config) => {
@@ -86,9 +88,10 @@ API.interceptors.response.use(
   },
   async (error) => {
     // Detailed error logging for debugging "Network Error"
-    if (error.message === 'Network Error') {
+    if (error.message === 'Network Error' || !error.response) {
       console.error(`[API] Network Error connecting to: ${BASE_URL}`);
-      console.error('Possible causes: Server not running, IP changed, or device not on same WiFi.');
+      console.error(`[API] Error Details: ${error.message} (Code: ${error.code})`);
+      console.error('Possible causes: Server not running, IP changed, or device not on same WiFi / no internet.');
     } else if (error.response) {
       const sanitizedUrl = error.config?.url ? error.config.url.split('?')[0] : 'unknown_url';
       console.log(`[API] Error Status: ${error.response.status} for ${sanitizedUrl}`);

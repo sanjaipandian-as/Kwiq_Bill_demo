@@ -2,9 +2,9 @@ import { Zap, UserCheck, ShieldAlert, ShieldCheck, UserX, Activity, ChevronRight
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Modals = ({
-    selectedUser, 
-    setSelectedUser, 
-    
+    selectedUser,
+    setSelectedUser,
+
     showInviteModal,
     setShowInviteModal,
     inviteEmail,
@@ -27,13 +27,13 @@ const Modals = ({
             {/* Invite User Modal */}
             <AnimatePresence>
                 {showInviteModal && (
-                    <motion.div 
+                    <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         className="modal-backdrop"
                     >
-                        <motion.div 
+                        <motion.div
                             initial={{ scale: 0.9, y: 20 }}
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.9, y: 20 }}
@@ -48,9 +48,9 @@ const Modals = ({
                             <form onSubmit={handleInviteUser} className="invite-form">
                                 <div className="input-group">
                                     <label>User's Email Address</label>
-                                    <input 
-                                        type="email" 
-                                        required 
+                                    <input
+                                        type="email"
+                                        required
                                         placeholder="founder@startup.com"
                                         value={inviteEmail}
                                         onChange={(e) => setInviteEmail(e.target.value)}
@@ -79,13 +79,13 @@ const Modals = ({
             {/* Security Audit Modal */}
             <AnimatePresence>
                 {showSecurityModal && (
-                    <motion.div 
+                    <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         className="modal-backdrop"
                     >
-                        <motion.div 
+                        <motion.div
                             initial={{ scale: 0.9, y: 20 }}
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.9, y: 20 }}
@@ -147,14 +147,14 @@ const Modals = ({
             {/* PIN Reset Code Modal */}
             <AnimatePresence>
                 {resetData && (
-                    <motion.div 
+                    <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         className="modal-backdrop"
                         style={{ zIndex: 2000 }}
                     >
-                        <motion.div 
+                        <motion.div
                             initial={{ scale: 0.9, y: 20 }}
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.9, y: 20 }}
@@ -167,18 +167,18 @@ const Modals = ({
                                 <p>Provide this code to the manager for identity verification.</p>
                             </div>
 
-                            <div style={{ 
-                                background: '#000', 
-                                color: '#fff', 
-                                padding: '30px', 
-                                borderRadius: '24px', 
+                            <div style={{
+                                background: '#000',
+                                color: '#fff',
+                                padding: '30px',
+                                borderRadius: '24px',
                                 textAlign: 'center',
                                 marginBottom: '24px',
                                 boxShadow: '0 15px 30px rgba(0,0,0,0.2)'
                             }}>
-                                <span style={{ 
-                                    fontSize: '48px', 
-                                    fontWeight: '950', 
+                                <span style={{
+                                    fontSize: '48px',
+                                    fontWeight: '950',
                                     letterSpacing: '4px',
                                     fontFamily: 'monospace'
                                 }}>

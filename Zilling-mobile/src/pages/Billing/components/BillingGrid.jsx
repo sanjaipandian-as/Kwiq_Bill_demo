@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView } from 'react-native';
 import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X, Barcode, Copy, Check } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProducts } from '../../../context/ProductContext';
 import BottomFunctionBar from './BottomFunctionBar';
 
@@ -77,6 +78,8 @@ const BillingGrid = ({
     onRemoveAdjustment,
     onRemoveItemDiscount
 }) => {
+    const insets = useSafeAreaInsets();
+    const hasBottomNav = Platform.OS === 'android' && insets.bottom > 0;
     const [barcodeModal, setBarcodeModal] = useState({ isOpen: false, barcode: '', name: '' });
     const [isCopied, setIsCopied] = useState(false);
 
@@ -106,8 +109,6 @@ const BillingGrid = ({
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const searchInputRef = React.useRef(null);
     const listRef = React.useRef(null);
-
-
 
     useEffect(() => {
         const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
@@ -376,7 +377,7 @@ const BillingGrid = ({
                     styles.suggestionSection,
                     (isKeyboardVisible || isSearchFocused)
                         ? { flex: 1, paddingTop: 10 }
-                        : (cart.length > 0 ? { flex: 0, height: '65%', minHeight: 380 } : { flex: 1 })
+                        : (cart.length > 0 ? { flex: 0, height: hasBottomNav ? '40%' : '65%', minHeight: hasBottomNav ? 280 : 380 } : { flex: 1 })
                 ]}
             >
                 {cart.length > 0 && !isSearchFocused && !isKeyboardVisible && (

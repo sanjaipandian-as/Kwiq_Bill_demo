@@ -1,7 +1,7 @@
 import React from 'react';
-import { 
-  Users, UserCheck, Zap, AlertCircle, ArrowUpRight, ArrowDownRight, 
-  PlusCircle, ShieldAlert, CreditCard 
+import {
+    Users, UserCheck, Zap, AlertCircle, ArrowUpRight, ArrowDownRight,
+    PlusCircle, ShieldAlert, CreditCard
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
