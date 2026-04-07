@@ -10,8 +10,8 @@ import { InteractionManager } from 'react-native';
 // setImmediate gives React a proper 16ms animation frame budget;
 // setTimeout(0) only yields one tick and can still block long animations.
 const yieldToUI = () => new Promise(resolve => {
-  if (typeof setImmediate === 'function') setImmediate(resolve);
-  else setTimeout(resolve, 0);
+    if (typeof setImmediate === 'function') setImmediate(resolve);
+    else setTimeout(resolve, 0);
 });
 const PROCESSED_EVENTS_KEY = 'processed_events_ids';
 const PENDING_UPLOAD_QUEUE_KEY = 'pending_upload_queue';
@@ -27,48 +27,48 @@ const SYNC_HISTORY_LIMIT_DAYS = 30; // "Recent Mode" limit
  * Yields the thread for 16ms between chunks to keep animations fluid.
  */
 class SyncWriteQueue {
-  constructor() {
-    this.queue = [];
-    this.isFlushing = false;
-    this.startupMode = true;
-    
-    // Switch to background mode after 60s
-    setTimeout(() => { this.startupMode = false; }, 60000);
-  }
-
-  async enqueue(chunk, isHighPriority = false) {
-    if (isHighPriority) this.queue.unshift(chunk);
-    else this.queue.push(chunk);
-    
-    if (!this.isFlushing) {
-      this.isFlushing = true;
-      try {
-        await this.flush();
-      } finally {
+    constructor() {
+        this.queue = [];
         this.isFlushing = false;
-      }
-    }
-  }
+        this.startupMode = true;
 
-  async flush() {
-    while (this.queue.length > 0) {
-      const chunk = this.queue.shift();
-      // 🚀 ADAPTIVE YIELDING: run fewer ops per yield on startup
-      const SUB_BATCH_SIZE = this.startupMode ? 5 : 15;
-      const YIELD_MS = this.startupMode ? 32 : 16;
-
-      for (let i = 0; i < chunk.length; i += SUB_BATCH_SIZE) {
-        const subBatch = chunk.slice(i, i + SUB_BATCH_SIZE);
-        await db.withTransactionAsync(async () => {
-          for (const op of subBatch) {
-            await op();
-          }
-        });
-        // 🚀 CRITICAL: Longer yield on startup to allow Navigation to respond
-        await new Promise(r => setTimeout(r, YIELD_MS));
-      }
+        // Switch to background mode after 60s
+        setTimeout(() => { this.startupMode = false; }, 60000);
     }
-  }
+
+    async enqueue(chunk, isHighPriority = false) {
+        if (isHighPriority) this.queue.unshift(chunk);
+        else this.queue.push(chunk);
+
+        if (!this.isFlushing) {
+            this.isFlushing = true;
+            try {
+                await this.flush();
+            } finally {
+                this.isFlushing = false;
+            }
+        }
+    }
+
+    async flush() {
+        while (this.queue.length > 0) {
+            const chunk = this.queue.shift();
+            // 🚀 ADAPTIVE YIELDING: run fewer ops per yield on startup
+            const SUB_BATCH_SIZE = this.startupMode ? 5 : 15;
+            const YIELD_MS = this.startupMode ? 32 : 16;
+
+            for (let i = 0; i < chunk.length; i += SUB_BATCH_SIZE) {
+                const subBatch = chunk.slice(i, i + SUB_BATCH_SIZE);
+                await db.withTransactionAsync(async () => {
+                    for (const op of subBatch) {
+                        await op();
+                    }
+                });
+                // 🚀 CRITICAL: Longer yield on startup to allow Navigation to respond
+                await new Promise(r => setTimeout(r, YIELD_MS));
+            }
+        }
+    }
 }
 
 const writeQueue = new SyncWriteQueue();
@@ -78,31 +78,31 @@ const writeQueue = new SyncWriteQueue();
  * Tracks 3-tier health status instead of just success/fail.
  */
 export class SyncLedger {
-  static async recordAttempt(success, count = 0) {
-    const statusStr = await AsyncStorage.getItem('sync_ledger');
-    const status = statusStr ? JSON.parse(statusStr) : { lastSuccess: Date.now(), failStreak: 0 };
-    
-    const newStatus = {
-      lastAttempt: Date.now(),
-      lastSuccess: success ? Date.now() : status.lastSuccess,
-      failStreak: success ? 0 : (status.failStreak || 0) + 1,
-      pendingChanges: count
-    };
-    await AsyncStorage.setItem('sync_ledger', JSON.stringify(newStatus));
-    return newStatus;
-  }
+    static async recordAttempt(success, count = 0) {
+        const statusStr = await AsyncStorage.getItem('sync_ledger');
+        const status = statusStr ? JSON.parse(statusStr) : { lastSuccess: Date.now(), failStreak: 0 };
 
-  static async getHealthStatus() {
-    const statusStr = await AsyncStorage.getItem('sync_ledger');
-    if (!statusStr) return 'HEALTHY';
-    const status = JSON.parse(statusStr);
-    const minsSinceSuccess = (Date.now() - status.lastSuccess) / 60000;
-    
-    if (minsSinceSuccess < 5) return 'HEALTHY';
-    if (minsSinceSuccess < 30 && status.pendingChanges === 0) return 'WARNING';
-    if (status.pendingChanges > 0 || minsSinceSuccess >= 30) return 'CRITICAL';
-    return 'HEALTHY';
-  }
+        const newStatus = {
+            lastAttempt: Date.now(),
+            lastSuccess: success ? Date.now() : status.lastSuccess,
+            failStreak: success ? 0 : (status.failStreak || 0) + 1,
+            pendingChanges: count
+        };
+        await AsyncStorage.setItem('sync_ledger', JSON.stringify(newStatus));
+        return newStatus;
+    }
+
+    static async getHealthStatus() {
+        const statusStr = await AsyncStorage.getItem('sync_ledger');
+        if (!statusStr) return 'HEALTHY';
+        const status = JSON.parse(statusStr);
+        const minsSinceSuccess = (Date.now() - status.lastSuccess) / 60000;
+
+        if (minsSinceSuccess < 5) return 'HEALTHY';
+        if (minsSinceSuccess < 30 && status.pendingChanges === 0) return 'WARNING';
+        if (status.pendingChanges > 0 || minsSinceSuccess >= 30) return 'CRITICAL';
+        return 'HEALTHY';
+    }
 }
 
 
@@ -159,18 +159,18 @@ async function smartParse(text, key, fileName = "unknown") {
 
     // 1. ROBUST CLEANING: Strip hidden MIME/Multipart trash
     let cleaned = text.trim();
-    
+
     // Find where the real data starts ({ or [ for JSON, U2Fsd or KWIQV2 for Encrypted)
     const jsonStart = cleaned.search(/[\{\[]/);
     let encStart = cleaned.indexOf('U2FsdGVkX1');
     if (encStart === -1) encStart = cleaned.indexOf('KWIQV2:');
-    
+
     if (jsonStart !== -1 || encStart !== -1) {
-        const start = (jsonStart !== -1 && encStart !== -1) 
-            ? Math.min(jsonStart, encStart) 
+        const start = (jsonStart !== -1 && encStart !== -1)
+            ? Math.min(jsonStart, encStart)
             : Math.max(jsonStart, encStart);
         cleaned = cleaned.substring(start);
-        
+
         // If it looks like JSON, find the absolute last bracket/brace
         if (cleaned.startsWith('{')) {
             const lastBrace = cleaned.lastIndexOf('}');
@@ -200,7 +200,7 @@ async function smartParse(text, key, fileName = "unknown") {
         try {
             const salt = await getDriveEncSalt();
             const decrypted = await decryptContent(cleaned, key, salt);
-            
+
             if (decrypted && (decrypted.trim().startsWith('{') || decrypted.trim().startsWith('['))) {
                 return JSON.parse(decrypted);
             }
@@ -239,7 +239,7 @@ function normalizeItems(raw) {
  */
 async function bilingualFieldDecrypt(value, email) {
     if (typeof value !== 'string' || (!value.startsWith('U2FsdGVkX1') && !value.startsWith('KWIQV2:'))) return value;
-    
+
     // We try decryption with email and a fallback to the common PC salt 
     // to ensure the phone can read data created on the computer.
     try {
@@ -258,17 +258,17 @@ function normalizeVariants(raw) {
     return list.map(v => {
         // Robust cost price mapping
         const computedCost = Number(
-            (v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price : 
-            ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)
+            (v.cost_price !== undefined && v.cost_price !== null && v.cost_price !== '') ? v.cost_price :
+                ((v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') ? v.costPrice : 0)
         ) || 0;
 
         const resolvedBarcode = String(v.barcode || v.sku || '').trim();
-        
+
         // Robust stock/qty mapping
         const computedStock = Number(
-            (v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock : 
-            ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty : 
-            ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))
+            (v.stock !== undefined && v.stock !== null && v.stock !== '') ? v.stock :
+                ((v.qty !== undefined && v.qty !== null && v.qty !== '') ? v.qty :
+                    ((v.quantity !== undefined && v.quantity !== null && v.quantity !== '') ? v.quantity : 0))
         ) || 0;
 
         return {
@@ -386,10 +386,10 @@ async function normalizeProductPayload(p, email = null) {
  */
 async function normalizeCustomerPayload(payload, email = null) {
     // Handle concatenated name if Desktop sends firstName + lastName
-    const rawName = payload.name || 
-                        (payload.firstName ? `${payload.firstName} ${payload.lastName || ''}`.trim() : '') || 
-                        'Guest';
-    
+    const rawName = payload.name ||
+        (payload.firstName ? `${payload.firstName} ${payload.lastName || ''}`.trim() : '') ||
+        'Guest';
+
     const resolvedName = await bilingualFieldDecrypt(rawName, email);
 
     return {
@@ -505,10 +505,10 @@ const acquireSyncLock = (type = 'down') => {
     if (_syncState.isSyncing) {
         // Check for stale lock (older than 15 mins)
         if (now - _syncState.startTime > SYNC_TIMEOUT_MS) {
-            console.warn(`[Sync] Stale ${_syncState.type} lock detected (elapsed: ${Math.round((now - _syncState.startTime)/1000)}s). Forcing reset.`);
+            console.warn(`[Sync] Stale ${_syncState.type} lock detected (elapsed: ${Math.round((now - _syncState.startTime) / 1000)}s). Forcing reset.`);
             _syncState.isSyncing = false;
         } else {
-            console.log(`[Sync] ${type} requested, but ${_syncState.type} already in progress (elapsed: ${Math.round((now - _syncState.startTime)/1000)}s). Skipping.`);
+            console.log(`[Sync] ${type} requested, but ${_syncState.type} already in progress (elapsed: ${Math.round((now - _syncState.startTime) / 1000)}s). Skipping.`);
             return false;
         }
     }
@@ -528,7 +528,7 @@ let _cachedBackupsFolderId = null;
 let _cachedSyncKey = null;
 
 export const SyncService = {
-    
+
     // Allow external callers (like AuthContext) to set the key directly
     setSyncContext(email) {
         if (email) {
@@ -548,7 +548,7 @@ export const SyncService = {
         try {
             const { logoutDriveCache } = require('./googleDriveservices');
             logoutDriveCache();
-        } catch (e) {}
+        } catch (e) { }
     },
 
     /**
@@ -595,7 +595,7 @@ export const SyncService = {
     async getEventsFolderId(accessToken) {
         if (_cachedEventsFolderId) return _cachedEventsFolderId;
         const rootId = await this.getBackupFolderId(accessToken);
-        
+
         // Use subfolder 'events' to be compatible with Desktop/Electron structure
         const folderId = await getOrCreateFolder(accessToken, 'events', rootId);
         _cachedEventsFolderId = folderId;
@@ -605,7 +605,7 @@ export const SyncService = {
     async getSnapshotsFolderId(accessToken) {
         if (_cachedSnapshotsFolderId) return _cachedSnapshotsFolderId;
         const rootId = await this.getBackupFolderId(accessToken);
-        
+
         // Use subfolder 'snapshots' to be compatible with Desktop/Electron structure
         const folderId = await getOrCreateFolder(accessToken, 'snapshots', rootId);
         _cachedSnapshotsFolderId = folderId;
@@ -695,19 +695,19 @@ export const SyncService = {
 
                 await this.removeFromQueue(eventId);
                 console.log(`[Sync] ✓ Event uploaded: ${type}`);
- 
+
                 // TRACK FOR SNAPSHOT (Every X events, suggest a snapshot)
                 const countKey = await this.getUserSyncKey('local_event_count');
                 const currentCount = parseInt(await AsyncStorage.getItem(countKey)) || 0;
                 const newCount = currentCount + 1;
                 await AsyncStorage.setItem(countKey, String(newCount));
- 
+
                 if (newCount >= SNAPSHOT_THRESHOLD) {
                     console.log('[Sync] Threshold reached. Creating Global Snapshot in background...');
                     this.createGlobalSnapshot().catch(e => console.log('Auto-Snapshot failed:', e));
                     await AsyncStorage.setItem(countKey, '0');
                 }
- 
+
                 return true;
             })();
 
@@ -723,7 +723,7 @@ export const SyncService = {
             return false;
         }
     },
- 
+
     /**
      * Create a Full Baseline Snapshot of the Database
      * PRODUCTION GRADE: Bundles all tables into a single encrypted file.
@@ -732,18 +732,18 @@ export const SyncService = {
         try {
             console.log('[Snapshot] Generating Global Snapshot...');
             onProgress('Gathering local data...', 0.1);
- 
+
             const { fetchAllTableData } = require('./database');
             const [accessToken, allData, userStr] = await Promise.all([
                 getAccessToken(),
                 fetchAllTableData(),
                 AsyncStorage.getItem('user'),
             ]);
- 
+
             if (!accessToken) throw new Error('Not logged in');
             const user = userStr ? JSON.parse(userStr) : null;
             if (!user?.email) throw new Error('User email missing');
- 
+
             onProgress('Encrypting baseline...', 0.4);
             // Add metadata to the snapshot
             const snapshot = {
@@ -753,7 +753,7 @@ export const SyncService = {
                 data: allData,
                 hash: '' // Placeholder
             };
- 
+
             // ═══════════════════════════════════════════════════════════════
             // GOLDEN RULE #5: Integrity Signing (SHA-256)
             // Signs the snapshot payload so we can detect tampering on restore.
@@ -765,13 +765,13 @@ export const SyncService = {
             const salt = await getDriveEncSalt();
             const derivedKey = deriveEncryptionKey(user.email, salt);
             content = encryptContent(content, derivedKey);
- 
+
             onProgress('Uploading to cloud...', 0.7);
             const folderId = await this.getSnapshotsFolderId(accessToken);
             const fileName = `global_snapshot_${new Date().toISOString().split('T')[0]}_${generateUUID().slice(0, 8)}.json`;
-            
+
             await uploadFileToFolder(accessToken, folderId, fileName, content);
-            
+
             // Update last snapshot time tracker
             const snapTimeKey = await this.getUserSyncKey(LAST_SNAPSHOT_TIME_KEY);
             await AsyncStorage.setItem(snapTimeKey, new Date().toISOString());
@@ -784,7 +784,7 @@ export const SyncService = {
             return false;
         }
     },
- 
+
     /**
      * Restore from the Latest Baseline Snapshot
      * PRODUCTION GRADE: Rapid recovery for new devices.
@@ -816,7 +816,7 @@ export const SyncService = {
                 console.log('[Restore] No valid snapshot files found in folder.');
                 return false;
             }
-            
+
             const latest = files[0];
             const isGlobal = latest.name.includes('global_snapshot_') || latest.name.includes('snapshot_v');
 
@@ -834,7 +834,7 @@ export const SyncService = {
                 { headers: { Authorization: `Bearer ${accessToken}` } }
             );
             const encryptedContent = await fileRes.text();
-            
+
             const userStr = await AsyncStorage.getItem('user');
             const user = userStr ? JSON.parse(userStr) : null;
             if (!user?.email) throw new Error('User email missing for decryption');
@@ -875,61 +875,61 @@ export const SyncService = {
             onProgress('Applying snapshot to local DB...', 0.7);
             // Nuclear wipe and re-insert
             await clearDatabase();
-            
+
             const { customers, products, invoices, expenses, receptionists, expense_categories } = snapshot.data;
-            
+
             // Re-insert logic (simplified for batch)
             await db.withTransactionAsync(async () => {
                 if (Array.isArray(customers)) {
-                  for (const c of customers) {
-                    const nc = await normalizeCustomerPayload(c, user.email);
-                    await db.runAsync(
-                      `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, amountPaid, whatsappOptIn, smsOptIn, outstanding)
+                    for (const c of customers) {
+                        const nc = await normalizeCustomerPayload(c, user.email);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, amountPaid, whatsappOptIn, smsOptIn, outstanding)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                      [nc.id, nc.name, nc.phone, nc.email, nc.type, nc.gstin, nc.address, nc.source, nc.tags, nc.loyaltyPoints, nc.notes, nc.created_at, nc.updated_at, nc.amountPaid, nc.whatsappOptIn, nc.smsOptIn, nc.outstanding]
-                    );
-                  }
+                            [nc.id, nc.name, nc.phone, nc.email, nc.type, nc.gstin, nc.address, nc.source, nc.tags, nc.loyaltyPoints, nc.notes, nc.created_at, nc.updated_at, nc.amountPaid, nc.whatsappOptIn, nc.smsOptIn, nc.outstanding]
+                        );
+                    }
                 }
                 if (Array.isArray(products)) {
-                  for (const p of products) {
-                    const np = await normalizeProductPayload(p, user.email);
-                    await db.runAsync(
-                      `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at, is_deleted)
+                    for (const p of products) {
+                        const np = await normalizeProductPayload(p, user.email);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at, is_deleted)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                      [np.id, np.name, np.sku, np.category, np.price, np.cost_price, np.stock, np.min_stock, np.unit, np.tax_rate, np.variants, np.variant, np.created_at, np.updated_at, np.is_deleted]
-                    );
-                  }
+                            [np.id, np.name, np.sku, np.category, np.price, np.cost_price, np.stock, np.min_stock, np.unit, np.tax_rate, np.variants, np.variant, np.created_at, np.updated_at, np.is_deleted]
+                        );
+                    }
                 }
 
                 if (Array.isArray(invoices)) {
-                  for (const inv of invoices) {
-                    const ni = await normalizeInvoicePayload(inv, user.email);
-                    await db.runAsync(
-                      `INSERT OR REPLACE INTO invoices (id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, taxType, created_at, updated_at, is_deleted)
+                    for (const inv of invoices) {
+                        const ni = await normalizeInvoicePayload(inv, user.email);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO invoices (id, customer_id, customer_name, date, type, items, subtotal, tax, discount, total, status, payments, grossTotal, itemDiscount, additionalCharges, roundOff, amountReceived, internalNotes, taxType, created_at, updated_at, is_deleted)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                      [ni.id, ni.customer_id, ni.customer_name, ni.date, ni.type, ni.itemsStr, ni.subtotal, ni.tax, ni.discount, ni.total, ni.status, ni.paymentsStr, ni.grossTotal, ni.itemDiscount, ni.additionalCharges, ni.roundOff, ni.amountReceived, ni.internalNotes, ni.taxType, ni.created_at, ni.updated_at, ni.is_deleted]
-                    );
-                  }
+                            [ni.id, ni.customer_id, ni.customer_name, ni.date, ni.type, ni.itemsStr, ni.subtotal, ni.tax, ni.discount, ni.total, ni.status, ni.paymentsStr, ni.grossTotal, ni.itemDiscount, ni.additionalCharges, ni.roundOff, ni.amountReceived, ni.internalNotes, ni.taxType, ni.created_at, ni.updated_at, ni.is_deleted]
+                        );
+                    }
                 }
                 if (Array.isArray(expenses)) {
-                  for (const e of expenses) {
-                    const ne = await normalizeExpensePayload(e, user.email);
-                    await db.runAsync(
-                      `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
+                    for (const e of expenses) {
+                        const ne = await normalizeExpensePayload(e, user.email);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, receipt_url, tags, created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                      [ne.id, ne.title, ne.amount, ne.category, ne.date, ne.payment_method, ne.receipt_url, ne.tags, ne.created_at, ne.updated_at]
-                    );
-                  }
+                            [ne.id, ne.title, ne.amount, ne.category, ne.date, ne.payment_method, ne.receipt_url, ne.tags, ne.created_at, ne.updated_at]
+                        );
+                    }
                 }
                 if (Array.isArray(receptionists)) {
-                  for (const r of receptionists) {
-                    const nr = await normalizeReceptionistPayload(r, user.email);
-                    await db.runAsync(
-                      `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
+                    for (const r of receptionists) {
+                        const nr = await normalizeReceptionistPayload(r, user.email);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO receptionists (id, name, is_active, created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?)`,
-                      [nr.id, nr.name, nr.is_active, nr.created_at, nr.updated_at]
-                    );
-                  }
+                            [nr.id, nr.name, nr.is_active, nr.created_at, nr.updated_at]
+                        );
+                    }
                 }
                 if (Array.isArray(expense_categories)) {
                     for (const c of expense_categories) {
@@ -944,14 +944,14 @@ export const SyncService = {
                 // Restore expense adjustments if present in snapshot
                 const { expense_adjustments } = snapshot.data;
                 if (Array.isArray(expense_adjustments)) {
-                  for (const ea of expense_adjustments) {
-                    await db.runAsync(
-                      `INSERT OR REPLACE INTO expense_adjustments (id, expense_id, delta, reason, created_at)
+                    for (const ea of expense_adjustments) {
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO expense_adjustments (id, expense_id, delta, reason, created_at)
                        VALUES (?, ?, ?, ?, ?)`,
-                      [ea.id, ea.expense_id, ea.delta || 0, ea.reason || '', ea.created_at]
-                    );
-                  }
-                  console.log(`[Restore] Restored ${expense_adjustments.length} expense adjustments from snapshot.`);
+                            [ea.id, ea.expense_id, ea.delta || 0, ea.reason || '', ea.created_at]
+                        );
+                    }
+                    console.log(`[Restore] Restored ${expense_adjustments.length} expense adjustments from snapshot.`);
                 }
             });
 
@@ -1024,17 +1024,17 @@ export const SyncService = {
 
             await db.withTransactionAsync(async () => {
                 // Products
-               if (data.products.length > 0) {
-                   for (const p of data.products) {
-                       const np = normalizeProductPayload(p, syncKey);
-                       await db.runAsync(
-                           `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at) 
+                if (data.products.length > 0) {
+                    for (const p of data.products) {
+                        const np = normalizeProductPayload(p, syncKey);
+                        await db.runAsync(
+                            `INSERT OR REPLACE INTO products (id, name, sku, category, price, cost_price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at) 
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                           [np.id, np.name, np.sku, np.category, np.price, np.cost_price, np.stock, np.min_stock, np.unit, np.tax_rate, np.variants, np.variant, np.created_at, np.updated_at]
-                       );
-                   }
-               }
-               // Customers
+                            [np.id, np.name, np.sku, np.category, np.price, np.cost_price, np.stock, np.min_stock, np.unit, np.tax_rate, np.variants, np.variant, np.created_at, np.updated_at]
+                        );
+                    }
+                }
+                // Customers
                 if (data.customers.length > 0) {
                     for (const c of data.customers) {
                         const nc = normalizeCustomerPayload(c, syncKey);
@@ -1102,7 +1102,7 @@ export const SyncService = {
         }
 
         // 🚀 GLOBAL SYNC TIMEOUT (15 Minutes)
-        const syncTimeoutPromise = new Promise((_, reject) => 
+        const syncTimeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Global Sync Timeout (15m)')), SYNC_TIMEOUT_MS)
         );
 
@@ -1115,19 +1115,19 @@ export const SyncService = {
                 };
 
                 updateStatus('Starting Sync Down...', 0.65);
-                
+
                 // 🚀 UI OPTIMIZATION: Wait for animations to settle
                 // But only if we are in foreground (onProgress is provided)
                 await new Promise(res => setTimeout(res, 400));
 
                 const userStr = await AsyncStorage.getItem('user');
                 const currentUser = userStr ? JSON.parse(userStr) : null;
-                
+
                 // Decryption Support: Get encryption key (user email)
                 // 🚀 PRO-LEVEL: Use cached sync key if available, or populate it from storage
                 if (currentUser?.email) _cachedSyncKey = currentUser.email;
                 const syncKey = _cachedSyncKey || "";
-                
+
                 if (!syncKey) {
                     console.warn('[Sync] No sync key (user email) found. Encrypted files will fail.');
                 }
@@ -1223,22 +1223,22 @@ export const SyncService = {
 
                 // 2. Filter: Ignore already processed events
                 const processedIdsStr = await AsyncStorage.getItem(userProcessedEventsKey);
-                
+
                 // 🚀 PERFORMANCE: Yield after storage fetch
                 await new Promise(r => setTimeout(r, 0));
-                
+
                 const processedIds = processedIdsStr ? JSON.parse(processedIdsStr) : [];
-                
+
                 // 🚀 PERFORMANCE: Yield after heavy JSON parse
                 await new Promise(r => setTimeout(r, 0));
-                
+
                 const processedSet = new Set(processedIds);
-                
+
                 // 🚀 PERFORMANCE: Yield after set creation
                 await new Promise(r => setTimeout(r, 0));
 
                 updateStatus(`Found ${allFiles.length} files total. Filtering...`, 0.67);
-                
+
                 // DEBUG: Verbose logging of all cloud files
                 console.log(`[Sync] Detected ${allFiles.length} total files:`, allFiles.map(f => f.name));
 
@@ -1279,14 +1279,14 @@ export const SyncService = {
                     for (let i = 0; i < files.length; i += BATCH_SIZE) {
                         const batch = files.slice(i, i + BATCH_SIZE);
                         const contents = [];
-                        
+
                         for (const file of batch) {
                             try {
                                 const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, { headers: { Authorization: `Bearer ${currentToken}` } }, 30000);
                                 if (res.status === 401) { currentToken = await getAccessToken(); }
                                 if (!res.ok) continue;
                                 const text = await res.text();
-                                
+
                                 // 🚀 500KB PAYLOAD GUARD: Check for heavy data files
                                 const fileSizeKB = text.length / 1024;
                                 if (fileSizeKB > 500) {
@@ -1298,8 +1298,8 @@ export const SyncService = {
                                 // We yield after EACH file download + parse to keep JS thread responsive
                                 const parsed = await smartParse(text, syncKey, file.name);
                                 if (parsed) contents.push(parsed);
-                                
-                                await new Promise(r => setTimeout(r, 0)); 
+
+                                await new Promise(r => setTimeout(r, 0));
                             } catch (e) { continue; }
                         }
 
@@ -1316,19 +1316,19 @@ export const SyncService = {
 
                         if (ops.length > 0) {
                             await writeQueue.enqueue(ops, name === 'Recent');
-                            
+
                             // 🚀 OPTIMIZATION: stringify large arrays is slow. 
                             // Only save to disk every 3 batches if the list is huge.
                             if (processedSet.size < 500 || i % (BATCH_SIZE * 3) === 0 || i + BATCH_SIZE >= files.length) {
-                               await AsyncStorage.setItem(userProcessedEventsKey, JSON.stringify([...processedSet]));
+                                await AsyncStorage.setItem(userProcessedEventsKey, JSON.stringify([...processedSet]));
                             }
                         }
-                        
+
                         // Throttled UI update (at most every ~1.2s to prevent Context re-render spam)
                         if (i % (BATCH_SIZE * 3) === 0 || i + BATCH_SIZE >= files.length) {
-                             // 🚀 UI OPTIMIZATION: Always yield before state updates to ensure responsiveness
-                             await new Promise(r => setTimeout(r, 0));
-                            updateStatus(`Syncing ${name}... ${Math.round((i/files.length)*100)}%`, 0.6 + (i/files.length)*0.3, liveStats());
+                            // 🚀 UI OPTIMIZATION: Always yield before state updates to ensure responsiveness
+                            await new Promise(r => setTimeout(r, 0));
+                            updateStatus(`Syncing ${name}... ${Math.round((i / files.length) * 100)}%`, 0.6 + (i / files.length) * 0.3, liveStats());
                         }
                     }
                     console.log(`[Sync] Batch ${name} (${files.length} files) took ${Date.now() - batchStart}ms`);
@@ -1358,47 +1358,47 @@ export const SyncService = {
                     updateStatus('Bridging Backend Events...', 0.85);
                     const { default: services } = require('./api');
 
-                        const backendSyncKey = await this.getUserSyncKey('last_backend_sync');
-                        const lastBackendSync = await AsyncStorage.getItem(backendSyncKey);
+                    const backendSyncKey = await this.getUserSyncKey('last_backend_sync');
+                    const lastBackendSync = await AsyncStorage.getItem(backendSyncKey);
 
-                        console.log(`[Sync] Bridging Backend Events... (Since: ${lastBackendSync || 'Ever'})`);
-                        const res = await services.sync.syncEvents(lastBackendSync);
+                    console.log(`[Sync] Bridging Backend Events... (Since: ${lastBackendSync || 'Ever'})`);
+                    const res = await services.sync.syncEvents(lastBackendSync);
 
-                        await yieldToUI();
+                    await yieldToUI();
 
-                        if (res.data?.success) {
-                            if (res.data.events && res.data.events.length > 0) {
-                                console.log(`[Sync] Found ${res.data.events.length} new backend events from Desktop!`);
+                    if (res.data?.success) {
+                        if (res.data.events && res.data.events.length > 0) {
+                            console.log(`[Sync] Found ${res.data.events.length} new backend events from Desktop!`);
 
-                                const backendOps = res.data.events
-                                    .filter(event => !processedSet.has(event.eventId))
-                                    .map(event => async () => {
-                                        try {
-                                            await this.applyEvent(event);
-                                            processedCount++;
-                                            processedSet.add(event.eventId);
-                                        } catch (e) {
-                                            console.error(`[Sync] Failed to apply backend event ${event.eventId}:`, e.message);
-                                        }
-                                    });
+                            const backendOps = res.data.events
+                                .filter(event => !processedSet.has(event.eventId))
+                                .map(event => async () => {
+                                    try {
+                                        await this.applyEvent(event);
+                                        processedCount++;
+                                        processedSet.add(event.eventId);
+                                    } catch (e) {
+                                        console.error(`[Sync] Failed to apply backend event ${event.eventId}:`, e.message);
+                                    }
+                                });
 
-                                await yieldToUI();
+                            await yieldToUI();
 
-                                if (backendOps.length > 0) {
-                                    // 🚀 YIELD BEFORE HEAVY BACKEND SYNC PROCESSING
-                                    await new Promise(r => setTimeout(r, 64));
-                                    await writeQueue.enqueue(backendOps, true);
-                                    await new Promise(r => setTimeout(r, 0));
-                                }
+                            if (backendOps.length > 0) {
+                                // 🚀 YIELD BEFORE HEAVY BACKEND SYNC PROCESSING
+                                await new Promise(r => setTimeout(r, 64));
+                                await writeQueue.enqueue(backendOps, true);
+                                await new Promise(r => setTimeout(r, 0));
                             }
-
-                            // Always update the timestamp if the request succeeded, even if 0 new events,
-                            // to prevent infinite "Since: Ever" loops fetching history.
-                            await AsyncStorage.setItem(backendSyncKey, new Date().toISOString());
                         }
-                    } catch (backendErr) {
-                        console.warn('[Sync] Backend Bridge Sync failed:', backendErr.message);
+
+                        // Always update the timestamp if the request succeeded, even if 0 new events,
+                        // to prevent infinite "Since: Ever" loops fetching history.
+                        await AsyncStorage.setItem(backendSyncKey, new Date().toISOString());
                     }
+                } catch (backendErr) {
+                    console.warn('[Sync] Backend Bridge Sync failed:', backendErr.message);
+                }
                 // ──────────────────────────────────────────────────────────────────────────
 
                 // 🚀 FINAL STORAGE OPTIMIZATION
@@ -1409,7 +1409,7 @@ export const SyncService = {
 
                 await AsyncStorage.setItem(userLastSyncedKey, new Date().toISOString());
                 const syncDuration = Date.now() - syncStartTime;
-                const finalMsg = `Sync Complete! Applied ${processedCount} new events in ${Math.round(syncDuration/1000)}s. ${failures > 0 ? `(${failures} failed)` : ''}`;
+                const finalMsg = `Sync Complete! Applied ${processedCount} new events in ${Math.round(syncDuration / 1000)}s. ${failures > 0 ? `(${failures} failed)` : ''}`;
                 updateStatus(finalMsg, 0.90, liveStats());
 
                 DeviceEventEmitter.emit(SYNC_EVENTS.SYNC_COMPLETED, {
@@ -1451,7 +1451,7 @@ export const SyncService = {
             const val = await AsyncStorage.getItem(key);
             const procKey = await this.getUserSyncKey(PROCESSED_EVENTS_KEY);
             const procVal = await AsyncStorage.getItem(procKey);
-            
+
             if (val || (procVal && procVal.length > 5)) return true;
 
             // 2. 🚀 BINGO: If metadata is missing but SQLite has real data, it's NOT a clean install.
@@ -1461,7 +1461,7 @@ export const SyncService = {
                     (SELECT COUNT(*) FROM products) as pCount, 
                     (SELECT COUNT(*) FROM invoices) as iCount
             `);
-            
+
             return (stats.pCount > 0 || stats.iCount > 0);
         } catch (e) {
             console.warn('[Sync] hasLocalData check failed:', e.message);
@@ -1477,7 +1477,7 @@ export const SyncService = {
         try {
             console.log('[Sync] Wiping local data for full re-sync...');
             await clearDatabase();
-            
+
             // Wipe shared keys
             await AsyncStorage.removeItem(PROCESSED_EVENTS_KEY);
             await AsyncStorage.removeItem(LAST_SYNCED_KEY);
@@ -1567,7 +1567,7 @@ export const SyncService = {
                         { headers: { Authorization: `Bearer ${accessToken}` } }
                     );
                     const subData = await subRes.json();
-                    
+
                     if (subData.files && subData.files.length > 0) {
                         folderId = subData.files[0].id;
                     } else {
@@ -1602,7 +1602,7 @@ export const SyncService = {
                     if (!filesMap[f.name]) {
                         filesMap[f.name] = f.id;
                     }
-                    
+
                     // Track the overall latest modification time
                     if (!latestModifiedTime || new Date(f.modifiedTime) > new Date(latestModifiedTime)) {
                         latestModifiedTime = f.modifiedTime;
@@ -1756,7 +1756,7 @@ export const SyncService = {
             // 5. Reset sync timestamp to the force-push date
             const userLastSyncedKey = await this.getUserSyncKey(LAST_SYNCED_KEY);
             const userProcessedEventsKey = await this.getUserSyncKey(PROCESSED_EVENTS_KEY);
-            
+
             const resetTimestamp = latestModifiedTime || new Date().toISOString();
             await AsyncStorage.setItem(userLastSyncedKey, resetTimestamp);
             await AsyncStorage.removeItem(userProcessedEventsKey); // Clear processed IDs — start fresh
@@ -1791,7 +1791,7 @@ export const SyncService = {
                 }
             });
         }
-        
+
         // If they are exactly the same or very close (within 1s), use either (cloud takes priority)
         return merged;
     },
@@ -1801,7 +1801,7 @@ export const SyncService = {
      */
     async applyEvent(event) {
         const { type, payload } = event;
-        
+
         // Use cached sync key for field-level decryption
         const syncKey = _cachedSyncKey || '';
 
@@ -2109,11 +2109,11 @@ export const SyncService = {
             for (const item of currentQueue) {
                 try {
                     let content = JSON.stringify(item.content);
-                        if (syncKey) {
-                            const salt = await getDriveEncSalt();
-                            const derivedKey = deriveEncryptionKey(syncKey, salt);
-                            content = encryptContent(content, derivedKey);
-                        }
+                    if (syncKey) {
+                        const salt = await getDriveEncSalt();
+                        const derivedKey = deriveEncryptionKey(syncKey, salt);
+                        content = encryptContent(content, derivedKey);
+                    }
 
                     await uploadFileToFolder(accessToken, folderId, item.fileName, content);
                     await this.removeFromQueue(item.content.eventId);

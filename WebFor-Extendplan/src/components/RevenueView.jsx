@@ -19,17 +19,14 @@ const RevenueView = ({ users, revenueRecords }) => {
         .reduce((sum, rec) => sum + parseFloat(rec.amount || 0), 0);
     
     // Pro/Active segments
-    const proUsers = users.filter(u => u.plan !== 'free').length;
+    const proUsers = users.length;
     const totalUsers = users.length;
     const arpu = totalRevenue / (totalUsers || 1);
     
     // Health Metrics Logic
     const newSubs = users.filter(u => new Date(u.createdAt) > thirtyDaysAgo).length;
     const blockedUsers = users.filter(u => u.isBlocked).length;
-    const expiredUsers = users.filter(u => {
-        const expiry = u.plan === 'free' ? u.trialExpiresAt : u.planExpiresAt;
-        return expiry && new Date(expiry) < now;
-    }).length;
+    const expiredUsers = 0;
     
     const churnCount = blockedUsers + expiredUsers;
     const retentionRate = totalUsers > 0 

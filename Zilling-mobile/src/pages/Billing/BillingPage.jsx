@@ -1161,7 +1161,7 @@ export default function BillingPage({ navigation, route }) {
               <>
                 <View style={styles.topBar}>
                   <View>
-                    <Text style={styles.headerTitle}>Billing</Text>
+                    <Text style={styles.headerTitle}>Billing Section</Text>
                     <Text style={styles.headerSubtitle}>{activeBills.length} Active Sessions</Text>
                   </View>
                   <View style={styles.headerActions}>

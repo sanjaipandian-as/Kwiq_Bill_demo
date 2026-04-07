@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     View, Text, StyleSheet, Animated, Dimensions, Pressable,
     TouchableWithoutFeedback, Platform, StatusBar, ScrollView, TouchableOpacity, Image, Modal
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
     FileText, PieChart, X, Users, LogOut, ChevronRight, Package, Settings,
     Trash2, CreditCard, Receipt, ShieldCheck, HelpCircle, ExternalLink, Sparkles
@@ -15,7 +16,8 @@ import { APP_VERSION } from '../config/version';
 
 const { width } = Dimensions.get('window');
 
-const MENU_WIDTH = width * 0.82;
+// 🚀 REFINED WIDTH: Standard boutique ratio (approx 72%)
+const MENU_WIDTH = width * 0.72;
 
 const MENU_GROUPS = [
     {
@@ -29,6 +31,7 @@ const MENU_GROUPS = [
         title: 'Analysis & Compliance',
         items: [
             { id: 'Reports', label: 'Business Reports', icon: PieChart },
+            { id: 'Expenses', label: 'Expense Tracker', icon: Receipt },
             { id: 'GST', label: 'GST Analytics', icon: ShieldCheck },
             { id: 'RecycleBin', label: 'Recycle Bin', icon: Trash2 },
         ]
@@ -38,22 +41,24 @@ const MENU_GROUPS = [
         items: [
             { id: 'Products', label: 'Inventory / Stock', icon: Package },
             { id: 'Customers', label: 'Customer Directory', icon: Users },
-            { id: 'Expenses', label: 'Expense Tracker', icon: Receipt },
         ]
     }
 ];
 
 const SideMenu = ({ isOpen, onClose }) => {
     const navigation = useNavigation();
+    const insets = useSafeAreaInsets();
     const { logout, user } = useAuth();
     const { settings } = useSettings();
     const storeLogo = settings?.store?.logo;
 
+    const [shouldRender, setShouldRender] = useState(isOpen);
     const slideAnim = useRef(new Animated.Value(-MENU_WIDTH)).current;
     const opacityAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         if (isOpen) {
+            setShouldRender(true);
             Animated.parallel([
                 Animated.timing(slideAnim, {
                     toValue: 0,
@@ -78,7 +83,9 @@ const SideMenu = ({ isOpen, onClose }) => {
                     duration: 250,
                     useNativeDriver: true,
                 }),
-            ]).start();
+            ]).start(() => {
+                setShouldRender(false);
+            });
         }
     }, [isOpen]);
 
@@ -87,13 +94,9 @@ const SideMenu = ({ isOpen, onClose }) => {
         debouncedNavigate(navigation, screen, params);
     };
 
-
-    const planName = 'Unlimited Access';
-
-
     return (
         <Modal
-            visible={isOpen}
+            visible={shouldRender}
             transparent
             animationType="none"
             onRequestClose={onClose}
@@ -103,25 +106,31 @@ const SideMenu = ({ isOpen, onClose }) => {
                     <Animated.View style={[styles.overlay, { opacity: opacityAnim }]} />
                 </TouchableWithoutFeedback>
 
-                <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}>
+                <Animated.View style={[styles.drawer, {
+                    transform: [{ translateX: slideAnim }],
+                    width: MENU_WIDTH,
+                }]}>
                     {/* Header */}
-                    <View style={styles.drawerHeader}>
+                    <View style={[styles.drawerHeader, { paddingTop: Math.max(insets.top, 24) + 20 }]}>
                         <View style={styles.userInfoWrapper}>
                             <View style={styles.avatarContainer}>
                                 {storeLogo ? (
                                     <Image source={{ uri: storeLogo }} style={styles.avatarImage} />
                                 ) : (
-                                    <Image source={require('../../assets/kwiq.jpg')} style={styles.avatarImage} />
+                                    <View style={styles.avatarPlaceholder}>
+                                        <View style={styles.iconCircle}>
+                                            <Users size={24} color="#000" />
+                                        </View>
+                                    </View>
                                 )}
                             </View>
 
                             <View style={styles.headerTextGroup}>
                                 <Text style={styles.userName} numberOfLines={1}>
-                                    {user?.name || user?.email?.split('@')[0] || 'Administrator'}
+                                    {settings?.store?.name || user?.name || 'Administrator'}
                                 </Text>
-                                <View style={styles.planChip}>
-                                    <Sparkles size={11} color="#fff" strokeWidth={2.5} />
-                                    <Text style={styles.planChipText}>{planName}</Text>
+                                <View style={styles.statusRow}>
+                                    <Text style={styles.statusText}>PRO ENTERPRISE</Text>
                                 </View>
                             </View>
                         </View>
@@ -188,12 +197,11 @@ const SideMenu = ({ isOpen, onClose }) => {
                                 <Text style={styles.menuItemLabel}>Help & Support</Text>
                                 <ExternalLink size={12} color="#475569" />
                             </TouchableOpacity>
-
                         </View>
                     </ScrollView>
 
-                    {/* Footer */}
-                    <View style={styles.drawerFooter}>
+                    {/* Footer - With Safe Area Support */}
+                    <View style={[styles.drawerFooter, { paddingBottom: Math.max(insets.bottom, 20) + 10 }]}>
                         <TouchableOpacity
                             activeOpacity={0.9}
                             onPress={() => { onClose(); logout(); }}
@@ -205,7 +213,6 @@ const SideMenu = ({ isOpen, onClose }) => {
                         <View style={styles.versionContainer}>
                             <Text style={styles.versionText}>KWIQ BILL {APP_VERSION}</Text>
                         </View>
-
                     </View>
                 </Animated.View>
             </View>
@@ -225,14 +232,12 @@ const styles = StyleSheet.create({
     drawer: {
         position: 'absolute',
         left: 0, top: 0, bottom: 0,
-        width: MENU_WIDTH,
         backgroundColor: '#000000',
         borderTopRightRadius: 36,
         borderBottomRightRadius: 36,
         overflow: 'hidden',
     },
     drawerHeader: {
-        paddingTop: Platform.OS === 'ios' ? 70 : (StatusBar.currentHeight || 24) + 30,
         paddingBottom: 30,
         paddingHorizontal: 24,
         flexDirection: 'row',
@@ -250,7 +255,13 @@ const styles = StyleSheet.create({
     avatarContainer: {
         position: 'relative',
     },
-    avatarCircle: {
+    avatarImage: {
+        width: 46,
+        height: 44,
+        borderRadius: 14,
+        backgroundColor: '#fff',
+    },
+    avatarPlaceholder: {
         width: 50,
         height: 50,
         borderRadius: 14,
@@ -258,16 +269,13 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    avatarImage: {
-        width: 50,
-        height: 50,
-        borderRadius: 14,
-        backgroundColor: '#fff',
-    },
-    avatarText: {
-        color: '#000',
-        fontSize: 22,
-        fontWeight: '900',
+    iconCircle: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center'
     },
     headerTextGroup: {
         flex: 1,
@@ -277,31 +285,25 @@ const styles = StyleSheet.create({
         fontWeight: '900',
         color: '#fff',
         letterSpacing: -0.4,
-        marginBottom: 6,
+        marginBottom: 2,
     },
-    planChip: {
+    statusRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 8,
-        backgroundColor: '#111',
-        borderWidth: 1,
-        borderColor: '#222',
-        alignSelf: 'flex-start',
         gap: 6,
+        marginTop: 2,
     },
-    planChipText: {
+    statusText: {
         fontSize: 10,
-        fontWeight: '800',
-        color: '#fff',
+        fontWeight: '900',
+        color: '#ffffffff',
+        letterSpacing: 1.5,
         textTransform: 'uppercase',
-        letterSpacing: 0.5,
     },
     closeBtn: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+        width: 40,
+        height: 40,
+        borderRadius: 12,
         backgroundColor: '#fff',
         alignItems: 'center',
         justifyContent: 'center',
@@ -356,7 +358,6 @@ const styles = StyleSheet.create({
     },
     drawerFooter: {
         padding: 24,
-        paddingBottom: Platform.OS === 'ios' ? 45 : 35,
         backgroundColor: '#000',
     },
     logoutBtn: {
@@ -386,6 +387,5 @@ const styles = StyleSheet.create({
         letterSpacing: 2,
     }
 });
-
 
 export default SideMenu;

@@ -33,30 +33,6 @@ export const DATA_SEARCH_LOADER_HTML = `
     background-position: -16px -16px;
   }
 
-  /* ─── Premium Dashboard Reveal Animation ─── */
-  .reveal-overlay {
-    position: fixed;
-    inset: 0;
-    background: #fff;
-    z-index: 1000;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .reveal-overlay.active { opacity: 1; pointer-events: auto; }
-  .reveal-beam {
-    position: absolute;
-    width: 2px; height: 100%;
-    background: #111;
-    opacity: 0;
-    transform: scaleY(0);
-    transition: all 0.6s cubic-bezier(0.19, 1, 0.22, 1);
-  }
-  .reveal-overlay.active .reveal-beam { opacity: 1; transform: scaleY(1); }
-
   /* ─── Header ─── */
   .header {
     width: 100%;
@@ -362,10 +338,6 @@ export const DATA_SEARCH_LOADER_HTML = `
 </head>
 <body>
 
-<div class="reveal-overlay" id="ro">
-    <div class="reveal-beam" style="left: 49.8%"></div>
-</div>
-
 <div class="root">
   
   <div class="header">
@@ -534,16 +506,10 @@ export const DATA_SEARCH_LOADER_HTML = `
         clone.classList.add('visible');
         
         if (idx === 3) {
-            // Dashboard Reveal Animation Sequence
+            // Final postMessage to RN after a short delay
             setTimeout(function() {
-                var ro = document.getElementById('ro');
-                ro.classList.add('active');
-                
-                // Final postMessage to RN
-                setTimeout(function() {
-                    if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage('STAGE_DONE');
-                }, 1200);
-            }, 3800);
+                if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage('STAGE_DONE');
+            }, 800);
         }
     }, idx === 0 ? 0 : 450);
 

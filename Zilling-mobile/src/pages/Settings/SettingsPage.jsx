@@ -206,6 +206,24 @@ const SettingsPage = ({ navigation, route }) => {
   const [isNuclearModalVisible, setIsNuclearModalVisible] = useState(false);
   const nuclearFadeAnim = React.useRef(new Animated.Value(0)).current;
 
+  // Sync spin animation for continuous feedback
+  const syncSpinAnim = React.useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (isUploading || isBackingUp) {
+      Animated.loop(
+        Animated.timing(syncSpinAnim, { toValue: 1, duration: 1200, useNativeDriver: true })
+      ).start();
+    } else {
+      syncSpinAnim.stopAnimation();
+      syncSpinAnim.setValue(0);
+    }
+  }, [isUploading, isBackingUp]);
+
+  const spin = syncSpinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
+
   // Fix #4 (HOOKS FIX): shimmerAnim must be declared here at the TOP LEVEL,
   // before any conditional early returns, to satisfy the Rules of Hooks.
   // Previously it was below the `if (loading) return ...` which caused the
@@ -286,7 +304,7 @@ const SettingsPage = ({ navigation, route }) => {
       }
       // Auto-refresh user profile when settings page is focused
       refreshUser();
-      
+
       // 🚀 SOURCE-OF-TRUTH SYNC: Pull latest store & bank details from MongoDB
       syncSettingsWithCloud();
     }, [activeTab, initBluetooth, refreshUser, syncSettingsWithCloud])
@@ -660,7 +678,7 @@ const SettingsPage = ({ navigation, route }) => {
       return next;
     });
   };
-  
+
   const openNuclearModal = () => {
     setIsNuclearModalVisible(true);
     Animated.timing(nuclearFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -777,7 +795,7 @@ const SettingsPage = ({ navigation, route }) => {
   const detailRowProps = {
     shimmerAnim,
     isDecryptionReady,
-    onRetry: () => syncSettingsWithCloud().catch(() => {}),
+    onRetry: () => syncSettingsWithCloud().catch(() => { }),
   };
 
   const renderTabContent = () => {
@@ -918,13 +936,13 @@ const SettingsPage = ({ navigation, route }) => {
 
             <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', marginTop: 32, marginBottom: 12, letterSpacing: 0.5, uppercase: true }}>VAULT & SECURITY</Text>
             <View style={{ flexDirection: 'row', gap: 12 }}>
-                <TouchableOpacity 
-                  style={{ flex: 1, backgroundColor: '#000', padding: 16, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}
-                  onPress={openPinResetModal}
-                >
-                    <Lock size={16} color="#fff" />
-                    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>Change PIN</Text>
-                </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#000', padding: 16, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}
+                onPress={openPinResetModal}
+              >
+                <Lock size={16} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>Change PIN</Text>
+              </TouchableOpacity>
             </View>
           </View>
         );
@@ -955,89 +973,89 @@ const SettingsPage = ({ navigation, route }) => {
 
             {/* Premium License/Plan Hero Card */}
             <LinearGradient
-                colors={['#000', '#1a1a1a', '#000']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{ 
-                    marginBottom: 26, 
-                    borderRadius: 30, 
-                    padding: 24,
-                    borderWidth: 1.5,
-                    borderColor: 'rgba(255,255,255,0.1)',
-                    elevation: 10,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 10 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 20,
-                    overflow: 'hidden'
-                }}
+              colors={['#000', '#1a1a1a', '#000']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                marginBottom: 26,
+                borderRadius: 30,
+                padding: 24,
+                borderWidth: 1.5,
+                borderColor: 'rgba(255,255,255,0.1)',
+                elevation: 10,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.3,
+                shadowRadius: 20,
+                overflow: 'hidden'
+              }}
             >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                            <BadgeCheck size={14} color="#fff" />
-                            <Text style={{ fontSize: 10, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>
-                                OFFICIAL KWIQ LICENSE
-                            </Text>
-                        </View>
-                        
-                        <Text style={{ fontSize: 24, fontWeight: '900', color: '#fff' }}>
-                            {'PRO ENTERPRISE'}
-                        </Text>
-                        
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 }}>
-                            <View style={{ backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' }}>
-                                <Text style={{ fontSize: 10, fontWeight: '900', color: '#fff' }}>LIFETIME ACCESS</Text>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' }} />
-                                <Text style={{ fontSize: 11, fontWeight: '800', color: '#fff' }}>VERIFIED</Text>
-                            </View>
-                        </View>
-                    </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                    <BadgeCheck size={14} color="#fff" />
+                    <Text style={{ fontSize: 10, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>
+                      OFFICIAL KWIQ LICENSE
+                    </Text>
+                  </View>
 
-                    <View style={{ 
-                        width: 64, 
-                        height: 64, 
-                        borderRadius: 22, 
-                        backgroundColor: 'rgba(255,255,255,0.05)', 
-                        borderWidth: 1, 
-                        borderColor: 'rgba(255,255,255,0.1)',
-                        justifyContent: 'center', 
-                        alignItems: 'center' 
-                    }}>
-                        <Crown size={32} color="#fff" strokeWidth={1.5} />
+                  <Text style={{ fontSize: 24, fontWeight: '900', color: '#fff' }}>
+                    {'PRO ENTERPRISE'}
+                  </Text>
+
+                  {/* <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 }}>
+                    <View style={{ backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' }}>
+                      <Text style={{ fontSize: 10, fontWeight: '900', color: '#fff' }}>LIFETIME ACCESS</Text>
                     </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' }} />
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#fff' }}>VERIFIED</Text>
+                    </View>
+                  </View> */}
                 </View>
 
-                {/* Licensee Details Footer */}
-                <View style={{ 
-                    marginTop: 24, 
-                    paddingTop: 18, 
-                    borderTopWidth: 1, 
-                    borderTopColor: 'rgba(255,255,255,0.1)',
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
+                <View style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 22,
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.1)',
+                  justifyContent: 'center',
+                  alignItems: 'center'
                 }}>
-                    <View>
-                        <Text style={{ fontSize: 9, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>LICENSEE IDENTITY</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                             <Text style={{ fontSize: 13, fontWeight: '900', color: '#fff' }}>{(settings?.user?.fullName || 'STORE OWNER').toUpperCase()}</Text>
-                             <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.3)' }} />
-                             <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)' }}>{user?.email || 'ACTIVE OWNER'}</Text>
-                        </View>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ fontSize: 9, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>SECURITY BASE</Text>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)' }}>CLOUD VAULT (AES-256)</Text>
-                    </View>
+                  <Crown size={32} color="#fff" strokeWidth={1.5} />
+                </View>
+              </View>
+
+              {/* Licensee Details Footer */}
+              <View style={{
+                marginTop: 24,
+                paddingTop: 18,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255,255,255,0.1)',
+              }}>
+                {/* Headers Row */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>LICENSEE IDENTITY</Text>
+                  <Text style={{ fontSize: 9, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>SECURITY BASE</Text>
                 </View>
 
-                {/* Decorative Background Texture */}
-                <View style={{ position: 'absolute', bottom: -40, right: -20, opacity: 0.1 }}>
-                    <Shield size={140} color="#fff" />
+                {/* Values Row */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '900', color: '#fff' }}>{(settings?.user?.fullName || 'STORE OWNER').toUpperCase()}</Text>
+                    {/* <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.3)' }} /> */}
+                    {/* <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)' }}>{user?.email || 'ACTIVE OWNER'}</Text> */}
+                  </View>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 0.2 }}>CLOUD VAULT (AES-256)</Text>
                 </View>
+              </View>
+
+              {/* Decorative Background Texture */}
+              <View style={{ position: 'absolute', bottom: -40, right: -20, opacity: 0.1 }}>
+                <Shield size={140} color="#fff" />
+              </View>
             </LinearGradient>
 
 
@@ -1493,12 +1511,12 @@ const SettingsPage = ({ navigation, route }) => {
                       {(bank.bankName || 'NOT CONFIGURED').toUpperCase()}
                     </Text>
                   </View>
-                  <View style={{ 
-                    width: 48, 
-                    height: 48, 
-                    borderRadius: 16, 
-                    backgroundColor: 'rgba(255,255,255,0.05)', 
-                    justifyContent: 'center', 
+                  <View style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 16,
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    justifyContent: 'center',
                     alignItems: 'center',
                     borderWidth: 1,
                     borderColor: 'rgba(255,255,255,0.1)'
@@ -1509,11 +1527,11 @@ const SettingsPage = ({ navigation, route }) => {
 
                 {/* EMV Chip & Account Number */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                  <View style={{ 
-                    width: 42, 
-                    height: 32, 
-                    borderRadius: 6, 
-                    backgroundColor: '#ffd700', 
+                  <View style={{
+                    width: 42,
+                    height: 32,
+                    borderRadius: 6,
+                    backgroundColor: '#ffd700',
                     opacity: 0.9,
                     borderWidth: 1,
                     borderColor: '#b8860b'
@@ -1521,12 +1539,12 @@ const SettingsPage = ({ navigation, route }) => {
                     <View style={{ position: 'absolute', top: 0, left: '33%', bottom: 0, width: 1, backgroundColor: 'rgba(0,0,0,0.1)' }} />
                     <View style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1, backgroundColor: 'rgba(0,0,0,0.1)' }} />
                   </View>
-                  <Text style={{ 
-                    color: '#fff', 
-                    fontSize: 20, 
-                    fontWeight: '800', 
+                  <Text style={{
+                    color: '#fff',
+                    fontSize: 20,
+                    fontWeight: '800',
                     letterSpacing: 2,
-                    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' 
+                    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace'
                   }}>
                     {bank.accountNumber
                       ? bank.accountNumber.replace(/(.{4})/g, '$1 ').trim()
@@ -2040,15 +2058,15 @@ const SettingsPage = ({ navigation, route }) => {
                   {/* <Sparkles size={14} color="#64748b" /> */}
                   <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Live Preview</Text>
                 </View>
-                <TouchableOpacity 
+                <TouchableOpacity
                   activeOpacity={0.7}
-                  onPress={() => setIsPreviewIGST(!isPreviewIGST)} 
-                  style={{ 
-                    flexDirection: 'row', 
-                    alignItems: 'center', 
-                    backgroundColor: '#ffffff', 
-                    paddingHorizontal: 12, 
-                    paddingVertical: 6, 
+                  onPress={() => setIsPreviewIGST(!isPreviewIGST)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: '#ffffff',
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
                     borderRadius: 16,
                     borderWidth: 1,
                     borderColor: '#cbd5e1',
@@ -3115,102 +3133,140 @@ const SettingsPage = ({ navigation, route }) => {
 
             {/* ENGINE HEARTBEAT SECTION */}
             <View style={{ marginBottom: 28 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingHorizontal: 4 }}>
                 <View>
-                  <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 1 }}>Sync Status</Text>
-                  <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 }}>Real-time engine heartbeat</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: 1.5 }}>Sync Status</Text>
+                  <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '700', marginTop: 2 }}>Real-time engine heartbeat</Text>
                 </View>
-                <View style={{ backgroundColor: isConnected ? '#dcfce7' : '#fee2e2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, borderHeight: 1, borderColor: isConnected ? '#bbf7d0' : '#fecaca', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Activity size={12} color={isConnected ? '#166534' : '#991b1b'} />
-                  <Text style={{ fontSize: 11, fontWeight: '900', color: isConnected ? '#166534' : '#991b1b' }}>{isConnected ? 'ONLINE' : 'OFFLINE'}</Text>
+                <View style={{ backgroundColor: isConnected ? '#000' : '#fee2e2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: isConnected ? '#000' : '#fecaca', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Activity size={12} color={isConnected ? '#fff' : '#991b1b'} />
+                  <Text style={{ fontSize: 11, fontWeight: '900', color: isConnected ? '#fff' : '#991b1b' }}>{isConnected ? 'ONLINE' : 'OFFLINE'}</Text>
                 </View>
               </View>
 
-              {/* Queue Display */}
+              {/* Queue Display - REFINED MODERN NOIR PROGRESS UI */}
               {queueLength > 0 ? (
                 <View style={{
-                  backgroundColor: '#fff',
-                  borderRadius: 28,
+                  backgroundColor: '#000',
+                  borderRadius: 32,
                   padding: 24,
+                  marginBottom: 28,
                   borderWidth: 1.5,
-                  borderColor: '#f59e0b',
+                  borderColor: 'rgba(255,255,255,0.1)',
                   flexDirection: 'row',
-                  gap: 20
+                  alignItems: 'center',
+                  gap: 20,
+                  elevation: 8,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 12 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 20
                 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Pending Upload</Text>
-                    <Text style={{ fontSize: 32, fontWeight: '900', color: '#000' }}>{queueLength} <Text style={{ fontSize: 14, color: '#64748b' }}>Events</Text></Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
-                      <Clock size={12} color="#94a3b8" />
-                      <Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '600' }}>Est. {estimatedUploadTime}s remaining</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff', opacity: 0.6 }} />
+                      <Text style={{ fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: 2 }}>
+                        SYNC PULSE
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 36, fontWeight: '900', color: '#fff', letterSpacing: -1.5 }}>
+                      {queueLength} <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', fontWeight: '800' }}>PENDING</Text>
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>
+                      <Clock size={12} color="rgba(255,255,255,0.5)" />
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '700' }}>
+                        Est. {estimatedUploadTime}s remaining
+                      </Text>
                     </View>
                   </View>
-                  <View style={{ width: 64, height: 64, backgroundColor: '#fff7ed', borderRadius: 20, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#ffedd5' }}>
-                    <RefreshCw size={24} color="#f59e0b" />
+
+                  {/* Glowing Spinner Shell */}
+                  <View style={{
+                    width: 76,
+                    height: 76,
+                    borderRadius: 38,
+                    backgroundColor: 'rgba(255,255,255,0.04)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 2,
+                    borderColor: 'rgba(255,255,255,0.02)'
+                  }}>
+                    <Animated.View style={{ transform: [{ rotate: spin }] }}>
+                      <RefreshCw size={32} color="#fff" strokeWidth={2.5} />
+                    </Animated.View>
                   </View>
                 </View>
               ) : (
-                <View style={{ backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, borderStyle: 'dashed', borderWidth: 1.5, borderColor: '#cbd5e1', alignItems: 'center' }}>
-                  <BadgeCheck size={32} color="#94a3b8" style={{ marginBottom: 8 }} />
-                  <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>Cloud Database is fully synchronized</Text>
+                <View style={{ backgroundColor: '#f8fafc', padding: 24, borderRadius: 32, borderStyle: 'dashed', borderWidth: 1.5, borderColor: '#cbd5e1', alignItems: 'center', marginBottom: 28 }}>
+                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 }}>
+                    <BadgeCheck size={24} color="#000" />
+                  </View>
+                  <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '800', letterSpacing: 0.3 }}>Cloud Records Synchronized</Text>
                 </View>
               )}
             </View>
 
-            {/* Multilingual Warning Section */}
+            {/* CRITICAL WARNING SECTION - BOLD NOIR HIGH CONTRAST */}
             {queueLength > 0 && (
-              <View style={{ marginTop: 24, backgroundColor: '#fff', borderRadius: 24, borderWidth: 1.5, borderColor: '#fca5a5', overflow: 'hidden' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 18, backgroundColor: '#fee2e2', borderBottomWidth: 1.5, borderBottomColor: '#fca5a5' }}>
-                  <AlertCircle size={22} color="#dc2626" />
-                  <Text style={{ fontSize: 16, fontWeight: '900', color: '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5 }}>Do Not Uninstall!</Text>
+              <View style={{
+                marginTop: 12,
+                marginBottom: 28,
+                backgroundColor: '#000',
+                borderRadius: 32,
+                overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.1)',
+                elevation: 10,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 12 },
+                shadowOpacity: 0.2,
+                shadowRadius: 20
+              }}>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  paddingHorizontal: 24,
+                  paddingVertical: 20,
+                  backgroundColor: '#fff'
+                }}>
+                  <AlertCircle size={24} color="#000" strokeWidth={3} />
+                  <Text style={{ fontSize: 18, fontWeight: '900', color: '#000', textTransform: 'uppercase', letterSpacing: -0.5 }}>
+                    CRITICAL: DO NOT UNINSTALL
+                  </Text>
                 </View>
 
-                <ScrollView style={{ maxHeight: 260, backgroundColor: '#fef2f2' }} nestedScrollEnabled={true}>
-                  <View style={{ padding: 20, gap: 24 }}>
-                    {/* English */}
-                    <View>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>English</Text>
-                      <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 22, fontWeight: '700' }}>
-                        Do not uninstall the app or clear data! Your pending bills are stored on this device. Uninstalling will permanently delete them.
-                      </Text>
-                    </View>
-                    {/* Tamil */}
-                    <View>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>தமிழ் (Tamil)</Text>
-                      <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
-                        ஆப்ஸை அன்இன்ஸ்டால் செய்யவோ அல்லது டேட்டாவை அழிக்கவோ வேண்டாம்! அன்இன்ஸ்டால் செய்தால் உங்கள் பில்கள் நிரந்தரமாக அழிந்துவிடும்.
-                      </Text>
-                    </View>
-                    {/* Malayalam */}
-                    <View>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>മലയാളം (Malayalam)</Text>
-                      <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
-                        ആപ്പ് അൺഇൻസ്റ്റാൾ ചെയ്യുകയോ ഡാറ്റ മായ്ക്കുകയോ ചെയ്യരുത്! അങ്ങനെ ചെയ്താൽ നിങ്ങളുടെ ഡാറ്റ പൂർണ്ണമായും നഷ്ടപ്പെടും.
-                      </Text>
-                    </View>
-                    {/* Telugu */}
-                    <View>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>తెలుగు (Telugu)</Text>
-                      <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
-                        యాప్ ను అన్‌ఇన్‌స్టాల్ చేయడం కానీ లేదా డేటాను క్లీన్ చేయడం కానీ చేయకండి! అన్‌ఇన్‌స్టాల్ చేయడం వల్ల మీ డేటా శాశ్వతంగా కోల్పోతారు.
-                      </Text>
-                    </View>
-                    {/* Kannada */}
-                    <View>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>ಕನ್ನಡ (Kannada)</Text>
-                      <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 24, fontWeight: '700' }}>
-                        ಅಪ್ಲಿಕೇಶನ್ ಅನ್‌ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಬೇಡಿ ಅಥವಾ ಡೇಟಾ ಕ್ಲಿಯರ್ ಮಾಡಬೇಡಿ! ಅನ್‌ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡುವುದರಿಂದ ಬಿಲ್‌ಗಳು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿಹೋಗುತ್ತದೆ.
-                      </Text>
-                    </View>
-                    {/* Hindi */}
-                    <View>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#dc2626', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>हिंदी (Hindi)</Text>
-                      <Text style={{ fontSize: 14, color: '#991b1b', lineHeight: 22, fontWeight: '700' }}>
-                        कृपया ऐप को अनइंस्टॉल या डेटा साफ़ न करें! आपके पेंडिंग बिल इसी फ़ोन में हैं। अनइंस्टॉल करने से डेटा हमेशा के लिए डिलीट हो जाएगा।
-                      </Text>
-                    </View>
+                <ScrollView
+                  style={{ maxHeight: 320, backgroundColor: '#000' }}
+                  nestedScrollEnabled={true}
+                  indicatorStyle="white"
+                >
+                  <View style={{ padding: 24, paddingTop: 12, gap: 32 }}>
+                    {[
+                      { lang: 'English', text: 'Do not uninstall the app or clear data! Your pending bills are stored on this device. Removing the app will permanently delete these records.', color: '#fff' },
+                      { lang: 'தமிழ் (Tamil)', text: 'ஆப்ஸை அன்இன்ஸ்டால் செய்யவோ அல்லது டேட்டாவை அழிக்கவோ வேண்டாம்! பில்கள் இந்த போனில் இருப்பதால், அன்இன்ஸ்டால் செய்தால் அவை நிரந்தரமாக அழிந்துவிடும்.', color: 'rgba(255,255,255,0.85)' },
+                      { lang: 'हिंदी (Hindi)', text: 'कृपया ऐप को अनइंस्टॉल या डेटा साफ़ न करें! पेंडिंग बिल इसी फ़ोन में हैं। अनइंസ്റ്റॉल करने से डेटा हमेशा के लिए डिलीट हो जाएगा।', color: 'rgba(255,255,255,0.85)' },
+                      { lang: 'മലയാളം (Malayalam)', text: 'ആപ്പ് അൺഇൻസ്റ്റാൾ ചെയ്യുകയോ ഡാറ്റ മായ്ക്കുകയോ ചെയ്യരുത്! അങ്ങനെ ചെയ്താൽ നിങ്ങളുടെ ഡാറ്റ പൂർണ്ണമായും നഷ്ടപ്പെടും.', color: 'rgba(255,255,255,0.7)' },
+                      { lang: 'తెలుగు (Telugu)', text: 'యాప్ ను అన్‌ఇన్‌స్టాల్ చేయడం కానీ లేదా డేటాను క్లీన్ చేయడం కానీ చేయకండి! అన్‌ఇన్‌స్టాల్ చేయడం వల్ల మీ డేటా శాశ్వతంగా కోల్పోతారు.', color: 'rgba(255,255,255,0.7)' },
+                      { lang: 'ಕನ್ನಡ (Kannada)', text: 'ಅಪ್ಲಿಕೇಶನ್ ಅನ್‌ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಬೇಡಿ ಅಥವಾ ಡೇಟಾ ಕ್ಲಿಯರ್ ಮಾಡಬೇಡಿ! ಅನ್‌ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡುವುದರಿಂದ ಬಿಲ್‌ಗಳು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿಹೋಗುತ್ತದೆ.', color: 'rgba(255,255,255,0.7)' }
+                    ].map((item, idx) => (
+                      <View key={idx}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: item.color }} />
+                          <Text style={{ fontSize: 10, fontWeight: '900', color: item.color, textTransform: 'uppercase', letterSpacing: 1.5 }}>{item.lang}</Text>
+                        </View>
+                        <Text style={{ fontSize: 15, color: item.color, lineHeight: 24, fontWeight: '600', letterSpacing: -0.2 }}>
+                          {item.text}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
                 </ScrollView>
+
+                {/* Danger Tag */}
+                <View style={{ padding: 12, backgroundColor: '#111', alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)' }}>
+                  <Text style={{ fontSize: 10, fontWeight: '900', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 2 }}>DATA RISK - HIGH ACCOUNTABILITY</Text>
+                </View>
               </View>
             )}
 
@@ -4197,7 +4253,7 @@ const SettingsPage = ({ navigation, route }) => {
               <Text style={[styles.logoutModalTitle, { marginBottom: 4 }]}>
                 {userModalMode === 'add' ? 'New Receptionist' : 'Edit Receptionist'}
               </Text>
-              
+
               <View style={{ width: '100%', marginTop: 24, paddingHorizontal: 4 }}>
                 <Text style={[styles.label, { color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }]}>Staff Full Name</Text>
                 <View style={[styles.inputFieldContainer, { backgroundColor: '#f8fafc', borderColor: '#f1f5f9' }]}>

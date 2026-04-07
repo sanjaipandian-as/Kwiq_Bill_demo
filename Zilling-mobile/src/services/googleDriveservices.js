@@ -55,7 +55,7 @@ export const logoutDriveCache = () => {
   _keyCache.supreme = null;
   _keyCache.standard = null;
   _keyCache.legacy = null;
-  
+
   _syncCache.accessToken = null;
   _syncCache.expireTime = 0;
   _syncCache.refreshPromise = null;
@@ -69,16 +69,16 @@ export const logoutDriveCache = () => {
 export const getDriveEncSalt = async (tier = 'standard') => {
   // 🛡️ RECOVERY FIX: Using a stable shared salt allows multiple devices for the same user 
   // (e.g. PC + Phone 1 + Phone 2) to successfully decrypt each other's cloud backups.
-   // Tier 1: Supreme (Harden)
-   if (tier === 'supreme') return 'kwiq_bill_shared_supreme_salt_2024_x922_long_v5_vulnerability_proof_6002';
-   // Tier 2: Standard
-   return 'kwiq-bill-shared-salt-2024';
+  // Tier 1: Supreme (Harden)
+  if (tier === 'supreme') return 'kwiq_bill_shared_supreme_salt_2024_x922_long_v5_vulnerability_proof_6002';
+  // Tier 2: Standard
+  return 'kwiq-bill-shared-salt-2024';
 };
 
 export const deriveEncryptionKey = (email, salt, iterations = KWIQ_ITERATIONS) => {
   if (!email) return null;
   const normalizedEmail = email.toLowerCase().trim();
-  
+
   // Decide which cache bucket to use based on salt
   let cacheKey = 'standard';
   const supremeSalt = 'kwiq_bill_shared_supreme_salt_2024_x922_long_v5_vulnerability_proof_6002';
@@ -104,7 +104,7 @@ export const deriveEncryptionKey = (email, salt, iterations = KWIQ_ITERATIONS) =
     iterations,
     hasher: CryptoJS.algo.SHA256
   }).toString(CryptoJS.enc.Hex);
-  
+
   // Update cache
   _keyCache.email = normalizedEmail;
   _keyCache[cacheKey] = key;
@@ -124,31 +124,31 @@ export const prewarmEncryptionKeys = async (email) => {
   const legacySalt = 'kwiq_bill_secret_salt';
 
   // 🚀 PERFORMANCE FIX: Increase yield time to give UI more space
-  const UI_GRACE_PERIOD = 200; 
+  const UI_GRACE_PERIOD = 200;
 
   // Supreme
   if (!_keyCache.email || _keyCache.email !== normalizedEmail || !_keyCache.supreme) {
-      await new Promise(res => setTimeout(res, UI_GRACE_PERIOD)); // Yield to UI
-      deriveEncryptionKey(email, supremeSalt);
+    await new Promise(res => setTimeout(res, UI_GRACE_PERIOD)); // Yield to UI
+    deriveEncryptionKey(email, supremeSalt);
   }
   // Standard
   if (!_keyCache.email || _keyCache.email !== normalizedEmail || !_keyCache.standard) {
-      await new Promise(res => setTimeout(res, UI_GRACE_PERIOD)); // Yield to UI
-      deriveEncryptionKey(email, standardSalt);
+    await new Promise(res => setTimeout(res, UI_GRACE_PERIOD)); // Yield to UI
+    deriveEncryptionKey(email, standardSalt);
   }
   // Legacy
   if (!_keyCache.email || _keyCache.email !== normalizedEmail || !_keyCache.legacy) {
-      await new Promise(res => setTimeout(res, UI_GRACE_PERIOD)); // Yield to UI
-      deriveEncryptionKey(email, legacySalt);
+    await new Promise(res => setTimeout(res, UI_GRACE_PERIOD)); // Yield to UI
+    deriveEncryptionKey(email, legacySalt);
   }
 
   // 🛡️ RECOVERY PRE-WARM: If the original email has uppercase, pre-warm it too
   if (email !== normalizedEmail) {
-      console.log('[Crypto] Case-sensitivity mismatch detected. Pre-warming additional recovery keys...');
-      await new Promise(res => setTimeout(res, UI_GRACE_PERIOD));
-      CryptoJS.PBKDF2(email, supremeSalt, { iterations: SUPREME_ENC_ITERATIONS });
-      await new Promise(res => setTimeout(res, UI_GRACE_PERIOD));
-      CryptoJS.PBKDF2(email, standardSalt, { iterations: DRIVE_ENC_ITERATIONS });
+    console.log('[Crypto] Case-sensitivity mismatch detected. Pre-warming additional recovery keys...');
+    await new Promise(res => setTimeout(res, UI_GRACE_PERIOD));
+    CryptoJS.PBKDF2(email, supremeSalt, { iterations: SUPREME_ENC_ITERATIONS });
+    await new Promise(res => setTimeout(res, UI_GRACE_PERIOD));
+    CryptoJS.PBKDF2(email, standardSalt, { iterations: DRIVE_ENC_ITERATIONS });
   }
 };
 
@@ -235,7 +235,7 @@ export const decryptContent = async (encryptedText, email, keyOrSalt = null) => 
   if (email && email.toLowerCase().trim() !== normalizedEmail) emails.push(email);
 
   // 🚀 PERFORMANCE BINGO: Prioritize the salt that worked last time for this session
-  const prioritizedSalts = _winningSalt 
+  const prioritizedSalts = _winningSalt
     ? [salts.find(s => s.value === _winningSalt), ...salts.filter(s => s.value !== _winningSalt)].filter(Boolean)
     : salts;
 
@@ -248,24 +248,24 @@ export const decryptContent = async (encryptedText, email, keyOrSalt = null) => 
           if (!_winningSalt) {
             await new Promise(res => setTimeout(res, 0));
           }
-          
+
           try {
             const isModern = (iter === KWIQ_ITERATIONS && hashAlgo === CryptoJS.algo.SHA256);
             let key;
             const cacheKey = `${mail}_${saltItem.value}_${iter}_${hashAlgo === CryptoJS.algo.SHA256 ? 'SHA256' : 'SHA1'}`;
-            
+
             if (_legacyKeyCache[cacheKey]) {
-                key = _legacyKeyCache[cacheKey];
+              key = _legacyKeyCache[cacheKey];
             } else if (isModern) {
-                key = deriveEncryptionKey(mail, saltItem.value);
-                _legacyKeyCache[cacheKey] = key;
+              key = deriveEncryptionKey(mail, saltItem.value);
+              _legacyKeyCache[cacheKey] = key;
             } else {
-                key = CryptoJS.PBKDF2(mail, saltItem.value, { 
-                    keySize: 256 / 32, 
-                    iterations: iter, 
-                    hasher: hashAlgo 
-                }).toString(CryptoJS.enc.Hex);
-                _legacyKeyCache[cacheKey] = key;
+              key = CryptoJS.PBKDF2(mail, saltItem.value, {
+                keySize: 256 / 32,
+                iterations: iter,
+                hasher: hashAlgo
+              }).toString(CryptoJS.enc.Hex);
+              _legacyKeyCache[cacheKey] = key;
             }
 
             const bytes = CryptoJS.AES.decrypt(encryptedText, key);
@@ -335,7 +335,7 @@ export const getAccessToken = async () => {
 
       // Update cache: Tokens typically last 60 minutes, we cache for 5 minutes for stability
       _syncCache.accessToken = tokens.accessToken;
-      _syncCache.expireTime = Date.now() + (5 * 60 * 1000); 
+      _syncCache.expireTime = Date.now() + (5 * 60 * 1000);
 
       return tokens.accessToken;
     } catch (error) {
@@ -453,7 +453,7 @@ export const checkStoreBrandingStatus = async (user) => {
  */
 export const getOrCreateFolder = async (accessToken, folderName, parentId = null) => {
   const cacheKey = `drive_folder_${folderName}_${parentId || 'root'}`;
-  
+
   // 1. Try Cache First
   try {
     const cachedId = await AsyncStorage.getItem(cacheKey);
@@ -481,12 +481,12 @@ export const getOrCreateFolder = async (accessToken, folderName, parentId = null
   if (searchData.files && searchData.files.length > 0) {
     const folderId = searchData.files[0].id;
     console.log(`[Drive] Folder found: ${folderName} (${folderId})`);
-    
+
     // Update local cache
     await AsyncStorage.setItem(cacheKey, folderId);
     return folderId;
   }
-  
+
   console.log(`[Drive] Folder not found: ${folderName}, creating...`);
 
   // 3. Create folder if not found
@@ -515,7 +515,7 @@ export const getOrCreateFolder = async (accessToken, folderName, parentId = null
     await AsyncStorage.setItem(cacheKey, createData.id);
     return createData.id;
   }
-  
+
   throw new Error(`Failed to create folder: ${folderName}`);
 };
 
@@ -696,7 +696,7 @@ export const syncUserDataToDrive = async (user, allData) => {
     // 1. Dual-Redundancy Discovery (Target BOTH folders for max safety)
     const rootsToTry = ['Kwiqbill', 'Kwiq Bill Backup', 'Kwiq Billing', 'KwiqBill'];
     if (user?.id) rootsToTry.push(`KwiqBilling-${user.id}`);
-    
+
     for (const fName of rootsToTry) {
       let folderId = null;
       const q = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
@@ -729,7 +729,7 @@ export const syncUserDataToDrive = async (user, allData) => {
     // 2. Upload to each target root
     for (const root of targetRootIds) {
       console.log(`[FullBackup] Synchronizing snapshots to: ${root.name} (${root.id})`);
-      
+
       // Ensure 'snapshots' subfolder exists in THIS root
       const snapshotsId = await getOrCreateFolder(accessToken, 'snapshots', root.id);
 
@@ -738,15 +738,15 @@ export const syncUserDataToDrive = async (user, allData) => {
       for (const table of tables) {
         if (allData[table] && allData[table].length > 0) {
           const fileName = `${table}.json`;
-          
+
           await new Promise(res => setTimeout(res, 50)); // Yield before stringification
           let content = JSON.stringify(allData[table], null, 2);
-          
+
           if (derivedKey) {
             await new Promise(res => setTimeout(res, 50)); // Yield before heavy AES encryption
             content = encryptContent(content, derivedKey);
           }
-          
+
           await uploadFileToFolder(accessToken, snapshotsId, fileName, content);
         }
       }
@@ -786,8 +786,8 @@ export const syncUserDataToDrive = async (user, allData) => {
       await new Promise(res => setTimeout(res, 50));
       let profileContent = JSON.stringify(user, null, 2);
       if (derivedKey) {
-          await new Promise(res => setTimeout(res, 50));
-          profileContent = encryptContent(profileContent, derivedKey);
+        await new Promise(res => setTimeout(res, 50));
+        profileContent = encryptContent(profileContent, derivedKey);
       }
       await uploadFileToFolder(accessToken, snapshotsId, 'user details.json', profileContent);
     }
@@ -835,7 +835,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       const sData = await sRes.json();
-      
+
       if (sData.files) {
         for (const rootFolder of sData.files) {
           folderIds.push(rootFolder.id);
@@ -853,7 +853,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
               for (const sub of subData.files) {
                 folderIds.push(sub.id);
                 console.log(`[Restore] Found subfolder: ${sub.name} in ${fName}`);
-                
+
                 // If it's 'backups' or 'backup', check one level deeper for daily/weekly/monthly
                 const lowerName = sub.name.toLowerCase();
                 if (lowerName === 'backups' || lowerName === 'backup' || lowerName === 'kwiq bill backup') {
@@ -931,7 +931,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
 
           try {
             let cleanText = text.trim();
-            
+
             // Attempt 1: Direct JSON parse (Case for Desktop Backups)
             try {
               if (cleanText.startsWith('{') || cleanText.startsWith('[')) {
@@ -957,7 +957,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
                 const trimmed = part.trim();
                 if (trimmed.toLowerCase().includes('content-type:')) continue;
                 if (trimmed.length > 0 && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
-                  try { return JSON.parse(trimmed); } catch(e) {}
+                  try { return JSON.parse(trimmed); } catch (e) { }
                 }
               }
             }
@@ -1137,30 +1137,30 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
       updateRestoreProgress(`Restoring ${customers.length} customers...`, 0.55);
       await db.withTransactionAsync(async () => {
         for (const c of customers) {
-          const resolvedName = (c.name || 
-                              (c.firstName ? `${c.firstName} ${c.lastName || ''}`.trim() : '') || 
-                              'Guest Customer');
+          const resolvedName = (c.name ||
+            (c.firstName ? `${c.firstName} ${c.lastName || ''}`.trim() : '') ||
+            'Guest Customer');
 
           await db.runAsync(
             `INSERT OR REPLACE INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, amountPaid, whatsappOptIn, smsOptIn, outstanding)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-              String(c.id || `CUST-${Date.now()}-${Math.random().toString(36).substr(2,9)}`), 
-              resolvedName, 
-              c.phone || c.mobile || '', 
-              c.email || '', 
-              c.type || c.customerType || 'retail', 
-              c.gstin || '', 
-              (typeof c.address === 'object' ? JSON.stringify(c.address) : (c.address || '')), 
-              c.source || '', 
+              String(c.id || `CUST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`),
+              resolvedName,
+              c.phone || c.mobile || '',
+              c.email || '',
+              c.type || c.customerType || 'retail',
+              c.gstin || '',
+              (typeof c.address === 'object' ? JSON.stringify(c.address) : (c.address || '')),
+              c.source || '',
               (Array.isArray(c.tags) ? c.tags.join(',') : (c.tags || '')),
-              parseInt(c.loyaltyPoints || c.loyalty_points) || 0, 
-              c.notes || c.remarks || '', 
-              c.created_at || c.createdAt || new Date().toISOString(), 
-              c.updated_at || c.updatedAt || new Date().toISOString(), 
+              parseInt(c.loyaltyPoints || c.loyalty_points) || 0,
+              c.notes || c.remarks || '',
+              c.created_at || c.createdAt || new Date().toISOString(),
+              c.updated_at || c.updatedAt || new Date().toISOString(),
               parseFloat(c.amountPaid || c.amount_paid) || 0,
-              (c.whatsappOptIn || c.whatsapp_opt_in) ? 1 : 0, 
-              (c.smsOptIn || c.sms_opt_in) ? 1 : 0, 
+              (c.whatsappOptIn || c.whatsapp_opt_in) ? 1 : 0,
+              (c.smsOptIn || c.sms_opt_in) ? 1 : 0,
               parseFloat(c.outstanding) || 0
             ]
           );
@@ -1179,15 +1179,15 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
             `INSERT OR REPLACE INTO expenses (id, title, amount, category, date, payment_method, tags, receipt_url, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-              String(e.id || `EXP-${Date.now()}-${Math.random().toString(36).substr(2,9)}`), 
-              e.title || 'Untitled Expense', 
-              parseFloat(e.amount) || 0, 
-              e.category || 'Other', 
-              e.date || new Date().toISOString(), 
-              e.payment_method || e.paymentMethod || 'Cash', 
-              (typeof e.tags === 'string' ? e.tags : JSON.stringify(e.tags || [])), 
+              String(e.id || `EXP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`),
+              e.title || 'Untitled Expense',
+              parseFloat(e.amount) || 0,
+              e.category || 'Other',
+              e.date || new Date().toISOString(),
+              e.payment_method || e.paymentMethod || 'Cash',
+              (typeof e.tags === 'string' ? e.tags : JSON.stringify(e.tags || [])),
               e.receipt_url || e.receiptUrl || '',
-              e.created_at || e.createdAt || new Date().toISOString(), 
+              e.created_at || e.createdAt || new Date().toISOString(),
               e.updated_at || e.updatedAt || new Date().toISOString()
             ]
           );
@@ -1225,7 +1225,7 @@ export const restoreUserDataFromDrive = async (user, onProgress) => {
                 loyalty_points_redeemed, loyalty_points_earned, loyalty_points_discount, is_deleted, created_at, updated_at
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-              String(i.id || `INV-${Date.now()}-${Math.random().toString(36).substr(2,9)}`),
+              String(i.id || `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`),
               String(i.customer_id || i.customerId || ''),
               i.customer_name || i.customerName || 'Walk-in Customer',
               i.date || new Date().toISOString(),
@@ -1279,7 +1279,7 @@ export const syncSettingsToDrive = async (user, settings) => {
   if (!user || !user.id || !settings) {
     return;
   }
-  
+
   const now = Date.now();
   if (_settingsSyncState.isSyncing) {
     // 5-minute timeout for settings sync (it's much smaller than full data sync)
@@ -1291,7 +1291,7 @@ export const syncSettingsToDrive = async (user, settings) => {
       return;
     }
   }
-  
+
   _settingsSyncState = { isSyncing: true, startTime: now };
 
   try {
@@ -1301,28 +1301,28 @@ export const syncSettingsToDrive = async (user, settings) => {
     // 1. Dual-Redundancy Folder Discovery (Upload to BOTH for safety)
     const rootsToTry = ['Kwiqbill', 'Kwiq Bill Backup'];
     let targetFolderIds = [];
-    
+
     for (const fName of rootsToTry) {
-        let folderId = null;
-        const query = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-        try {
-            const sRes = await fetchWithTimeout(
-                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`,
-                { headers: { Authorization: `Bearer ${accessToken}` } }
-            );
-            const sData = await sRes.json();
-            if (sData.files && sData.files.length > 0) {
-                folderId = sData.files[0].id;
-            } else if (fName === 'Kwiq Bill Backup') {
-                folderId = await getOrCreateFolder(accessToken, fName);
-            }
-        } catch (e) {
-            console.warn(`[Sync] Failed to find folder ${fName}:`, e.message);
+      let folderId = null;
+      const query = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      try {
+        const sRes = await fetchWithTimeout(
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const sData = await sRes.json();
+        if (sData.files && sData.files.length > 0) {
+          folderId = sData.files[0].id;
+        } else if (fName === 'Kwiq Bill Backup') {
+          folderId = await getOrCreateFolder(accessToken, fName);
         }
-        
-        if (folderId) targetFolderIds.push({ id: folderId, name: fName });
+      } catch (e) {
+        console.warn(`[Sync] Failed to find folder ${fName}:`, e.message);
+      }
+
+      if (folderId) targetFolderIds.push({ id: folderId, name: fName });
     }
-    
+
     // 🚀 DEDUPLICATION: Ensure unique folder IDs
     const uniqueMap = new Map();
     targetFolderIds.forEach(target => uniqueMap.set(target.id, target));
@@ -1332,7 +1332,7 @@ export const syncSettingsToDrive = async (user, settings) => {
     // 🚀 PHASE 1: Heavy Serialization & Logo Preparation (Runs ONCE per session)
     await new Promise(res => setTimeout(res, 50)); // Yield to Breathe
     const settingsSnapshot = JSON.parse(JSON.stringify(settings));
-    
+
     // Logo logic (handled once to avoid double reading disk)
     let logoData = null;
     let logoMime = 'image/jpeg';
@@ -1355,10 +1355,10 @@ export const syncSettingsToDrive = async (user, settings) => {
     const salt = await getDriveEncSalt();
     await new Promise(res => setTimeout(res, 100)); // Yield to allow WebView to render Stage 3
     const derivedKey = deriveEncryptionKey(user.email, salt);
-    
+
     await new Promise(res => setTimeout(res, 100)); // Yield before massive stringify/encrypt
     const settingsContent = encryptContent(JSON.stringify([settingsSnapshot]), derivedKey);
-    
+
     const userDetails = {
       store: settingsSnapshot.store,
       user: settingsSnapshot.user,
@@ -1374,18 +1374,18 @@ export const syncSettingsToDrive = async (user, settings) => {
     let anySuccess = false;
     for (const folder of targetFolderIds) {
       console.log(`[DriveSync] Uploading settings to folder: ${folder.name} (${folder.id})`);
-      
+
       // Upload Logo if exists
       if (logoData) {
-        await uploadImageToFolder(accessToken, folder.id, 'store_logo.jpg', settingsSnapshot.store.logo, logoMime).catch(() => {});
+        await uploadImageToFolder(accessToken, folder.id, 'store_logo.jpg', settingsSnapshot.store.logo, logoMime).catch(() => { });
       }
 
       // Upload settings.json
       await uploadFileToFolder(accessToken, folder.id, 'settings.json', settingsContent);
-      
+
       // Upload user details.json
       await uploadFileToFolder(accessToken, folder.id, 'user details.json', detailsContent);
-      
+
       anySuccess = true;
       // Small yield between folders to keep UI responsive to frame events
       await new Promise(res => setTimeout(res, 50));
@@ -1408,40 +1408,40 @@ export const saveUserDetailsToDrive = async (userDetails) => {
     // 1. Dual-Redundancy Discovery
     const rootsToTry = ['Kwiqbill', 'Kwiq Bill Backup'];
     const targetFolderIds = [];
-    
+
     for (const fName of rootsToTry) {
-        let folderId = null;
-        const query = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-        try {
-            const sRes = await fetchWithTimeout(
-                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`,
-                { headers: { Authorization: `Bearer ${accessToken}` } }
-            );
-            const sData = await sRes.json();
-            if (sData.files && sData.files.length > 0) {
-                folderId = sData.files[0].id;
-            } else if (fName === 'Kwiq Bill Backup') {
-                folderId = await getOrCreateFolder(accessToken, fName);
-            }
-        } catch (e) {}
-        if (folderId) targetFolderIds.push({ id: folderId, name: fName });
+      let folderId = null;
+      const query = `name='${fName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      try {
+        const sRes = await fetchWithTimeout(
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const sData = await sRes.json();
+        if (sData.files && sData.files.length > 0) {
+          folderId = sData.files[0].id;
+        } else if (fName === 'Kwiq Bill Backup') {
+          folderId = await getOrCreateFolder(accessToken, fName);
+        }
+      } catch (e) { }
+      if (folderId) targetFolderIds.push({ id: folderId, name: fName });
     }
 
     if (targetFolderIds.length === 0) return false;
 
     let anySuccess = false;
     for (const folder of targetFolderIds) {
-        // Prepare content
-        let content = JSON.stringify(userDetails, null, 2);
-        if (userDetails.email) {
-            // Use stable salt for consistency
-            const salt = await getDriveEncSalt();
-            const derivedKey = deriveEncryptionKey(userDetails.email, salt);
-            content = encryptContent(content, derivedKey);
-        }
+      // Prepare content
+      let content = JSON.stringify(userDetails, null, 2);
+      if (userDetails.email) {
+        // Use stable salt for consistency
+        const salt = await getDriveEncSalt();
+        const derivedKey = deriveEncryptionKey(userDetails.email, salt);
+        content = encryptContent(content, derivedKey);
+      }
 
-        await uploadFileToFolder(accessToken, folder.id, 'user_details_backup.json', content);
-        anySuccess = true;
+      await uploadFileToFolder(accessToken, folder.id, 'user_details_backup.json', content);
+      anySuccess = true;
     }
 
     return anySuccess;
@@ -1477,7 +1477,7 @@ export const fetchSettingsFromDrive = async (user) => {
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       const sData = await sRes.json();
-      
+
       if (sData.files) {
         for (const rootFolder of sData.files) {
           folderIds.push(rootFolder.id);
@@ -1492,12 +1492,12 @@ export const fetchSettingsFromDrive = async (user) => {
             const subData = await subRes.json();
             if (subData.files) {
               subData.files.forEach(sub => {
-                  folderIds.push(sub.id);
-                  // Check one level deeper for backups/daily/etc
-                  // (Reduced depth for settings fetch compared to full restore for speed)
+                folderIds.push(sub.id);
+                // Check one level deeper for backups/daily/etc
+                // (Reduced depth for settings fetch compared to full restore for speed)
               });
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
     }
@@ -1506,7 +1506,7 @@ export const fetchSettingsFromDrive = async (user) => {
       console.log('[DriveSettings] No Drive folders found.');
       return null;
     }
-    
+
     // Deduplicate
     folderIds = [...new Set(folderIds)];
 
@@ -1521,12 +1521,12 @@ export const fetchSettingsFromDrive = async (user) => {
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     const listData = await listRes.json();
-    
+
     // We want the LATEST file for each name
     const filesMap = {};
     if (listData.files) {
-      listData.files.forEach(f => { 
-        if (!filesMap[f.name]) filesMap[f.name] = f.id; 
+      listData.files.forEach(f => {
+        if (!filesMap[f.name]) filesMap[f.name] = f.id;
       });
     }
 
@@ -1546,7 +1546,7 @@ export const fetchSettingsFromDrive = async (user) => {
         if (!text || text.trim() === '') return null;
 
         let cleanText = text.trim();
-        
+
         // Robust smart decryption logic — handles whole-file encrypted format (KWIQV2 or U2FsdGVkX1)
         if (cleanText.startsWith('U2FsdGVkX1') || cleanText.startsWith('U2V') || cleanText.startsWith('KWIQV2:')) {
           try {
@@ -1554,8 +1554,8 @@ export const fetchSettingsFromDrive = async (user) => {
             const decrypted = await decryptContent(cleanText, user.email, salt);
             if (decrypted) cleanText = decrypted;
             else {
-               console.warn('[DriveSettings] Decryption failed for ' + baseName);
-               return null; 
+              console.warn('[DriveSettings] Decryption failed for ' + baseName);
+              return null;
             }
           } catch (e) {
             console.warn('[DriveSettings] Decryption error for ' + baseName);
@@ -1567,7 +1567,7 @@ export const fetchSettingsFromDrive = async (user) => {
         if (cleanText.startsWith('{') || cleanText.startsWith('[')) {
           return JSON.parse(cleanText);
         }
-        
+
         console.warn(`[DriveSettings] ${baseName} content is not JSON and could not be decrypted.`);
         return null;
       } catch (e) {
@@ -1593,24 +1593,24 @@ export const fetchSettingsFromDrive = async (user) => {
     }
     // Deep extraction of bank details
     const driveBank = driveSettings.bankDetails || userDetailsData?.bankDetails || {};
- 
+
     // Merge with local, preserving logo from DB
     const settingsKey = getUserSpecificKey(SETTINGS_KEY, user.email);
     const localSaved = await AsyncStorage.getItem(settingsKey);
     const localSettings = localSaved ? JSON.parse(localSaved) : {};
     const existingLogo = localSettings.store?.logo || null;
- 
+
     // MERGE STRATEGY: Only overwrite local settings if Drive is actually NEWER
     // or if local settings are essentially empty (new device).
     const localTime = localSettings.lastUpdatedAt ? new Date(localSettings.lastUpdatedAt).getTime() : 0;
     const driveTime = driveSettings.lastUpdatedAt ? new Date(driveSettings.lastUpdatedAt).getTime() : 0;
-    
+
     console.log(`[DriveSettings] Comparing Timestamps - Local: ${localSettings.lastUpdatedAt || 'never'}, Drive: ${driveSettings.lastUpdatedAt || 'never'}`);
 
     // If local is newer, we DON'T want to overwrite with old drive data.
     // However, if we're on a fresh install (no store name), we should definitely take the Drive data.
     const isLocalFresh = !localSettings.store?.name;
-    
+
     let merged;
     if (driveTime > localTime || isLocalFresh) {
       console.log('[DriveSettings] Drive data is newer or local is empty. Applying cloud preferences.');
@@ -1638,7 +1638,7 @@ export const fetchSettingsFromDrive = async (user) => {
       console.log('[DriveSettings] Local data is newer than Drive. Keeping local and skipping overwrite.');
       return localSettings;
     }
- 
+
     // ── DECRYPT INDIVIDUAL SENSITIVE FIELDS ────────────────────────────────────
     // Desktop Drive files are plain JSON objects where individual fields like
     // store.name/contact/email/gstin may still be CryptoJS-encrypted strings
@@ -1661,7 +1661,7 @@ export const fetchSettingsFromDrive = async (user) => {
       }
       if (merged.store.address && typeof merged.store.address === 'string') {
         const addrDec = await decryptField(merged.store.address);
-        try { merged.store.address = JSON.parse(addrDec); } catch(e) { merged.store.address = addrDec; }
+        try { merged.store.address = JSON.parse(addrDec); } catch (e) { merged.store.address = addrDec; }
       }
     }
     if (merged.user && typeof merged.user === 'object') {
@@ -1687,7 +1687,7 @@ export const syncSecurityVaultToDrive = async (user, vaultData) => {
   if (!user || !user.email || !vaultData) return false;
   try {
     const accessToken = await getAccessToken();
-    
+
     // Bilingual Upload: Search for either folder, prefer Kwiqbill if it exists
     const foldersToTry = ['Kwiqbill', 'Kwiq Bill Backup'];
     let folderId = null;
@@ -1703,7 +1703,7 @@ export const syncSecurityVaultToDrive = async (user, vaultData) => {
         break;
       }
     }
-    
+
     if (!folderId) {
       folderId = await getOrCreateFolder(accessToken, 'Kwiq Bill Backup');
     }

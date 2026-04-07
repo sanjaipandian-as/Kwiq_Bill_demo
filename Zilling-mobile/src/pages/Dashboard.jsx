@@ -130,10 +130,8 @@ export default function Dashboard() {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const isGlobalFilter = dateFilter === 'All';
-
-    const isDateInRange = (dateStr) => {
-      if (isGlobalFilter) return true;
+    const checkDateInRange = (dateStr, filter) => {
+      if (filter === 'All' || !filter) return true;
       if (!dateStr) return false;
 
       // Handle various date formats (ISO string, timestamp, etc.)
@@ -143,7 +141,7 @@ export default function Dashboard() {
       // Important: Use local day boundaries for comparison with todayStart
       const checkDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
-      switch (dateFilter) {
+      switch (filter) {
         case 'Today':
           return checkDate.getTime() === todayStart.getTime();
         case 'Yesterday':
@@ -163,15 +161,18 @@ export default function Dashboard() {
       }
     };
 
-    let filteredTx = isGlobalFilter ? transactions : transactions.filter(t => isDateInRange(t.date));
-    let filteredExp = isGlobalFilter ? expenses : expenses.filter(e => isDateInRange(e.date));
+    const isGlobalFilter = dateFilter === 'All';
+    let filteredTx = isGlobalFilter ? transactions : transactions.filter(t => checkDateInRange(t.date, dateFilter));
+    let filteredExp = isGlobalFilter ? expenses : expenses.filter(e => checkDateInRange(e.date, dateFilter));
+
+    // Independent filter for products
+    let filteredTxForProd = productFilter === 'All' ? transactions : transactions.filter(t => checkDateInRange(t.date, productFilter));
 
     const totalSales = isGlobalFilter && dashboardMetrics ? dashboardMetrics.totalSales : filteredTx.reduce((sum, t) => sum + (parseFloat(t.total) || 0), 0);
     const totalExpenses = filteredExp.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
     const netProfit = totalSales - totalExpenses;
 
     const pendingCount = isGlobalFilter && dashboardMetrics ? dashboardMetrics.pendingCount : filteredTx.filter(t => (t.status || '').toUpperCase() !== 'PAID').length;
-    // FIX: pendingAmount was hardcoded to 0 for filtered views
     const pendingAmount = isGlobalFilter && dashboardMetrics ? dashboardMetrics.pendingAmount : filteredTx.reduce((sum, t) => {
       if ((t.status || '').toUpperCase() !== 'PAID') {
         return sum + (parseFloat(t.total) - (parseFloat(t.amountReceived) || 0));
@@ -192,7 +193,7 @@ export default function Dashboard() {
 
     // Top Lists (Slice early for speed)
     const prodMap = {};
-    filteredTx.forEach(t => {
+    filteredTxForProd.forEach(t => {
       (t.items || []).forEach(item => {
         if (!prodMap[item.name]) prodMap[item.name] = { qty: 0, revenue: 0 };
         prodMap[item.name].qty += (parseFloat(item.quantity) || 0);
@@ -392,18 +393,18 @@ export default function Dashboard() {
                           <Text style={styles.txnCardInvoice}>INV-{tx.invoiceNumber || '001'}</Text>
                           <Text style={styles.txnCardDot}>•</Text>
                           <View style={styles.timeTag}>
-                             <Clock size={10} color="#94a3b8" />
-                             <Text style={styles.txnCardDate} numberOfLines={1}>
-                               {new Date(tx.date || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                             </Text>
+                            <Clock size={10} color="#94a3b8" />
+                            <Text style={styles.txnCardDate} numberOfLines={1}>
+                              {new Date(tx.date || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                            </Text>
                           </View>
                         </View>
                       </View>
                       <View style={styles.txnCardRight}>
                         <Text style={styles.txnCardAmount}>₹{(tx.total || 0).toLocaleString()}</Text>
-                        <View style={[styles.txnStatusBadge, { 
-                          backgroundColor: isPaid ? '#000' : '#fff1f1', 
-                          borderColor: isPaid ? '#000' : '#fee2e2' 
+                        <View style={[styles.txnStatusBadge, {
+                          backgroundColor: isPaid ? '#000' : '#fff1f1',
+                          borderColor: isPaid ? '#000' : '#fee2e2'
                         }]}>
                           <View style={[styles.statusDot, { backgroundColor: isPaid ? '#fff' : '#ef4444' }]} />
                           <Text style={[styles.txnStatusText, { color: isPaid ? '#fff' : '#ef4444' }]}>
@@ -424,7 +425,8 @@ export default function Dashboard() {
         )}
       </ScrollView>
 
-      <DashboardFAB onPress={() => handleAction('Billing')} />
+
+
 
 
 

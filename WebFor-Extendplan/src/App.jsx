@@ -119,6 +119,8 @@ const App = () => {
         }
     };
 
+
+
     const handleGenerateResetCode = async (userId) => {
         if (!confirm('Security Protocol: Generate a Manager PIN override code for this user?')) return;
         try {
@@ -357,7 +359,7 @@ const App = () => {
             <Modals
                 selectedUser={selectedUser}
                 setSelectedUser={setSelectedUser}
-                handleUpdatePlan={handleUpdatePlan}
+
                 showInviteModal={showInviteModal}
                 setShowInviteModal={setShowInviteModal}
                 inviteEmail={inviteEmail}

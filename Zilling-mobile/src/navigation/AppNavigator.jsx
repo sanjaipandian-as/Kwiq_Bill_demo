@@ -11,6 +11,7 @@ import ReportsPage from '../pages/Reports/ReportsPage';
 import CustomersPage from '../pages/customers/CustomerPage';
 import BillingPage from '../pages/Billing/BillingPage';
 import MainTabs from './MainTabs';
+import SettingsPage from '../pages/Settings/SettingsPage';
 import LowStockPage from '../pages/LowStockPage';
 import GSTPage from '../pages/GST/GSTPage';
 import RecycleBinPage from '../pages/Invoices/RecycleBinPage';
@@ -23,7 +24,9 @@ import DataSyncPage from '../pages/Auth/DataSyncPage';
 import WhoWeAre from '../pages/Settings/Settingscomponents/Contact/WhoWeAre';
 import WhatWeDo from '../pages/Settings/Settingscomponents/Contact/WhatWeDo';
 import BulkUploadScreen from '../pages/Products/BulkUploadScreen';
+import ProductListScreen from '../pages/Products/ProductListScreen';
 import DataSearchLoader from '../components/ui/DataSearchLoader';
+import QuickActionSideButton from '../components/QuickActionSideButton';
 
 const Stack = createNativeStackNavigator();
 
@@ -100,11 +103,14 @@ function MainNavigation({ user, settings, dbProfileComplete }) {
             <Stack.Screen name="WhoWeAre" component={WhoWeAre} />
             <Stack.Screen name="WhatWeDo" component={WhatWeDo} />
             <Stack.Screen name="BulkUpload" component={BulkUploadScreen} />
+            <Stack.Screen name="Products" component={ProductListScreen} />
+            <Stack.Screen name="Settings" component={SettingsPage} />
           </>
         )}
         <Stack.Screen name="TermsOfService" component={TermsOfService} />
         <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicy} />
       </Stack.Navigator>
+      {user && profileComplete && <QuickActionSideButton />}
     </NavigationContainer>
   );
 }
