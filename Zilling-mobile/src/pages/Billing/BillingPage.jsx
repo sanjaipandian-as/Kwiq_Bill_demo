@@ -1347,7 +1347,14 @@ export default function BillingPage({ navigation, route }) {
 
                   updateCurrentBill({ amountReceived: val, status: newStatus });
                 }
-                if (field === 'status') updateCurrentBill({ status: val });
+                if (field === 'status') {
+                  const received = parseFloat(currentBill.amountReceived) || 0;
+                  if (val !== 'Unpaid' && received <= 0) {
+                    showToast("Please enter the amount received first.", 'error', 3000, null, "PAYMENT ACTION REQUIRED");
+                    return;
+                  }
+                  updateCurrentBill({ status: val });
+                }
                 if (field === 'reference') updateCurrentBill({ paymentReference: val });
               }}
               onSavePrint={handleSavePrint}
